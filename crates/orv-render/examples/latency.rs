@@ -95,10 +95,11 @@ fn main() -> Result<()> {
         _ => return Err("Use no argument or --padding for this synthetic benchmark".into()),
     };
     let total = Instant::now();
+    let backends = orv_render::configured_backends()?;
     let volume = source(padding)?;
     let generation_ms = total.elapsed().as_secs_f64() * 1000.;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: orv_render::configured_backends().expect("Native backend selection"),
+        backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))?;

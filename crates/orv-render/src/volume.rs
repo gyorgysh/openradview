@@ -3,6 +3,9 @@
 use orv_core::{ViewState, volume::Volume, volume_view::VolumeView};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+#[cfg(all(test, feature = "gpu-tests"))]
+#[path = "volume/display_tests.rs"]
+mod display_tests;
 mod validity;
 
 pub fn check_limits(limits: &wgpu::Limits) -> Result<(), &'static str> {
@@ -44,6 +47,7 @@ pub struct VolumeRenderer {
     display_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     color_space: wgpu::Buffer,
+    manual_srgb: bool,
     outputs: [Option<Output>; 2],
 }
 impl VolumeRenderer {
@@ -53,6 +57,24 @@ impl VolumeRenderer {
         queue: &wgpu::Queue,
         volume: Arc<Volume>,
         format: wgpu::TextureFormat,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, &'static str> {
+        Self::new_with_display_mode(
+            device,
+            queue,
+            volume,
+            format,
+            device.adapter_info().backend == wgpu::Backend::Gl,
+            cancelled,
+        )
+    }
+
+    fn new_with_display_mode(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        volume: Arc<Volume>,
+        format: wgpu::TextureFormat,
+        manual_srgb: bool,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self, &'static str> {
         check_limits(&device.limits())?;
@@ -254,7 +276,10 @@ impl VolumeRenderer {
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("manual_srgb", u8::from(manual_srgb) as f64)],
+                    ..Default::default()
+                },
             }),
             primitive: Default::default(),
             depth_stencil: None,
@@ -286,6 +311,7 @@ impl VolumeRenderer {
             display_layout,
             sampler,
             color_space,
+            manual_srgb,
             outputs: [None, None],
         })
     }
@@ -397,21 +423,44 @@ impl VolumeRenderer {
             usage: wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+            // wgpu's GL backend cannot reinterpret RGBA8 storage as an sRGB
+            // view. Its display shader decodes texels before interpolation.
+            view_formats: if self.manual_srgb {
+                &[]
+            } else {
+                &[wgpu::TextureFormat::Rgba8UnormSrgb]
+            },
         });
         let view = texture.create_view(&Default::default());
         let display_view = texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            format: Some(if self.manual_srgb {
+                wgpu::TextureFormat::Rgba8Unorm
+            } else {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            }),
             usage: Some(wgpu::TextureUsages::TEXTURE_BINDING),
             ..Default::default()
         });
-        let display = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let display = self.display_bindings(device, &display_view);
+        self.outputs[slot] = Some(Output {
+            size,
+            texture,
+            view,
+            display,
+        });
+    }
+    fn display_bindings(
+        &self,
+        device: &wgpu::Device,
+        display_view: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("volume output display"),
             layout: &self.display_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&display_view),
+                    resource: wgpu::BindingResource::TextureView(display_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -422,13 +471,7 @@ impl VolumeRenderer {
                     resource: self.color_space.as_entire_binding(),
                 },
             ],
-        });
-        self.outputs[slot] = Some(Output {
-            size,
-            texture,
-            view,
-            display,
-        });
+        })
     }
     pub fn output_texture(&self) -> Option<&wgpu::Texture> {
         self.output_texture_for(0)

@@ -71,16 +71,20 @@ impl Annotations {
                     rect.max - egui::vec2(8., 8.),
                 )),
         );
-        overlay.set_clip_rect(rect);
+        overlay.set_clip_rect(ui.clip_rect().intersect(rect));
         egui::Frame::new()
             .fill(theme::INK)
             .inner_margin(4.)
             .corner_radius(3.)
             .show(&mut overlay, |ui| {
-                ui.label(
-                    egui::RichText::new(self.status(tool))
-                        .small()
-                        .color(theme::PAPER),
+                // The image canvas owns clicks and drags beneath this text.
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(self.status(tool))
+                            .small()
+                            .color(theme::PAPER),
+                    )
+                    .selectable(false),
                 );
             });
     }
@@ -300,6 +304,93 @@ fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn measurement_text_does_not_capture_canvas_clicks_or_hide_the_pointer() {
+        let ctx = egui::Context::default();
+        let image = orv_core::study::demo_study().series[0].frames[0].clone();
+        let mut annotations = Annotations::default();
+        let mut time = 0.;
+        let mut canvas_hovered = false;
+        let mut draw = |events| {
+            time += 0.1;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| {
+                    let (_, response) = ui
+                        .allocate_exact_size(egui::vec2(400., 400.), egui::Sense::click_and_drag());
+                    canvas_hovered = response.hovered();
+                    annotations.show(ui, &response, &image, &ViewState::default(), Tool::Distance);
+                    annotations.status_overlay(ui, response.rect, Tool::Distance);
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let mut output = draw(vec![]);
+        for _ in 0..3 {
+            output = draw(vec![]);
+        }
+        let pos = crate::controls::tests::text_rect(
+            &output,
+            "Distance: click two points. Requires valid spacing.",
+        )
+        .center();
+        let button = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let _ = draw(vec![egui::Event::PointerMoved(pos)]);
+        let _ = draw(vec![button(true)]);
+        let _ = draw(vec![button(false)]);
+        let _ = draw(vec![]);
+        assert!(
+            canvas_hovered,
+            "The overlay stole the canvas hover/scroll target"
+        );
+        assert_eq!(
+            annotations.pending.len(),
+            1,
+            "The overlay stole the measurement click"
+        );
+    }
+
+    #[test]
+    fn measurement_overlay_respects_the_parent_clip() {
+        let ctx = egui::Context::default();
+        let mut annotations = Annotations::default();
+        let clip = Rect::from_min_size(Pos2::ZERO, egui::vec2(240., 50.));
+        for _ in 0..3 {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                ui.set_clip_rect(clip);
+                annotations.status_overlay(
+                    ui,
+                    Rect::from_min_size(Pos2::ZERO, egui::vec2(300., 300.)),
+                    Tool::Roi,
+                );
+            });
+            output.textures_delta.clear();
+            let actual_clip = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Text(t) if t.galley.job.text.starts_with("ROI:") => {
+                        Some(shape.clip_rect)
+                    }
+                    _ => None,
+                })
+                .expect("The ROI instruction must still be painted");
+            assert!(
+                clip.contains_rect(actual_clip),
+                "Overlay expands its parent's clip: {actual_clip:?}"
+            );
+        }
+    }
     #[test]
     fn measurement_hints_and_wrapped_results_do_not_shift_the_image_or_next_control() {
         let ctx = egui::Context::default();
