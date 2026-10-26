@@ -175,7 +175,7 @@ def main():
             shutil.copyfile(ROOT / name, folder / name)
         for font_notice in sorted((ROOT / "assets/fonts").glob("*-OFL.txt")):
             shutil.copyfile(font_notice,folder/font_notice.name)
-        (folder / "THIRD-PARTY-NOTICES.txt").write_text(notices)
+        (folder / "THIRD-PARTY-NOTICES.txt").write_text(notices, encoding="utf-8")
         shutil.copyfile(ROOT / "docs/platforms.md", folder / "PLATFORMS.md")
         if "linux" in target:
             shutil.copyfile(ROOT / "assets/brand/app-icon.png", folder / "openradview.png")

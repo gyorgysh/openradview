@@ -20,7 +20,7 @@ def collect_notices(target, mcp, qa=False, updates=False):
                 "--prefix", "none", "--target", target,
                 *(["--features", ",".join(selected)] if selected else [])], capture=True)
     keys = {tuple(line.split()[:2]) for line in tree.splitlines() if len(line.split()) >= 2}
-    index = json.loads((ROOT / "assets/licenses/index.json").read_text())["packages"]
+    index = json.loads((ROOT / "assets/licenses/index.json").read_text(encoding="utf-8"))["packages"]
     text = ["OpenRadView third-party dependency notices\n",
             "Exact normal dependencies selected by Cargo for this target/build feature set.\n",
             "Original license/copyright text follows; these notices are not relicensed under GPL.\n"]
@@ -43,7 +43,7 @@ def collect_notices(target, mcp, qa=False, updates=False):
         for path in local:
             if not path.resolve().is_relative_to(folder.resolve()):
                 raise ValueError("Dependency notice escapes its package: " + key)
-            notices.append((path.name, path.read_text()))
+            notices.append((path.name, path.read_text(encoding="utf-8")))
         entry = index.get(key)
         requires_supplement = any(k.startswith(package["name"] + "@") and v.get("supplemental")
                                   for k, v in index.items())
@@ -57,7 +57,7 @@ def collect_notices(target, mcp, qa=False, updates=False):
                 path = ROOT / "assets/licenses" / notice["file"]
                 if not path.resolve().is_relative_to((ROOT / "assets/licenses").resolve()) or sha256(path) != notice["sha256"]:
                     raise ValueError("Curated dependency notice failed integrity check: " + key)
-                notices.append((notice["source"], path.read_text()))
+                notices.append((notice["source"], path.read_text(encoding="utf-8")))
         if not notices:
             raise ValueError("No copyright/license text available: " + key)
         text.append(f"\n{'=' * 72}\n{key}\nLicense: {package['license']}\n")
@@ -72,5 +72,5 @@ def collect_notices(target, mcp, qa=False, updates=False):
         count += 1
     text.append("\n" + "=" * 72 + "\nBundled public image datasets (separate from the software license)\n")
     for name in ("CREDITS.txt", "CC-BY-4.0.txt", "CC-BY-3.0.txt"):
-        text.append("\n" + (ROOT / "assets/demos" / name).read_text() + "\n")
+        text.append("\n" + (ROOT / "assets/demos" / name).read_text(encoding="utf-8") + "\n")
     return "".join(text), count, metadata
