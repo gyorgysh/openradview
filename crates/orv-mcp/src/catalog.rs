@@ -100,14 +100,10 @@ impl PreparedSeries {
         if let Some(volume) = self.volume.get() {
             return Ok(volume.clone());
         }
-        let frames = self.source.volume_frames(cancelled).map_err(|_| "The selected series exceeds the volume memory budget, changed or is unavailable; use 2D views")?;
-        for (index, frame) in frames.iter().enumerate() {
+        let volume = self.source.volume(cancelled).map_err(|_| "The selected series exceeds the shared volume budget or has unsupported geometry; use 2D views")?;
+        for (index, frame) in volume.source_frames().iter().enumerate() {
             self.verify_frame(index, frame, cancelled)?;
         }
-        let volume = Arc::new(
-            Volume::new(frames)
-                .map_err(|_| "The approved series does not have supported volume geometry")?,
-        );
         if cancelled() {
             return Err("Cancelled");
         }

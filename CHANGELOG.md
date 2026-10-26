@@ -2,6 +2,10 @@
 
 ## 1.1.0 — Unreleased
 
+- Larger volumes use a shared 1.5 GiB decoded-volume allowance, including color
+  buffers and validity masks. Active views reuse prepared sources; GPU limits
+  and allocation failures keep a clear 2D/MPR fallback. CPU MPR avoids repeated
+  coordinate transforms while preserving physical geometry and missing samples.
 - Linux packages declare the missing desktop libraries and a Vulkan driver.
 - Native Linux OpenGL fallback, explicit `WGPU_BACKEND` selection, actionable
   graphics startup errors and local adapter/driver diagnostics. Drivers without

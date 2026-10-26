@@ -12,7 +12,7 @@ mod source;
 #[cfg(test)]
 mod tests;
 
-use crate::{load::LoadError, study::Frame};
+use crate::{load::LoadError, resources::MemoryBudget, study::Frame, volume::Volume};
 use header::Header;
 use source::{ReadState, Source};
 use std::{
@@ -22,7 +22,7 @@ use std::{
 };
 
 pub const CACHE_BYTES: u64 = 128 * 1024 * 1024;
-pub const VOLUME_BYTES: u64 = 512 * 1024 * 1024;
+pub use crate::resources::VOLUME_BYTES;
 
 #[derive(Clone, Copy, Default)]
 pub struct Progress {
@@ -51,6 +51,8 @@ struct Cache {
 pub struct IndexedSeries {
     frames: Vec<IndexedFrame>,
     cache: Arc<Mutex<Cache>>,
+    budget: Arc<MemoryBudget>,
+    volume: Mutex<std::sync::Weak<Volume>>,
 }
 impl std::fmt::Debug for IndexedSeries {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -60,6 +62,45 @@ impl std::fmt::Debug for IndexedSeries {
     }
 }
 impl IndexedSeries {
+    /// Worker-only shared preparation. A weak cache never keeps a closed view alive.
+    pub fn volume(&self, cancelled: impl Fn() -> bool) -> Result<Arc<Volume>, String> {
+        let mut cached = loop {
+            if cancelled() {
+                return Err(LoadError::Cancelled.to_string());
+            }
+            match self.volume.try_lock() {
+                Ok(guard) => break guard,
+                Err(std::sync::TryLockError::Poisoned(_)) => return Err(LoadError::Io.to_string()),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(Duration::from_millis(1))
+                }
+            }
+        };
+        if let Some(volume) = cached.upgrade() {
+            return Ok(volume);
+        }
+        let reservation = self.budget.reserve(self.decoded_bytes()).ok_or(
+            "The active volumes exceed the shared 1.5 GiB budget. Close a volume view or use indexed 2D browsing."
+        )?;
+        let first = self
+            .read_frame(0, &cancelled)
+            .map_err(|error| error.to_string())?;
+        first
+            .geometry
+            .as_ref()
+            .ok_or(crate::spatial::GeometryError::Missing.to_string())?
+            .validate()
+            .map_err(|error| error.to_string())?;
+        let frames = self
+            .materialize(&cancelled)
+            .map_err(|error| error.to_string())?;
+        let mut volume =
+            Volume::new_cancellable(frames, &cancelled).map_err(|error| error.to_string())?;
+        volume.retain_reservation(reservation);
+        let volume = Arc::new(volume);
+        *cached = Arc::downgrade(&volume);
+        Ok(volume)
+    }
     pub fn nifti_view(&self) -> Option<&crate::nifti_view::NiftiView> {
         match &self.frames.first()?.header.format {
             header::Format::Nifti(nifti) => Some(&nifti.view),

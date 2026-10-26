@@ -139,6 +139,7 @@ impl Frame {
 
 #[derive(Clone, Debug)]
 pub struct Series {
+    pub(crate) volume: Arc<std::sync::Mutex<std::sync::Weak<crate::volume::Volume>>>,
     /// Internal grouping key. Never exported/displayed by default.
     pub(crate) key: String,
     pub modality: &'static str,
@@ -149,6 +150,42 @@ pub struct Series {
 }
 
 impl Series {
+    pub fn volume(
+        &self,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Arc<crate::volume::Volume>, String> {
+        if let Some(source) = &self.source {
+            source.volume(cancelled)
+        } else {
+            let mut cache = loop {
+                if cancelled() {
+                    return Err("Cancelled".into());
+                }
+                match self.volume.try_lock() {
+                    Ok(cache) => break cache,
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        return Err("Volume preparation unavailable".into());
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(std::time::Duration::from_millis(1))
+                    }
+                }
+            };
+            if let Some(volume) = cache.upgrade()
+                && volume.source_frames().len() == self.frames.len()
+                && volume
+                    .source_frames()
+                    .iter()
+                    .zip(&self.frames)
+                    .all(|(a, b)| Arc::ptr_eq(a, b))
+            {
+                return Ok(volume);
+            }
+            let volume = crate::volume::Volume::prepare(self.frames.clone(), cancelled)?;
+            *cache = Arc::downgrade(&volume);
+            Ok(volume)
+        }
+    }
     pub fn frame_count(&self) -> usize {
         self.source.as_ref().map_or(self.frames.len(), |s| s.len())
     }
@@ -278,6 +315,7 @@ pub fn demo_study() -> Study {
     }
     Study {
         series: vec![Series {
+            volume: Default::default(),
             key: "synthetic".into(),
             source: None,
             modality: "DEMO",

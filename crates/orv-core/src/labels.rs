@@ -29,6 +29,9 @@ impl Labels {
     pub fn source(&self) -> &Volume {
         &self.source
     }
+    pub fn source_arc(&self) -> Arc<Volume> {
+        self.source.clone()
+    }
     pub fn values(&self) -> &[u8] {
         &self.values
     }

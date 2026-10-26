@@ -245,6 +245,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
         }));
     }
     Ok(Series {
+        volume: Default::default(),
         key,
         source: None,
         modality,
@@ -359,6 +360,7 @@ impl<F: FnMut(usize)> Import<'_, F> {
                 number,
                 frames,
                 source: _,
+                volume: _,
             }) => {
                 self.bytes += frames.iter().map(|f| f.byte_len()).sum::<u64>();
                 if self.bytes > MAX_STUDY_BYTES {
@@ -368,6 +370,7 @@ impl<F: FnMut(usize)> Import<'_, F> {
                     series.frames.extend(frames);
                 } else {
                     self.study.series.push(Series {
+                        volume: Default::default(),
                         key,
                         source: None,
                         modality,

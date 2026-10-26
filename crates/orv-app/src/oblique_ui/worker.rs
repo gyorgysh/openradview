@@ -51,8 +51,7 @@ impl Worker {
             .name("orv-oblique".into())
             .spawn(move || {
                 let initial = (|| {
-                    let volume =
-                        Arc::new(frames.volume(|| worker.cancelled.load(Ordering::Relaxed))?);
+                    let volume = frames.volume(|| worker.cancelled.load(Ordering::Relaxed))?;
                     let plane = ObliquePlane::from_angles(volume.center(), [0.; 3])
                         .map_err(|e| e.to_string())?;
                     Ok::<_, String>((volume, plane))

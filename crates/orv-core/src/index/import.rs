@@ -22,6 +22,7 @@ struct Builder {
     groups: HashMap<String, usize>,
     series: Vec<IndexedSeries>,
     cache: Arc<Mutex<Cache>>,
+    budget: Arc<MemoryBudget>,
     metadata: u64,
     images: usize,
     next_source: u64,
@@ -72,6 +73,7 @@ impl Builder {
             let index = self.series.len();
             self.groups.insert(header.key.clone(), index);
             self.study.series.push(Series {
+                volume: Default::default(),
                 key: header.key.clone(),
                 modality: header.modality,
                 number: header.series_number,
@@ -81,6 +83,8 @@ impl Builder {
             self.series.push(IndexedSeries {
                 frames: Vec::new(),
                 cache: self.cache.clone(),
+                budget: self.budget.clone(),
+                volume: Mutex::new(std::sync::Weak::new()),
             });
             index
         };
@@ -110,6 +114,7 @@ pub fn index_paths(
         groups: HashMap::new(),
         series: Vec::new(),
         cache: Arc::new(Mutex::new(Cache::default())),
+        budget: MemoryBudget::volumes(),
         metadata: 0,
         images: 0,
         next_source: 0,

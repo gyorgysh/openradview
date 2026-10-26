@@ -45,7 +45,7 @@ Images stay on your device during local viewing. There is no app account, teleme
 | Add local labels | Brush, erase, scalar threshold fill, undo, matching NIfTI import and explicit NIfTI-2 export. No organ recognition, bundled AI model or DICOM SEG/RTSTRUCT support. |
 | Save a picture | Image-only PNG and reproducible view settings from a completed pane. Saves are explicit and leave original files unchanged. Check for text burned into pixels before sharing. |
 
-Large studies are indexed before pixels are decoded. The shared decoded cache is limited to 128 MiB; MPR, oblique and 3D have a separate 512 MiB retained-volume budget, including color buffers and validity masks. Larger series remain available in 2D. Tests cover sparse files and ZIP64 archives above 4 GiB. Compressed reverse or distant navigation may take longer. [Supported formats and limits](docs/supported-formats.md)
+Large studies are indexed before pixels are decoded. The decoded cache is limited to 128 MiB; active MPR, oblique and 3D views share a separate 1.5 GiB retained-volume allowance, including color buffers and validity masks. Prepared sources are reused while a view needs them. GPU limits and available resources may require 2D/MPR; larger series remain available in indexed 2D. Tests cover sparse files and ZIP64 archives above 4 GiB. Compressed reverse or distant navigation may take longer. [Supported formats and limits](docs/supported-formats.md)
 
 ## Connect your own agent
 

@@ -34,7 +34,7 @@ fn gl_compatible_display_matches_hardware_srgb_interpolation_and_framebuffer_enc
                 || false,
             )
             .unwrap();
-            renderer.ensure_output(&device, [2, 2], 0);
+            renderer.ensure_output(&device, [2, 2], 0).unwrap();
             let source = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("RGB interpolation fixture"),
                 size: wgpu::Extent3d {

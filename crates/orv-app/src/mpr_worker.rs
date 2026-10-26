@@ -55,7 +55,7 @@ impl MprWorker {
             .name("orv-mpr".into())
             .spawn(move || {
                 let volume = match frames.volume(|| worker.cancelled.load(Ordering::Relaxed)) {
-                    Ok(volume) => Arc::new(volume),
+                    Ok(volume) => volume,
                     Err(error) => {
                         lock(&worker.work).result = Some(Err(error.to_string()));
                         ctx.request_repaint();

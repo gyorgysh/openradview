@@ -36,7 +36,7 @@ impl Upload {
             .spawn(move || {
                 let result = (|| {
                     orv_render::volume::check_limits(&device.limits()).map_err(str::to_owned)?;
-                    let volume = Arc::new(frames.volume(|| worker.load(Ordering::Acquire))?);
+                    let volume = frames.volume(|| worker.load(Ordering::Acquire))?;
                     let source_range = source_range(&volume, || worker.load(Ordering::Acquire))?;
                     let renderer =
                         VolumeRenderer::new(&device, &queue, volume.clone(), format, || {

@@ -31,8 +31,13 @@ or in-plane shear gets no anatomical labels/physical measurements; the source
 pixel grid remains viewable in 2D. MPR/3D require a valid regular stack; scalar and color samples or different color contexts cannot be mixed.
 Time/component indices and complex presentation survive source hashes and snapshot metadata. Nonspatial axes are never mixed into a spatial stack. Paired files require a unique same-directory companion; no header-supplied paths are followed. Both files must remain unchanged. The NIfTI source grid is not relabelled as an acquisition plane. Non-CT volumes start with a neutral source intensity range calculated on the worker; CT retains its Bone starting preset. Source range and Reset are available in 3D controls. Transfer functions retain their explicit numeric limits.
 
-The decoded cache is shared and bounded at128MiB. MPR/oblique/3D have a
-separate512MiB decoded-volume limit plus GPU limits, including retained RGB code buffers. Maximum32million samples per frame
+The decoded cache is shared and bounded at 128 MiB. Active MPR/oblique/3D sources
+share a separate 1536 MiB (1.5 GiB) decoded-volume allowance, including retained
+RGB code buffers and validity masks. GPU source/output reservations have their own
+shared ceiling of 1536 MiB, with lower admission on constrained devices and actual
+texture/compute limits. Preparation scratch space, cache, labels and driver memory
+are separate; these allowances are not a total process-memory guarantee.
+Maximum32million samples per frame
 counts all three color channels; maximum dimension8192, compressed frame payload64MiB,
 metadata8MiB/object and128MiB/study,200,000 entries and one million images apply.
 Compressed-input expansion is cumulatively capped at64GiB (nested layers also count).
@@ -79,7 +84,7 @@ f64 sform in RAS millimetres, without source pixels/names/identifiers. Existing
 files are never overwritten. Maps remain in memory until export; closing, study
 replacement and quitting protect unsaved work. Only one source series has a label
 map at a time; changing series retains it until explicitly removed. The limits
-are32Mi voxels and4Mi pixels/slice, alongside the512MiB source-volume budget.
+are32Mi voxels and4Mi pixels/slice, alongside the shared 1.5 GiB source-volume allowance.
 Workers clone a private edit, publish only successful results and retain two
 checkpoints; cancellation leaves the displayed map unchanged. Labels show only
 in source2D, and are excluded from renderer/MCP snapshots. No new agent tool or
@@ -180,7 +185,8 @@ background or anatomy is inferred. Invalid padding metadata is refused rather
 than guessed; float-pixel padding remains outside the supported input formats.
 All-padding pictures have no valid statistics. Explicit source window settings
 are retained. Scalar masks use one byte per source pixel only when needed and
-count toward the existing decoded cache/CPU volume budget. The combined scalar
-volume/mask GPU budget is also 512 MiB; over-budget 3D remains available in 2D/MPR
-within their existing limits. Interpolation does not fill through absent samples.
+count toward the decoded cache/CPU volume allowance. GPU admission also counts
+the scalar/mask textures and reserves both output buffers. Over-budget 3D remains
+available in 2D/MPR within their limits; allocation errors return a fallback
+message. Interpolation does not fill through absent samples.
 See [validation and representation](validation.md).

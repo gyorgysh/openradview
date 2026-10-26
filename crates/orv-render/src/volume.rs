@@ -3,6 +3,7 @@
 use orv_core::{ViewState, volume::Volume, volume_view::VolumeView};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+mod allocation;
 #[cfg(all(test, feature = "gpu-tests"))]
 #[path = "volume/display_tests.rs"]
 mod display_tests;
@@ -49,6 +50,7 @@ pub struct VolumeRenderer {
     color_space: wgpu::Buffer,
     manual_srgb: bool,
     outputs: [Option<Output>; 2],
+    _reservation: orv_core::resources::Reservation,
 }
 impl VolumeRenderer {
     /// Upload one sorted slice at a time. No second full CPU volume allocation.
@@ -93,24 +95,29 @@ impl VolumeRenderer {
         if cancelled() {
             return Err("Cancelled");
         }
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("affine scalar volume"),
-            size: wgpu::Extent3d {
-                width: dimensions[0] as u32,
-                height: dimensions[1] as u32,
-                depth_or_array_layers: dimensions[2] as u32,
+        let reservation =
+            allocation::reserve(dimensions, volume.has_missing_scalar(), &device.limits())?;
+        let texture = allocation::texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("affine scalar volume"),
+                size: wgpu::Extent3d {
+                    width: dimensions[0] as u32,
+                    height: dimensions[1] as u32,
+                    depth_or_array_layers: dimensions[2] as u32,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D3,
+                format: if volume.is_color() {
+                    wgpu::TextureFormat::Rgba8UnormSrgb
+                } else {
+                    wgpu::TextureFormat::R32Float
+                },
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D3,
-            format: if volume.is_color() {
-                wgpu::TextureFormat::Rgba8UnormSrgb
-            } else {
-                wgpu::TextureFormat::R32Float
-            },
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        )?;
         let mut pending_bytes = 0usize;
         for (z, frame) in volume.frames().iter().enumerate() {
             if cancelled() {
@@ -302,6 +309,7 @@ impl VolumeRenderer {
             return Err("Cancelled");
         }
         Ok(Self {
+            _reservation: reservation,
             volume,
             source,
             validity,
@@ -363,7 +371,7 @@ impl VolumeRenderer {
             return Err("Unsupported volume output slot");
         }
         let params = crate::volume_uniform::parameters(&self.volume, display, state, size, region)?;
-        self.ensure_output(device, size, slot);
+        self.ensure_output(device, size, slot)?;
         let output = self.outputs[slot]
             .as_ref()
             .ok_or("Volume output unavailable")?;
@@ -405,32 +413,40 @@ impl VolumeRenderer {
         pass.dispatch_workgroups(region[1][0].div_ceil(8), region[1][1].div_ceil(8), 1);
         Ok(())
     }
-    fn ensure_output(&mut self, device: &wgpu::Device, size: [u32; 2], slot: usize) {
+    fn ensure_output(
+        &mut self,
+        device: &wgpu::Device,
+        size: [u32; 2],
+        slot: usize,
+    ) -> Result<(), &'static str> {
         if self.outputs[slot].as_ref().is_some_and(|o| o.size == size) {
-            return;
+            return Ok(());
         }
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("volume GPU output"),
-            size: wgpu::Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
+        let texture = allocation::texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("volume GPU output"),
+                size: wgpu::Extent3d {
+                    width: size[0],
+                    height: size[1],
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                // wgpu's GL backend cannot reinterpret RGBA8 storage as an sRGB
+                // view. Its display shader decodes texels before interpolation.
+                view_formats: if self.manual_srgb {
+                    &[]
+                } else {
+                    &[wgpu::TextureFormat::Rgba8UnormSrgb]
+                },
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
-            // wgpu's GL backend cannot reinterpret RGBA8 storage as an sRGB
-            // view. Its display shader decodes texels before interpolation.
-            view_formats: if self.manual_srgb {
-                &[]
-            } else {
-                &[wgpu::TextureFormat::Rgba8UnormSrgb]
-            },
-        });
+        )?;
         let view = texture.create_view(&Default::default());
         let display_view = texture.create_view(&wgpu::TextureViewDescriptor {
             format: Some(if self.manual_srgb {
@@ -448,6 +464,7 @@ impl VolumeRenderer {
             view,
             display,
         });
+        Ok(())
     }
     fn display_bindings(
         &self,

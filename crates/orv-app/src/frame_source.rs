@@ -36,19 +36,13 @@ impl FrameSource {
                 }),
         }
     }
-    pub fn volume(self, cancelled: impl Fn() -> bool) -> Result<Volume, String> {
+    pub fn volume(self, cancelled: impl Fn() -> bool) -> Result<Arc<Volume>, String> {
         if cancelled() {
             return Err("Cancelled".into());
         }
-        let frames = match self {
-            Self::Resident(frames) => frames,
-            Self::Indexed(series) => series.volume_frames(&cancelled).map_err(|e| if e==orv_core::load::LoadError::Limit {
-                "This series exceeds the 512 MiB decoded volume budget. Its images remain available in 2D.".into()
-            } else { e.to_string() })?,
-        };
-        if cancelled() {
-            return Err("Cancelled".into());
+        match self {
+            Self::Resident(frames) => Volume::prepare(frames, cancelled),
+            Self::Indexed(series) => series.volume(cancelled),
         }
-        Volume::new(frames).map_err(|e| e.to_string())
     }
 }

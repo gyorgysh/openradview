@@ -15,10 +15,12 @@ impl Volume {
             .map(|(linear, _)| linear.map(|v| v as f32))
     }
     fn color_sample(&self, world: V3) -> Option<([f64; 3], [f64; 3])> {
-        if !self.is_color() || !finite(world) {
+        self.color_sample_voxel(self.world_to_voxel(world))
+    }
+    fn color_sample_voxel(&self, v: V3) -> Option<([f64; 3], [f64; 3])> {
+        if !self.is_color() {
             return None;
         }
-        let v = self.world_to_voxel(world);
         if !finite(v)
             || v.iter()
                 .enumerate()
@@ -68,15 +70,16 @@ impl Volume {
             .color_info()
             .map(|_| Vec::with_capacity(dimensions[0] as usize * dimensions[1] as usize * 3));
         let (u, v) = geometry.directions();
-        let du = mul(u, geometry.spacing[1]);
-        let dv = mul(v, geometry.spacing[0]);
+        let origin = self.world_to_voxel(geometry.position);
+        let du = self.world_vector_to_voxel(mul(u, geometry.spacing[1]));
+        let dv = self.world_vector_to_voxel(mul(v, geometry.spacing[0]));
         for y in 0..dimensions[1] {
             if cancel() {
                 return Err(GeometryError::Cancelled);
             }
-            let row = add(geometry.position, mul(dv, y as f64));
+            let row = add(origin, mul(dv, y as f64));
             for x in 0..dimensions[0] {
-                if let Some((linear, rgb)) = self.color_sample(add(row, mul(du, x as f64))) {
+                if let Some((linear, rgb)) = self.color_sample_voxel(add(row, mul(du, x as f64))) {
                     rgba.extend(linear.map(encoded_code));
                     rgba.push(255);
                     if let Some(codes) = &mut codes {

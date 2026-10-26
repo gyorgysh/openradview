@@ -11,6 +11,7 @@ pub mod load;
 pub mod measurements;
 pub mod nifti_view;
 pub mod oblique;
+pub mod resources;
 pub mod scene;
 pub mod spatial;
 pub mod study;

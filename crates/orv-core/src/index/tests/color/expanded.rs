@@ -495,7 +495,7 @@ fn indexed_color_volume_budget_counts_retained_code_buffers_before_decoding() {
             PrimitiveValue::from(2048u16),
         ));
     }
-    object.put_str(Tag(0x0028, 0x0008), VR::IS, "13");
+    object.put_str(Tag(0x0028, 0x0008), VR::IS, "39");
     object.put(DataElement::new(
         Tag(0x7fe0, 0x0010),
         VR::OW,
@@ -504,7 +504,7 @@ fn indexed_color_volume_budget_counts_retained_code_buffers_before_decoding() {
     let mut bytes = Vec::new();
     object.write_all(&mut bytes).unwrap();
     let n = bytes.len();
-    let payload = 13u32 * 2048 * 2048 * 6;
+    let payload = 39u32 * 2048 * 2048 * 6;
     bytes[n - 4..].copy_from_slice(&payload.to_le_bytes());
     let mut file = super::super::large::create_sparse_file(&path);
     file.write_all(&bytes).unwrap();
@@ -514,7 +514,7 @@ fn indexed_color_volume_budget_counts_retained_code_buffers_before_decoding() {
     let series = &study.series[0];
     assert_eq!(
         series.source.as_ref().unwrap().decoded_bytes(),
-        13 * 2048 * 2048 * 10
+        39 * 2048 * 2048 * 10
     );
     assert_eq!(
         series.volume_frames(|| false).unwrap_err(),

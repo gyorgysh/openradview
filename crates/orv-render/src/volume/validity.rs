@@ -10,20 +10,23 @@ pub(super) fn upload(
 ) -> Result<wgpu::TextureView, &'static str> {
     let needed = volume.has_missing_scalar();
     let [width, height, depth] = if needed { volume.dimensions() } else { [1; 3] };
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("scalar volume validity"),
-        size: wgpu::Extent3d {
-            width: width as u32,
-            height: height as u32,
-            depth_or_array_layers: depth as u32,
+    let texture = super::allocation::texture(
+        device,
+        &wgpu::TextureDescriptor {
+            label: Some("scalar volume validity"),
+            size: wgpu::Extent3d {
+                width: width as u32,
+                height: height as u32,
+                depth_or_array_layers: depth as u32,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::R8Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D3,
-        format: wgpu::TextureFormat::R8Uint,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
+    )?;
     if needed {
         // At most one source plane of scratch space; no flattened CPU volume.
         let valid = if volume.frames().iter().any(|f| f.validity.is_none()) {

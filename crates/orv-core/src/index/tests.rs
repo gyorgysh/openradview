@@ -16,6 +16,7 @@ mod large;
 mod nifti;
 mod nifti_expanded;
 mod padding;
+mod resources;
 use crate::test_support as support;
 
 struct Temp(PathBuf);

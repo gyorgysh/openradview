@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use eframe::egui;
-use orv_core::{labels::Labels, study::Series, volume::Volume};
+use orv_core::{labels::Labels, study::Series};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -66,8 +66,7 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
     let cancelled = || flag.load(Ordering::Relaxed);
     let result = match op {
         Operation::Start(series) => {
-            let frames = series.volume_frames(cancelled).map_err(|e| e.to_string())?;
-            let volume = Arc::new(Volume::new(frames).map_err(|e| e.to_string())?);
+            let volume = series.volume(cancelled)?;
             if volume.dimensions()[0] * volume.dimensions()[1] > 4 * 1024 * 1024 {
                 return Err("Label editing is limited to four million pixels per slice".into());
             }
@@ -88,13 +87,8 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
                     "Choose one scalar NIfTI label volume without time or component axes".into(),
                 );
             }
-            let frames = study.series[0]
-                .volume_frames(cancelled)
-                .map_err(|e| e.to_string())?;
-            let volume = Volume::new(frames).map_err(|e| e.to_string())?;
-            let source = Arc::new(
-                Volume::new(current.source().frames().to_vec()).map_err(|e| e.to_string())?,
-            );
+            let volume = study.series[0].volume(cancelled)?;
+            let source = current.source_arc();
             Output::Change(Arc::new(Labels::import(source, &volume, cancelled)?))
         }
         Operation::Export(current) => {

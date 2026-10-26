@@ -16,6 +16,7 @@ mod tests;
 #[derive(Debug)]
 pub struct Volume {
     frames: Vec<Arc<Frame>>,
+    source_frames: Vec<Arc<Frame>>,
     dimensions: [usize; 3],
     origin: V3,
     basis: [V3; 3],
@@ -23,10 +24,37 @@ pub struct Volume {
     bounds: [V3; 2],
     step: f64,
     has_missing_scalar: bool,
+    reservation: Option<crate::resources::Reservation>,
 }
 impl Volume {
+    /// Worker-only admission for resident sources. Indexed inputs reserve before decoding.
+    pub fn prepare(
+        frames: Vec<Arc<Frame>>,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Arc<Self>, String> {
+        let bytes = frames
+            .iter()
+            .try_fold(0u64, |sum, frame| sum.checked_add(frame.byte_len()))
+            .ok_or("Volume size overflow")?;
+        let reservation = crate::resources::MemoryBudget::volumes()
+            .reserve(bytes)
+            .ok_or("Active volumes exceed the shared 1.5 GiB memory budget; use 2D browsing")?;
+        let mut volume =
+            Self::new_cancellable(frames, cancelled).map_err(|error| error.to_string())?;
+        volume.retain_reservation(reservation);
+        Ok(Arc::new(volume))
+    }
     /// Validate before anatomical labels or physical resampling. Source pixels are shared, not copied.
-    pub fn new(mut frames: Vec<Arc<Frame>>) -> Result<Self, GeometryError> {
+    pub fn new(frames: Vec<Arc<Frame>>) -> Result<Self, GeometryError> {
+        Self::new_cancellable(frames, || false)
+    }
+    pub fn new_cancellable(
+        mut frames: Vec<Arc<Frame>>,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, GeometryError> {
+        if cancelled() {
+            return Err(GeometryError::Cancelled);
+        }
         if frames.len() < 2 {
             return Err(GeometryError::TooFew);
         }
@@ -53,11 +81,14 @@ impl Volume {
             .iter()
             .try_fold(1usize, |a, b| a.checked_mul(*b))
             .ok_or(GeometryError::Limit)?
-            > 128 * 1024 * 1024
+            > (crate::resources::VOLUME_BYTES / 4) as usize
         {
             return Err(GeometryError::Limit);
         }
         for frame in &frames {
+            if cancelled() {
+                return Err(GeometryError::Cancelled);
+            }
             if frame.width != first.width
                 || frame.height != first.height
                 || !frame.valid_dimensions()
@@ -68,9 +99,16 @@ impl Volume {
                 || frame.color.as_ref().map(|d| &d.info) != first.color.as_ref().map(|d| &d.info)
                 || frame.nifti != first.nifti
                 || frame.monochrome1 != first.monochrome1
-                || frame.pixels.iter().any(|v| !v.is_finite())
             {
                 return Err(GeometryError::Pixels);
+            }
+            for block in frame.pixels.chunks(16384) {
+                if cancelled() {
+                    return Err(GeometryError::Cancelled);
+                }
+                if block.iter().any(|value| !value.is_finite()) {
+                    return Err(GeometryError::Pixels);
+                }
             }
             let g = frame.geometry.as_ref().ok_or(GeometryError::Missing)?;
             g.validate()?;
@@ -95,6 +133,7 @@ impl Volume {
             }
         }
         let normal = reference.normal();
+        let source_frames = frames.clone();
         frames.sort_by(|a, b| {
             let position = |f: &Frame| {
                 f.geometry
@@ -149,6 +188,7 @@ impl Volume {
         let has_missing_scalar = frames.iter().any(|f| f.validity.is_some());
         let mut volume = Self {
             frames,
+            source_frames,
             dimensions,
             origin,
             basis,
@@ -156,6 +196,7 @@ impl Volume {
             bounds: [[f64::INFINITY; 3], [f64::NEG_INFINITY; 3]],
             step,
             has_missing_scalar,
+            reservation: None,
         };
         for x in [0.0, (dimensions[0] - 1) as f64] {
             for y in [0.0, (dimensions[1] - 1) as f64] {
@@ -173,6 +214,9 @@ impl Volume {
         }
         Ok(volume)
     }
+    pub(crate) fn retain_reservation(&mut self, reservation: crate::resources::Reservation) {
+        self.reservation = Some(reservation);
+    }
     pub fn dimensions(&self) -> [usize; 3] {
         self.dimensions
     }
@@ -182,6 +226,10 @@ impl Volume {
     /// Sorted affine slices, shared for cancellable GPU upload without flattening.
     pub fn frames(&self) -> &[Arc<Frame>] {
         &self.frames
+    }
+    /// Original source order for per-frame approval checks, before spatial sorting.
+    pub fn source_frames(&self) -> &[Arc<Frame>] {
+        &self.source_frames
     }
     pub fn world_vector_to_voxel(&self, vector: V3) -> V3 {
         self.inverse.map(|row| dot(row, vector))
@@ -230,13 +278,12 @@ impl Volume {
         Some(self.voxel_to_world(v))
     }
     pub fn sample(&self, world: V3) -> Option<f32> {
+        self.sample_voxel(self.world_to_voxel(world))
+    }
+    pub(crate) fn sample_voxel(&self, v: V3) -> Option<f32> {
         if self.is_color() {
             return None;
         }
-        if !finite(world) {
-            return None;
-        }
-        let v = self.world_to_voxel(world);
         if !finite(v) {
             return None;
         }
@@ -250,6 +297,19 @@ impl Volume {
         let lo = v.map(|p| p.floor() as usize);
         let hi: [usize; 3] = std::array::from_fn(|i| (lo[i] + 1).min(self.dimensions[i] - 1));
         let t: V3 = std::array::from_fn(|i| v[i] - lo[i] as f64);
+        if !self.has_missing_scalar {
+            let width = self.dimensions[0];
+            let row0 = lo[1] * width;
+            let row1 = hi[1] * width;
+            let plane = |z: usize| {
+                let data = &self.frames[z].pixels;
+                let mix = |row: usize| {
+                    data[row + lo[0]] as f64 * (1. - t[0]) + data[row + hi[0]] as f64 * t[0]
+                };
+                mix(row0) * (1. - t[1]) + mix(row1) * t[1]
+            };
+            return Some((plane(lo[2]) * (1. - t[2]) + plane(hi[2]) * t[2]) as f32);
+        }
         let mut value = 0.0;
         for (z, wz) in [(lo[2], 1.0 - t[2]), (hi[2], t[2])] {
             for (y, wy) in [(lo[1], 1.0 - t[1]), (hi[1], t[1])] {
@@ -340,15 +400,19 @@ impl Volume {
             return self.resample_color(geometry, dimensions, cancel);
         }
         let mut pixels = Vec::with_capacity(dimensions[0] as usize * dimensions[1] as usize);
-        let du = mul(u, spacing[0]);
-        let dv = mul(v, spacing[1]);
+        let origin = self.world_to_voxel(position);
+        let du = self.world_vector_to_voxel(mul(u, spacing[0]));
+        let dv = self.world_vector_to_voxel(mul(v, spacing[1]));
         for y in 0..dimensions[1] {
             if cancel() {
                 return Err(GeometryError::Cancelled);
             }
-            let row = add(position, mul(dv, y as f64));
+            let row = add(origin, mul(dv, y as f64));
             for x in 0..dimensions[0] {
-                pixels.push(self.sample(add(row, mul(du, x as f64))).unwrap_or(f32::NAN));
+                pixels.push(
+                    self.sample_voxel(add(row, mul(du, x as f64)))
+                        .unwrap_or(f32::NAN),
+                );
             }
         }
         Ok(Arc::new(Frame {
