@@ -7,12 +7,14 @@ use orv_core::WindowLevel;
 #[test]
 fn three_gpu_viewports_keep_independent_images_and_display_settings() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: orv_render::native_backends(),
+        backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("Real GPU required");
-    let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))
+            .unwrap();
     let mut resources = egui_wgpu::CallbackResources::default();
     let mut encoder = device.create_command_encoder(&Default::default());
     let screen = egui_wgpu::ScreenDescriptor {

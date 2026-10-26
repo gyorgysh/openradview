@@ -57,7 +57,7 @@ Approved agents can request snapshots, adjust supported views and query geometry
 
 ## Updates and platforms
 
-Automatic GitHub update checks are enabled by default. You can turn them off on first launch or in **Privacy → Updates**, where a manual check is always available. Checks contain no study data; GitHub receives ordinary connection information, app version and platform. Download, installation and restart require your action. The updater verifies signed manifests, target, size and hashes and supports rollback. Package-manager installations keep their own update path.
+Automatic GitHub update checks are enabled by default in standalone installations. Turn them off on first launch or in **Privacy → Updates**, where you can also check manually. Debian packages disable automatic checks and in-app installation; download a newer `.deb` and install it with your package manager. Checks contain no study data; GitHub receives ordinary connection information, app version and platform. Download, installation and restart require your action. The updater verifies signed manifests, target, size and hashes and supports rollback.
 
 Apple Silicon with Metal is the tested platform. Windows and Linux builds are previews; native GPU, dialog, installation and update acceptance remain pending. [Platform status](docs/platforms.md) · [Validation scope](docs/validation.md)
 

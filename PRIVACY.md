@@ -23,11 +23,15 @@ remain until installation and the new app's startup complete.
 
 ## GitHub updates
 
-Automatic GitHub update checks are enabled by default. Clear the checkbox on
-first entry or turn them off later under **Privacy → Updates**. Manual checks
+In standalone installations, automatic GitHub update checks are enabled by
+default. Clear the checkbox on first entry or turn them off later under **Privacy → Updates**. Manual checks
 are available there too. Enabled background checks run about once a day; a manual
 check contacts GitHub when requested. Download, installation and restart are
 separate user actions, not automatic consequences of a check.
+
+Debian package installations disable automatic checks and in-app replacement.
+You can check manually, then download and install a newer package yourself.
+The app does not configure an apt repository.
 
 Update requests contain your IP address, app version in the user agent,
 platform/architecture in the requested asset name and ordinary HTTPS/network

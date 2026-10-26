@@ -128,14 +128,16 @@ def debian(payload, output, version, work):
                          if s.startswith('shlibs:Depends=')), '')
     if not dependencies or '\n' in dependencies:
         raise ValueError('Could not determine Debian runtime dependencies')
-    dependencies += ', libxkbcommon0, libwayland-client0, libvulkan1, libegl1, libx11-6, libxcursor1, libxi6, libxrandr2'
+    dependencies += (', libxkbcommon0, libwayland-client0, libvulkan1, libegl1, libx11-6, '
+                     'libxcursor1, libxi6, libxrandr2, libx11-xcb1, libxkbcommon-x11-0, '
+                     'libxcb1, libdbus-1-3, mesa-vulkan-drivers | vulkan-icd')
     control = package / 'DEBIAN'
     control.mkdir()
     size = sum(p.stat().st_size for p in package.rglob('*') if p.is_file())
     (control / 'control').write_text(
         f'Package: openradview\nVersion: {version}\nArchitecture: amd64\nSection: science\nPriority: optional\n'
         f'Maintainer: gyorgysh <gyorgy@pueev.com>\nInstalled-Size: {(size + 1023) // 1024}\n'
-        f'Depends: {dependencies}\nRecommends: xdg-desktop-portal\n'
+        f'Depends: {dependencies}\nRecommends: xdg-desktop-portal, libegl-mesa0, libgl1-mesa-dri\n'
         'Homepage: https://openradview.com\n'
         'Description: Local viewer for your own medical images\n'
         ' Open DICOM and NIfTI images for personal education and research.\n'

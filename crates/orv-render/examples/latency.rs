@@ -98,12 +98,13 @@ fn main() -> Result<()> {
     let volume = source(padding)?;
     let generation_ms = total.elapsed().as_secs_f64() * 1000.;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: orv_render::native_backends(),
+        backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))?;
     let info = adapter.get_info();
-    let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))?;
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))?;
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let output = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("synthetic benchmark target"),

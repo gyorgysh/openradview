@@ -291,7 +291,7 @@ impl MprSession {
         ui.label(format!(
             "L {:.2}   P {:.2}   S {:.2}",
             snapshot.point[0], snapshot.point[1], snapshot.point[2]
-        ));
+        )).on_hover_text("Coordinates in the source LPS reference, in millimetres: left, posterior, superior. Negative values are valid and depend on the source origin; these are not distances from a body landmark.");
         ui.add_space(8.);
         ui.label("Crosshair: choose the same point in all views. Images [S] or ↑↓: move a plane. Pan [P] or Space drag: move the image.");
         controls::navigation_hint(ui, self.tool);

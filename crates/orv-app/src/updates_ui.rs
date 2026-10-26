@@ -10,15 +10,20 @@ impl OpenRadView {
         egui::CollapsingHeader::new("Updates")
             .default_open(matches!(status, Status::Available | Status::ReadyToRestart))
             .show(ui, |ui| {
-                let mut enabled = self.updates.enabled();
-                let preference = ui.add_enabled(
-                    self.updates.available(),
-                    egui::Checkbox::new(&mut enabled, "Automatically check for updates"),
-                );
-                if preference.changed()
-                    && let Err(message) = self.updates.set_enabled(enabled)
-                {
-                    ui.label(message);
+                let package_managed = self.updates.package_managed();
+                if package_managed {
+                    ui.label("Automatic GitHub checks are off for this installation. Download a newer package from GitHub Releases and install it with your package manager. No apt repository is configured by this app.");
+                } else {
+                    let mut enabled = self.updates.enabled();
+                    let preference = ui.add_enabled(
+                        self.updates.available(),
+                        egui::Checkbox::new(&mut enabled, "Automatically check for updates"),
+                    );
+                    if preference.changed()
+                        && let Err(message) = self.updates.set_enabled(enabled)
+                    {
+                        ui.label(message);
+                    }
                 }
                 let can_check = self.updates.available()
                     && !status.busy()
@@ -37,22 +42,26 @@ impl OpenRadView {
                 }
                 if let Some(info) = self.updates.update_info() {
                     if status == Status::Available {
-                        ui.label(format!(
-                            "OpenRadView {} · {:.1} MB",
-                            info.version,
-                            info.bytes as f64 / 1_000_000.
-                        ));
-                        let can_install = !self.workspace.labels_need_saving()
-                            && self.updates.can_install();
-                        if ui
-                            .add_enabled(
-                                can_install,
-                                egui::Button::new("Download and install update"),
-                            )
-                            .clicked()
-                            && let Err(message) = self.updates.install()
-                        {
-                            ui.label(message);
+                        if package_managed {
+                            ui.label(format!("OpenRadView {}", info.version));
+                        } else {
+                            ui.label(format!(
+                                "OpenRadView {} · {:.1} MB",
+                                info.version,
+                                info.bytes as f64 / 1_000_000.
+                            ));
+                            let can_install = !self.workspace.labels_need_saving()
+                                && self.updates.can_install();
+                            if ui
+                                .add_enabled(
+                                    can_install,
+                                    egui::Button::new("Download and install update"),
+                                )
+                                .clicked()
+                                && let Err(message) = self.updates.install()
+                            {
+                                ui.label(message);
+                            }
                         }
                     } else if status == Status::Downloading {
                         let progress = self.updates.downloaded_bytes() as f64 / info.bytes as f64;
@@ -72,8 +81,10 @@ impl OpenRadView {
                 if self.workspace.labels_need_saving() {
                     ui.weak("Export or discard local labels before installing or restarting.");
                 }
-                ui.weak("When enabled, checks run about once a day. Download, installation and restart require your action. No telemetry or automatic installation.");
-                ui.hyperlink_to("Downloads on GitHub", "https://github.com/gyorgysh/openradview/releases/latest");
+                if !package_managed {
+                    ui.weak("When enabled, checks run about once a day. Download, installation and restart require your action. No telemetry or automatic installation.");
+                }
+                ui.hyperlink_to(if package_managed { "Packages on GitHub" } else { "Downloads on GitHub" }, "https://github.com/gyorgysh/openradview/releases/latest");
             });
         ui.separator();
     }

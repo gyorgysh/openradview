@@ -88,7 +88,9 @@ impl OpenRadView {
                     ui.checkbox(&mut self.understood, "I have read the research-use notice.");
                     ui.checkbox(&mut self.reduce_motion, "Reduce motion");
                     #[cfg(feature = "updates")]
-                    if self.updates.available() && !self.updates.preference_chosen() {
+                    if self.updates.package_managed() {
+                        ui.weak("Updates are managed outside this app. Check GitHub manually in Privacy → Updates.");
+                    } else if self.updates.available() && !self.updates.preference_chosen() {
                         ui.checkbox(
                             &mut self.automatic_updates,
                             "Automatically check GitHub for updates",
@@ -104,6 +106,7 @@ impl OpenRadView {
                     {
                         #[cfg(feature = "updates")]
                         if self.updates.available()
+                            && !self.updates.package_managed()
                             && !self.updates.preference_chosen()
                             && let Err(message) = self.updates.set_enabled(self.automatic_updates)
                         {
@@ -282,7 +285,7 @@ impl eframe::App for OpenRadView {
         }
         let mut privacy_open = self.privacy_open;
         crate::dialogs::window("Privacy", &ctx).open(&mut privacy_open)
-            .collapsible(false).resizable(false).default_width(470.0).show(&ctx, |ui| {
+            .collapsible(false).resizable(false).default_width(470.0).default_height(480.0).show(&ctx, |ui| {
                 ui.label("OpenRadView has no telemetry or app account.");
                 #[cfg(feature="updates")]
                 self.update_settings(ui);
@@ -297,6 +300,7 @@ impl eframe::App for OpenRadView {
                 }
                 ui.add_space(8.0);
                 ui.label(RichText::new("Personal education only. Not for decisions about care.").color(theme::SILVER));
+                ui.add_space(12.);
             });
         self.privacy_open = privacy_open;
         if external_dialog_was_open && !(self.help_open || self.privacy_open || self.licenses.open)

@@ -62,13 +62,15 @@ fn inbound_approval_waits_for_local_dialogs_then_escape_denies_without_a_grant()
             "export" => {
                 use eframe::egui_wgpu::wgpu;
                 let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-                    backends: orv_render::native_backends(),
+                    backends: orv_render::configured_backends().expect("Native backend selection"),
                     ..wgpu::InstanceDescriptor::new_without_display_handle()
                 });
                 let adapter =
                     pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
-                let (device, queue) =
-                    pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+                let (device, queue) = pollster::block_on(
+                    adapter.request_device(&orv_render::device_descriptor(&adapter)),
+                )
+                .unwrap();
                 let series = Arc::new(workspace.study.as_ref().unwrap().series[0].clone());
                 let spec = workspace.rendered_view().unwrap().0;
                 let prepared = PreparedSeries::new(0, series.clone(), || false).unwrap();

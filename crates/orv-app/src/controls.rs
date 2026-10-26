@@ -12,6 +12,7 @@ pub fn tools(
     scalar: bool,
     extra: impl FnOnce(&mut egui::Ui),
 ) -> bool {
+    let previous = *tool;
     let mut fit = false;
     let narrow = ui.available_width() < if crosshair { 900. } else { 650. };
     let mut extra = Some(extra);
@@ -40,6 +41,9 @@ pub fn tools(
                 extra(ui);
             }
         });
+    }
+    if *tool != previous || fit {
+        ui.ctx().request_repaint();
     }
     fit
 }

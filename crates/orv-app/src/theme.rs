@@ -44,6 +44,7 @@ pub fn install(ctx: &egui::Context) {
     style.visuals.widgets.hovered.weak_bg_fill = Color32::from_gray(45);
     style.visuals.widgets.active.weak_bg_fill = GRAPHITE;
     style.spacing.item_spacing = egui::vec2(12.0, 12.0);
+    style.spacing.scroll = egui::style::ScrollStyle::solid();
     style.spacing.button_padding = egui::vec2(18.0, 10.0);
     style
         .text_styles

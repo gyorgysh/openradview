@@ -3,6 +3,7 @@
 mod annotations;
 mod app;
 mod brand;
+mod cli;
 mod controls;
 mod copy;
 mod demos;
@@ -27,6 +28,7 @@ mod series_browser;
 #[cfg(feature = "mcp")]
 mod sharing;
 mod single_view;
+mod startup;
 mod theme;
 mod toolbar;
 #[cfg(feature = "updates")]
@@ -38,22 +40,51 @@ mod worker;
 mod workspace;
 
 use eframe::{egui, egui_wgpu};
+use std::process::ExitCode;
 
-fn main() -> eframe::Result {
+fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if args == ["--version"] {
-        println!("OpenRadView {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
+    match cli::parse(&args) {
+        Ok(cli::Action::Help) => {
+            print!("{}", cli::help());
+            return ExitCode::SUCCESS;
+        }
+        Ok(cli::Action::Version) => {
+            println!("OpenRadView {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Ok(cli::Action::Health(valid)) => {
+            return if valid {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            };
+        }
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::from(2);
+        }
+        Ok(cli::Action::Open) => {}
     }
-    if args.first().is_some_and(|a| a == "--update-health-check") {
-        let valid = args.len() == 2 && args[1] == env!("CARGO_PKG_VERSION");
-        std::process::exit(if valid { 0 } else { 1 });
+    let setup = match startup::setup() {
+        Ok(setup) => setup,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::from(2);
+        }
+    };
+    match run(setup) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            startup::report(&error);
+            ExitCode::FAILURE
+        }
     }
+}
 
+fn run(setup: egui_wgpu::WgpuSetupCreateNew) -> eframe::Result {
     #[cfg(feature = "qa")]
     let diagnostics = qa::Recorder::new(std::time::Instant::now());
-    let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = orv_render::native_backends();
     // An explicit empty icon tells eframe to preserve the native bundle icon.
     // A runtime PNG replaces AppKit's Liquid Glass icon with a flat mobile tile.
     #[cfg(target_os = "macos")]
@@ -100,6 +131,9 @@ fn main() -> eframe::Result {
         "OpenRadView",
         options,
         Box::new(move |cc| {
+            if let Some(render) = &cc.wgpu_render_state {
+                startup::log_adapter(&render.adapter);
+            }
             #[cfg(feature = "qa")]
             let app = app::OpenRadView::new(cc).with_diagnostics(diagnostics);
             #[cfg(not(feature = "qa"))]

@@ -103,3 +103,62 @@ fn window_labels_stay_with_equal_width_values_when_wrapping() {
         );
     }
 }
+
+#[test]
+fn switching_from_measurement_repaints_without_another_input_and_settles_when_idle() {
+    let ctx = egui::Context::default();
+    crate::theme::install(&ctx);
+    ctx.style_mut_of(egui::Theme::Dark, |s| s.animation_time = 0.);
+    let mut tool = Tool::Distance;
+    let mut time = 0.;
+    let mut draw = |events: Vec<egui::Event>| {
+        time += 0.1;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                time: Some(time),
+                events,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400., 300.),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                tools(ui, &mut tool, true, true, |_| {});
+            },
+        );
+        output.textures_delta.clear();
+        output
+    };
+    let mut output = draw(vec![]);
+    for _ in 0..5 {
+        output = draw(vec![]);
+    }
+    let pos = text_rect(&output, "Pan [P]").center();
+    let button = |pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let _ = draw(vec![egui::Event::PointerMoved(pos), button(true)]);
+    output = draw(vec![button(false)]);
+    assert_eq!(
+        output.viewport_output[&egui::ViewportId::ROOT].repaint_delay,
+        std::time::Duration::ZERO
+    );
+    // Service the requested frame without supplying a new input event.
+    output = draw(vec![]);
+    text_rect(&output, "Measure");
+    assert!(!output.shapes.iter().any(
+        |s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text == "Distance")
+    ));
+    for _ in 0..5 {
+        output = draw(vec![]);
+    }
+    assert_eq!(
+        output.viewport_output[&egui::ViewportId::ROOT].repaint_delay,
+        std::time::Duration::MAX
+    );
+    assert_eq!(tool, Tool::Pan);
+}

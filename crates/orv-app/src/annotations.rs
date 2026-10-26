@@ -56,26 +56,33 @@ impl Annotations {
     pub fn has_content(&self, tool: Tool) -> bool {
         tool.measures() || self.complete.is_some() || !self.pending.is_empty()
     }
-    pub fn label_height(&mut self, ui: &egui::Ui, tool: Tool) -> f32 {
+    pub fn status_overlay(&mut self, ui: &mut egui::Ui, rect: Rect, tool: Tool) {
         self.poll();
         if !self.has_content(tool) {
-            return 0.;
+            return;
         }
-        let font = egui::TextStyle::Small.resolve(ui.style());
-        // Keep the image stationary while placing points; allow extra space for wrapped ROI reports.
-        let rows =
-            if tool == Tool::Roi || self.complete.as_ref().is_some_and(|m| m.tool == Tool::Roi) {
-                5.
-            } else {
-                2.
-            };
-        let minimum = font.size * 1.25 * rows;
-        ui.painter()
-            .layout(self.status(tool), font, theme::SILVER, ui.available_width())
-            .size()
-            .y
-            .max(minimum)
-            + ui.spacing().item_spacing.y
+        // Paint without allocating layout space: changing tools or wrapping an
+        // ROI result must not move the image under the next click.
+        let mut overlay = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("measurement-status")
+                .max_rect(Rect::from_min_max(
+                    rect.min + egui::vec2(8., 28.),
+                    rect.max - egui::vec2(8., 8.),
+                )),
+        );
+        overlay.set_clip_rect(rect);
+        egui::Frame::new()
+            .fill(theme::INK)
+            .inner_margin(4.)
+            .corner_radius(3.)
+            .show(&mut overlay, |ui| {
+                ui.label(
+                    egui::RichText::new(self.status(tool))
+                        .small()
+                        .color(theme::PAPER),
+                );
+            });
     }
     pub fn clear(&mut self) {
         self.calculation = None;
@@ -293,6 +300,36 @@ fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn measurement_hints_and_wrapped_results_do_not_shift_the_image_or_next_control() {
+        let ctx = egui::Context::default();
+        let mut annotations = Annotations::default();
+        for width in [300., 800.] {
+            let mut previous = None;
+            for tool in [
+                Tool::Pan,
+                Tool::Distance,
+                Tool::Angle,
+                Tool::Roi,
+                Tool::Window,
+            ] {
+                let mut bounds = None;
+                let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(width, 200.), egui::Sense::click());
+                    let cursor = ui.cursor();
+                    annotations.status_overlay(ui, rect, tool);
+                    assert_eq!(ui.cursor(), cursor);
+                    bounds = Some((rect, ui.button("Next control").rect));
+                });
+                output.textures_delta.clear();
+                if let Some(previous) = previous {
+                    assert_eq!(bounds.unwrap(), previous);
+                }
+                previous = bounds;
+            }
+        }
+    }
     #[test]
     fn annotation_reports_are_physical_and_do_not_measure_letterboxing() {
         let study = orv_core::study::demo_study();

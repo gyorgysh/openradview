@@ -25,6 +25,9 @@ image.workspace = true
 serde.workspace = true
 sha2.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+wgpu = { workspace = true, features = ["gles"] }
+
 [dev-dependencies]
 pollster.workspace = true
 serde_json.workspace = true

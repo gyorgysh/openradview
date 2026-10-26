@@ -63,6 +63,7 @@ struct State {
     manifest: Option<Manifest>,
     downloaded: u64,
     installable: bool,
+    package_managed: bool,
     prefs: Preferences,
 }
 enum Task {
@@ -109,6 +110,7 @@ impl Updater {
         let executable = std::env::current_exe()
             .ok()
             .and_then(|p| p.canonicalize().ok());
+        let package_managed = executable.as_deref().is_some_and(package_install);
         let available = protocol::supported_target(TARGET)
             && prefs_path.is_some()
             && executable.is_some()
@@ -123,6 +125,7 @@ impl Updater {
             manifest: None,
             downloaded: 0,
             installable: false,
+            package_managed,
             prefs,
         }));
         let tasks = if available {
@@ -166,9 +169,18 @@ impl Updater {
         lock(&self.state).prefs.chosen
     }
     pub fn enabled(&self) -> bool {
-        lock(&self.state).prefs.enabled
+        let state = lock(&self.state);
+        !state.package_managed && state.prefs.enabled
+    }
+    pub fn package_managed(&self) -> bool {
+        lock(&self.state).package_managed
     }
     pub fn set_enabled(&mut self, enabled: bool) -> Result<()> {
+        if self.package_managed() {
+            return Err(
+                "Automatic GitHub checks are off for this package-managed installation. You can check manually.",
+            );
+        }
         let path = self
             .prefs_path
             .as_deref()
@@ -368,7 +380,7 @@ fn worker(
     loop {
         let automatic = {
             let s = lock(state);
-            automatic_due(&s.prefs, s.status, now())
+            automatic_due(&s.prefs, s.status, now(), s.package_managed)
         };
         let task = if automatic {
             Task::Check
@@ -477,8 +489,15 @@ pub fn verify_release_envelope(
     })
 }
 
-fn automatic_due(prefs: &Preferences, status: Status, time: u64) -> bool {
-    prefs.chosen
+fn package_install(executable: &std::path::Path) -> bool {
+    executable.parent().is_some_and(|root| {
+        std::fs::symlink_metadata(root.join(".openradview-no-self-update")).is_ok()
+    })
+}
+
+fn automatic_due(prefs: &Preferences, status: Status, time: u64, package_managed: bool) -> bool {
+    !package_managed
+        && prefs.chosen
         && prefs.enabled
         && !status.busy()
         && status != Status::ReadyToRestart

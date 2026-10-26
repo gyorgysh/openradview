@@ -36,11 +36,7 @@ impl MprSession {
             _ => ("SAGITTAL", 0),
         };
         theme::eyebrow(&mut ui, name);
-        let status = self.annotations[index].label_height(&ui, self.tool);
-        let size = Vec2::new(
-            ui.available_width(),
-            (ui.available_height() - 32. - status).max(30.),
-        );
+        let size = Vec2::new(ui.available_width(), (ui.available_height() - 32.).max(30.));
         let (_, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
         if response.hovered() {
             self.active = index;
@@ -173,12 +169,6 @@ impl MprSession {
         if self.is_settled() {
             self.annotations[index].show(ui, response, image, view, self.tool);
         }
-        if self.annotations[index].has_content(self.tool) {
-            ui.label(
-                egui::RichText::new(self.annotations[index].status(self.tool))
-                    .small()
-                    .color(theme::SILVER),
-            );
-        }
+        self.annotations[index].status_overlay(ui, response.rect, self.tool);
     }
 }

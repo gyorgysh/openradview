@@ -51,7 +51,7 @@ pub struct SnapshotRenderer {
 impl SnapshotRenderer {
     pub async fn new() -> Result<Self, &'static str> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: crate::native_backends(),
+            backends: crate::configured_backends()?,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = instance
@@ -59,7 +59,7 @@ impl SnapshotRenderer {
             .await
             .map_err(|_| "No supported GPU is available for snapshots")?;
         let (device, queue) = adapter
-            .request_device(&Default::default())
+            .request_device(&crate::device_descriptor(&adapter))
             .await
             .map_err(|_| "Could not create the snapshot GPU device")?;
         Ok(Self::with_device(device, queue))

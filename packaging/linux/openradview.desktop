@@ -6,5 +6,5 @@ Comment=Explore your own CT, MRI and X-ray images
 Exec=/opt/openradview/openradview
 Icon=openradview
 Terminal=false
-Categories=Education;Science;
+Categories=Education;
 StartupWMClass=OpenRadView

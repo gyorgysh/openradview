@@ -87,12 +87,14 @@ fn reformat_verification_accepts_reordered_source_and_rejects_stale_pixels() {
 fn local_export_uses_real_gpu_display_parameters_and_preserves_provenance() {
     use eframe::egui_wgpu::wgpu;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: orv_render::native_backends(),
+        backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("Real GPU required");
-    let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))
+            .unwrap();
     let mut study = orv_core::study::demo_study();
     let mut series = study.series.remove(0);
     series.frames = crate::mpr_worker::tests::frames();

@@ -385,17 +385,17 @@ fn background_checks_require_consent_daily_deadline_and_no_pending_restart() {
         last_check: 1,
         ..Default::default()
     };
-    assert!(!automatic_due(&prefs, Status::Idle, 90000));
+    assert!(!automatic_due(&prefs, Status::Idle, 90000, false));
     prefs.chosen = true;
     prefs.enabled = false;
-    assert!(!automatic_due(&prefs, Status::Idle, 90000));
+    assert!(!automatic_due(&prefs, Status::Idle, 90000, false));
     prefs.enabled = true;
-    assert!(!automatic_due(&prefs, Status::Idle, 86400));
-    assert!(automatic_due(&prefs, Status::Idle, 86401));
-    assert!(!automatic_due(&prefs, Status::ReadyToRestart, 90000));
-    assert!(!automatic_due(&prefs, Status::Downloading, 90000));
+    assert!(!automatic_due(&prefs, Status::Idle, 86400, false));
+    assert!(automatic_due(&prefs, Status::Idle, 86401, false));
+    assert!(!automatic_due(&prefs, Status::ReadyToRestart, 90000, false));
+    assert!(!automatic_due(&prefs, Status::Downloading, 90000, false));
     prefs.last_check = 100000;
-    assert!(!automatic_due(&prefs, Status::Idle, 90000));
+    assert!(!automatic_due(&prefs, Status::Idle, 90000, false));
 }
 #[test]
 fn concurrent_install_lock_is_nonblocking_and_released_with_its_handle() {
@@ -429,6 +429,7 @@ fn unsavable_preferences_honor_opt_out_and_never_enable_background_requests() {
         manifest: None,
         downloaded: 0,
         installable: false,
+        package_managed: false,
         prefs: Preferences {
             chosen: true,
             enabled: true,
@@ -449,7 +450,7 @@ fn unsavable_preferences_honor_opt_out_and_never_enable_background_requests() {
     assert!(updater.set_enabled(true).is_err());
     assert!(!updater.enabled());
     let s = lock(&updater.state);
-    assert!(!automatic_due(&s.prefs, s.status, 100000));
+    assert!(!automatic_due(&s.prefs, s.status, 100000, false));
 }
 #[test]
 fn quitting_first_cancels_installation_before_any_files_are_moved() {
@@ -468,3 +469,52 @@ fn quitting_during_a_swap_waits_for_the_rename_or_rollback_to_finish() {
     assert!(lifecycle.begin_commit().is_err());
 }
 mod native_process;
+
+#[test]
+fn package_marker_disables_background_checks_but_preserves_manual_checks_and_preferences() {
+    let folder = tempfile::tempdir().unwrap();
+    let executable = folder.path().join("openradview");
+    assert!(!package_install(&executable));
+    fs::write(
+        folder.path().join(".openradview-no-self-update"),
+        "package managed\n",
+    )
+    .unwrap();
+    assert!(package_install(&executable));
+    for chosen in [false, true] {
+        let prefs = Preferences {
+            chosen,
+            enabled: true,
+            last_check: 0,
+            ..Default::default()
+        };
+        assert!(!automatic_due(&prefs, Status::Idle, 100000, true));
+        assert_eq!(automatic_due(&prefs, Status::Idle, 100000, false), chosen);
+        let prefs_path = folder.path().join("updates.json");
+        preferences::save(&prefs_path, &prefs).unwrap();
+        let before = fs::read(&prefs_path).unwrap();
+        let (send, receive) = mpsc::sync_channel(1);
+        let mut updater = Updater {
+            state: Arc::new(Mutex::new(State {
+                status: Status::Idle,
+                detail: "",
+                manifest: None,
+                downloaded: 0,
+                installable: false,
+                package_managed: package_install(&executable),
+                prefs,
+            })),
+            tasks: Some(send),
+            prefs_path: Some(prefs_path.clone()),
+            executable: Some(executable.clone()),
+            restart: false,
+            lifecycle: Arc::new(lifecycle::Lifecycle::default()),
+        };
+        assert!(updater.package_managed());
+        assert!(!updater.enabled());
+        assert!(updater.set_enabled(true).is_err());
+        assert_eq!(fs::read(&prefs_path).unwrap(), before);
+        updater.check().unwrap();
+        assert!(matches!(receive.try_recv(), Ok(Task::Check)));
+    }
+}

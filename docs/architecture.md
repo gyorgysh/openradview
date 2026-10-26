@@ -2,7 +2,7 @@
 
 OpenRadView is a Rust 2024 Cargo workspace. Dependency versions and the toolchain
 are pinned. Rendering is native wgpu; egui/eframe owns the desktop shell. macOS
-selects Metal; Windows selects DX12/Vulkan and Linux selects Vulkan. Core and
+selects Metal; Windows selects DX12/Vulkan and Linux allows Vulkan/OpenGL. Core and
 rendering code remain independent of the UI.
 
 | Crate | Responsibility |
@@ -49,6 +49,11 @@ for desktop and offscreen rendering. Repaint is driven by input, results, active
 playback and finite animation. Idle viewing does not require a polling loop.
 Measurements map image centres to validated physical coordinates rather than
 screen distance. Projections cannot masquerade as measurement planes.
+
+Native Linux OpenGL uses the same wgpu renderer, with downlevel device limits for
+2D/MPR. Compute-capable drivers can also use volume/MIP; other drivers receive
+an explanation when opening those views. `WGPU_BACKEND` selects an allowed native
+backend for both the window and offscreen snapshots.
 
 ## Scenes, snapshots and agent access
 

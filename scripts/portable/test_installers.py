@@ -110,7 +110,14 @@ class Installers(unittest.TestCase):
             if os.name != 'nt':
                 self.assertEqual((package / 'usr/bin/openradview').stat().st_mode & 0o777, 0o755)
             self.assertIn('libc6 (>= 2.39)', (package / 'DEBIAN/control').read_text())
-            self.assertIn('libvulkan1', (package / 'DEBIAN/control').read_text())
+            control = (package / 'DEBIAN/control').read_text()
+            for dependency in ('libvulkan1', 'libx11-xcb1', 'libxkbcommon-x11-0', 'libxcb1',
+                               'libdbus-1-3', 'mesa-vulkan-drivers | vulkan-icd'):
+                self.assertIn(dependency, control)
+            self.assertIn('Recommends: xdg-desktop-portal, libegl-mesa0, libgl1-mesa-dri', control)
+            desktop = (package / 'usr/share/applications/openradview.desktop').read_text()
+            self.assertIn('Categories=Education;\n', desktop)
+            self.assertNotIn('Science;', desktop)
             self.assertEqual(command.call_args.args[0][:3], ['dpkg-deb', '--root-owner-group', '--build'])
 
 

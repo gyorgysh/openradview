@@ -5,7 +5,7 @@ use eframe::egui::{self, RichText};
 pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
     let mut licenses = false;
     crate::dialogs::window("Help", ctx)
-        .open(open).default_width(610.0).default_height(500.0)
+        .open(open).default_width(610.0).default_height(640.0)
         .resizable(true).collapsible(false).vscroll(true)
         .show(ctx, |ui| {
             ui.heading("Using OpenRadView");
@@ -59,7 +59,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 });
             #[cfg(feature = "updates")]
             egui::CollapsingHeader::new("Keep OpenRadView up to date").show(ui, |ui| {
-                ui.label("Automatic GitHub update checks are enabled by default. Turn them off on first entry or in Privacy → Updates, where you can also check manually. Checks contain no study data; downloading and installing require your action.");
+                ui.label("Standalone installations enable automatic GitHub update checks by default. Turn them off on first entry or in Privacy → Updates, where you can also check manually. Debian installations keep automatic checks off; download a newer package from GitHub Releases and install it with your package manager. Checks contain no study data; downloading and installing require your action.");
                 ui.label("Updates and installers are available from the project's GitHub Releases page.");
             });
             egui::CollapsingHeader::new("Exactly what can an agent see or change?").show(ui, |ui| {
@@ -70,6 +70,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 ui.label("Agent connections use 127.0.0.1. Update checks separately contact GitHub. Removing tags cannot erase identifying text burned into pixels.");
                 ui.label(crate::copy::AGENT_PRIVACY);
             });
+            ui.add_space(12.);
         });
     licenses
 }

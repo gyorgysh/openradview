@@ -17,9 +17,24 @@ packages and checks. Development CI stays manual and cached; tag releases use
 Use Rust from rust-toolchain.toml, a C/C++ compiler, CMake, pkg-config, Python3.11+
 and binutils/readelf. On Ubuntu22.04 the native build/runtime packages include
 build-essential, cmake, pkg-config, libxkbcommon-dev, libwayland-dev, libvulkan1 and
-mesa-vulkan-drivers. File dialogs need a working xdg-desktop-portal and the provider
-for the desktop (GNOME, KDE or GTK). No X11/Wayland server or GPU is provided by
+mesa-vulkan-drivers. Runtime X11/Wayland dependencies also include libx11-xcb1,
+libxkbcommon-x11-0, libxcb1 and libdbus-1-3. File dialogs need a working
+xdg-desktop-portal and the provider for the desktop (GNOME, KDE or GTK). No X11/Wayland server or GPU is provided by
 these archives.
+
+A Vulkan loader alone does not provide a graphics driver. Install a Vulkan ICD
+(Mesa: `mesa-vulkan-drivers`) or use an EGL/OpenGL driver. On Debian/Ubuntu, Mesa
+OpenGL uses `libegl-mesa0` and `libgl1-mesa-dri`. To select OpenGL explicitly:
+
+```sh
+WGPU_BACKEND=gl openradview
+```
+
+OpenGL drivers without compute support can display 2D/MPR but cannot render
+volume/MIP. Software graphics can be slow at large window sizes. Startup prints
+the selected backend, adapter and driver locally to stderr; no diagnostics are
+sent anywhere. `openradview --help` prints usage without opening a window.
+Native OpenGL runtime and affected-machine performance checks remain pending.
 
 Fetch locked dependencies once, then package offline on the intended oldest host:
 
@@ -73,11 +88,12 @@ requires a separate certificate; Apple credentials do not sign Windows programs.
 
 The Linux amd64 `.deb` targets Debian/Ubuntu systems with compatible runtime
 libraries. Its dependencies are derived from the actual ELF programs, with the
-desktop/Vulkan libraries declared explicitly. It installs the app under
-`/opt/openradview`, commands under `/usr/bin`, and the desktop entry and icon in
-their standard locations. Its marker disables folder replacement by the in-app
-updater; install later `.deb` versions through the package manager. The portable
-TAR.GZ keeps the writable-folder update path.
+desktop libraries and a Vulkan ICD declared explicitly; Mesa EGL/OpenGL drivers
+are recommended. It installs the app under `/opt/openradview`, commands under `/usr/bin`, and the desktop entry and icon in
+their standard locations. Its marker disables automatic GitHub checks and folder
+replacement by the in-app updater. Manual checks remain available; download and
+install later `.deb` versions with your package manager. The app does not add
+an apt repository. The portable TAR.GZ keeps the writable-folder update path.
 
 **Manual Windows and Linux packages** runs the native default/full test suites,
 GPU tests, archive and installer builds, then a real unattended install/version

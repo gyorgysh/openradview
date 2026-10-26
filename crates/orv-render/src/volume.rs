@@ -5,6 +5,21 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 mod validity;
 
+pub fn check_limits(limits: &wgpu::Limits) -> Result<(), &'static str> {
+    if limits.max_compute_workgroup_size_x < 8
+        || limits.max_compute_workgroup_size_y < 8
+        || limits.max_compute_workgroup_size_z < 1
+        || limits.max_compute_invocations_per_workgroup < 64
+        || limits.max_compute_workgroups_per_dimension < 1
+        || limits.max_storage_textures_per_shader_stage < 1
+    {
+        return Err(
+            "3D / MIP needs compute shaders, which this graphics driver does not provide. Use 2D/MPR, or update the graphics driver.",
+        );
+    }
+    Ok(())
+}
+
 struct Output {
     size: [u32; 2],
     texture: wgpu::Texture,
@@ -40,6 +55,7 @@ impl VolumeRenderer {
         format: wgpu::TextureFormat,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self, &'static str> {
+        check_limits(&device.limits())?;
         let dimensions = volume.dimensions();
         let limit = device.limits().max_texture_dimension_3d as usize;
         if dimensions.iter().any(|d| *d > limit) {

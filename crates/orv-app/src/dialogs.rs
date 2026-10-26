@@ -9,6 +9,7 @@ pub fn window(title: &'static str, ctx: &egui::Context) -> egui::Window<'static>
         .max_height((ctx.content_rect().height() - 64.).max(200.))
         .collapsible(false)
         .vscroll(true)
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
 }
 
 #[cfg(feature = "mcp")]
@@ -60,6 +61,47 @@ mod tests {
                     pass == 0 || rect.center().distance(screen.center()) < 1.5,
                     "Window drifted: {rect:?}"
                 );
+            }
+        }
+    }
+    #[test]
+    fn overflowing_dialog_can_scroll_its_entire_last_line_into_view() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        for size in [egui::vec2(1280., 840.), egui::vec2(860., 640.)] {
+            for pass in 0..4 {
+                let mut output = ctx.run_ui(egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                    ..Default::default()
+                }, |ui| {
+                    window("Scrolling dialog test", ui.ctx()).open(&mut true)
+                        .default_width(470.).default_height(600.)
+                        .show(ui.ctx(), |ui| {
+                            for _ in 0..30 { ui.label("Wrapped dialog content, including further help and privacy information."); }
+                            ui.label("Last line must be readable in full.");
+                            ui.add_space(12.);
+                            ui.scroll_to_cursor_animation(Some(egui::Align::BOTTOM), egui::style::ScrollAnimation::none());
+                        });
+                });
+                output.textures_delta.clear();
+                if pass == 3 {
+                    let shape = output
+                        .shapes
+                        .iter()
+                        .find_map(|s| match &s.shape {
+                            egui::epaint::Shape::Text(t)
+                                if t.galley.job.text == "Last line must be readable in full." =>
+                            {
+                                Some((s.clip_rect, t.galley.rect.translate(t.pos.to_vec2())))
+                            }
+                            _ => None,
+                        })
+                        .unwrap();
+                    assert!(
+                        shape.0.contains_rect(shape.1),
+                        "Last line clipped: {shape:?}"
+                    );
+                }
             }
         }
     }

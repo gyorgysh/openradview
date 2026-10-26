@@ -181,12 +181,8 @@ impl ObliqueSession {
                 }
             });
         }
-        let status_height = self.annotations.label_height(ui, self.tool);
         let (_, response) = ui.allocate_exact_size(
-            Vec2::new(
-                width,
-                (ui.available_height() - 62. - status_height).max(60.),
-            ),
+            Vec2::new(width, (ui.available_height() - 62.).max(60.)),
             egui::Sense::click_and_drag(),
         );
         viewport::interact(
@@ -224,13 +220,8 @@ impl ObliqueSession {
         crate::image_overlay::draw(ui, &response, &snapshot.image, &self.view);
         self.annotations
             .show(ui, &response, &snapshot.image, &self.view, self.tool);
-        if self.annotations.has_content(self.tool) {
-            ui.label(
-                RichText::new(self.annotations.status(self.tool))
-                    .small()
-                    .color(theme::SILVER),
-            );
-        }
+        self.annotations
+            .status_overlay(ui, response.rect, self.tool);
         let [l, p, s] = snapshot.plane.center_mm;
         let status = if snapshot.generation == self.worker.generation() {
             "Rendered"

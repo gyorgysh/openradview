@@ -115,12 +115,14 @@ fn production_snapshot_png_matches_pixels_manifest_and_cancellation() {
 #[test]
 fn offscreen_scalar_golden_including_inversion() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: orv_render::native_backends(),
+        backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("GPU test requires a real adapter");
-    let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))
+            .unwrap();
     let frame = Frame {
         validity: None,
         color: None,

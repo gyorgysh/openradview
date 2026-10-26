@@ -95,6 +95,14 @@ mod tests {
                 assert!(volume.is_err(), "A radiograph must never become a 3D stack");
             } else {
                 let volume = volume.unwrap();
+                if demo == Demo::Ct {
+                    // The bundled instances' ImagePositionPatient Z values,
+                    // not an inferred zero origin or a distance from the head.
+                    let [min, max] = volume.bounds();
+                    assert!((min[2] - (-1122.80005)).abs() < 0.001);
+                    assert!((max[2] - (-870.)).abs() < 0.001);
+                    assert!((volume.center()[2] - (-996.400025)).abs() < 0.001);
+                }
                 for plane in [Plane::Axial, Plane::Coronal, Plane::Sagittal] {
                     let image = volume
                         .reformat(plane, volume.center(), 128, || false)

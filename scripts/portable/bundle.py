@@ -179,7 +179,8 @@ def main():
         shutil.copyfile(ROOT / "docs/platforms.md", folder / "PLATFORMS.md")
         if "linux" in target:
             shutil.copyfile(ROOT / "assets/brand/app-icon.png", folder / "openradview.png")
-            (folder / "openradview.desktop").write_text("[Desktop Entry]\nType=Application\nName=OpenRadView\nComment=Personal image exploration\nExec=openradview\nIcon=openradview\nTerminal=false\nCategories=Education;Science;\n")
+            desktop = (ROOT / "packaging/linux/openradview.desktop").read_text(encoding="utf-8")
+            (folder / "openradview.desktop").write_text(desktop.replace("Exec=/opt/openradview/openradview\n", "Exec=openradview\n"), encoding="utf-8")
         if not dirty:
             source = subprocess.check_output(["git", "archive", "--format=tar", "--prefix=openradview-source/", "HEAD"], cwd=ROOT)
             with (folder / "source.tar.gz").open("xb") as f:

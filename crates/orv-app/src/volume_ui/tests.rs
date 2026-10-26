@@ -6,12 +6,12 @@ use std::time::{Duration, Instant};
 
 fn device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: orv_render::native_backends(),
+        backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("Real GPU required");
-    pollster::block_on(adapter.request_device(&Default::default())).unwrap()
+    pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter))).unwrap()
 }
 
 impl VolumeSession {

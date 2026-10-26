@@ -128,11 +128,7 @@ impl Workspace {
                 }
             });
         }
-        let status = self.annotations.label_height(ui, self.tool);
-        let size = Vec2::new(
-            content_width,
-            (ui.available_height() - 62.0 - status).max(60.0),
-        );
+        let size = Vec2::new(content_width, (ui.available_height() - 62.0).max(60.0));
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
         let painting = self.labels.painting(self.selected);
         if !painting
@@ -201,12 +197,8 @@ impl Workspace {
                 egui::Label::new(RichText::new(message).color(theme::SILVER)).wrap(),
             );
         }
-        if self.annotations.has_content(self.tool) {
-            ui.label(
-                egui::RichText::new(self.annotations.status(self.tool))
-                    .small()
-                    .color(theme::SILVER),
-            );
+        if !pending {
+            self.annotations.status_overlay(ui, rect, self.tool);
         }
         ui.horizontal_wrapped(|ui| {
             ui.label(

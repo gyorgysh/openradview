@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0 — Unreleased
+
+- Linux packages declare the missing desktop libraries and a Vulkan driver.
+- Native Linux OpenGL fallback, explicit `WGPU_BACKEND` selection, actionable
+  graphics startup errors and local adapter/driver diagnostics. Drivers without
+  compute support keep 2D/MPR available; 3D/MIP explains the requirement.
+- `--help` and `--version` print to the terminal without opening the viewer.
+- Debian installations hide automatic GitHub checks and keep manual checking
+  available. Install newer `.deb` files through your package manager.
+- Measurement guidance stays inside the image area, avoiding layout jumps when
+  tools change. Tool selection explicitly requests a follow-up repaint.
+- Larger Help/Privacy dialogs, visible scrollbars, bottom padding and an
+  explanation of negative coordinates in linked MPR.
+
 ## 1.0.0
 
 Initial release of the local image viewer:
