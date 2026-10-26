@@ -11,6 +11,7 @@ pub struct OpenRadView {
     wordmark: Option<egui::TextureHandle>,
     privacy_open: bool,
     help_open: bool,
+    licenses: crate::licenses::Licenses,
     pub(super) workspace: crate::workspace::Workspace,
     #[cfg(feature = "updates")]
     pub(super) updates: orv_updates::Updater,
@@ -33,6 +34,7 @@ impl OpenRadView {
             wordmark: brand::texture(&cc.egui_ctx, brand::WORDMARK),
             privacy_open: false,
             help_open: false,
+            licenses: Default::default(),
             workspace: Default::default(),
             #[cfg(feature = "updates")]
             updates: {
@@ -143,7 +145,7 @@ impl eframe::App for OpenRadView {
         #[cfg(feature = "qa")]
         let measured_start = Instant::now();
         let ctx = ui.ctx().clone();
-        let external_dialog_was_open = self.help_open || self.privacy_open;
+        let external_dialog_was_open = self.help_open || self.privacy_open || self.licenses.open;
         #[cfg(feature = "updates")]
         {
             if ctx.input(|i| i.viewport().close_requested())
@@ -233,7 +235,7 @@ impl eframe::App for OpenRadView {
                 ui.add_space(12.0);
                 ui.separator();
                 let height = (ui.available_height() - 40.0).max(0.0);
-                if self.help_open || self.privacy_open {
+                if self.help_open || self.privacy_open || self.licenses.open {
                     self.workspace.pause_playback();
                 }
                 ui.allocate_ui(Vec2::new(ui.available_width(), height), |ui| {
@@ -243,7 +245,7 @@ impl eframe::App for OpenRadView {
                             frame,
                             self.started.elapsed().as_secs_f32(),
                             self.reduce_motion,
-                            self.help_open || self.privacy_open,
+                            self.help_open || self.privacy_open || self.licenses.open,
                         );
                     } else {
                         let viewport_height = ui.available_height();
@@ -271,7 +273,13 @@ impl eframe::App for OpenRadView {
                     });
                 });
             });
-        crate::help::show(&ctx, &mut self.help_open);
+        if crate::help::show(&ctx, &mut self.help_open) {
+            self.help_open = false;
+            self.licenses.open = true;
+        }
+        if self.licenses.show(&ctx) {
+            self.help_open = true;
+        }
         let mut privacy_open = self.privacy_open;
         crate::dialogs::window("Privacy", &ctx).open(&mut privacy_open)
             .collapsible(false).resizable(false).default_width(470.0).show(&ctx, |ui| {
@@ -291,7 +299,8 @@ impl eframe::App for OpenRadView {
                 ui.label(RichText::new("Personal education only. Not for decisions about care.").color(theme::SILVER));
             });
         self.privacy_open = privacy_open;
-        if external_dialog_was_open && !(self.help_open || self.privacy_open) {
+        if external_dialog_was_open && !(self.help_open || self.privacy_open || self.licenses.open)
+        {
             ctx.request_repaint();
         }
         #[cfg(feature = "updates")]

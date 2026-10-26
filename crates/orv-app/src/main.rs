@@ -14,6 +14,7 @@ mod help;
 mod image_info;
 mod image_overlay;
 mod labels;
+mod licenses;
 mod mpr;
 mod mpr_viewport;
 mod mpr_worker;

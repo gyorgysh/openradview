@@ -2,13 +2,15 @@
 //! Embedded guidance. Opening help never opens a browser or starts a listener.
 use eframe::egui::{self, RichText};
 
-pub fn show(ctx: &egui::Context, open: &mut bool) {
+pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
+    let mut licenses = false;
     crate::dialogs::window("Help", ctx)
         .open(open).default_width(610.0).default_height(500.0)
         .resizable(true).collapsible(false).vscroll(true)
         .show(ctx, |ui| {
             ui.heading("Using OpenRadView");
             ui.label("Personal education and research only. Not for diagnosis or clinical decisions.");
+            licenses = ui.button("Third-party licenses…").clicked();
             egui::CollapsingHeader::new("Move, zoom and browse images")
                 .default_open(true).show(ui, |ui| {
                     ui.label("Pan [P] is the starting tool: drag or scroll to move the image. Hold Space while dragging to move temporarily from any 2D tool. Right or middle drag also moves.");
@@ -58,7 +60,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) {
             #[cfg(feature = "updates")]
             egui::CollapsingHeader::new("Keep OpenRadView up to date").show(ui, |ui| {
                 ui.label("Choose automatic GitHub checks on first entry, then change the preference or check manually in Privacy → Updates. Checks contain no study data; downloading and installing require your action.");
-                ui.label("The feed cannot be checked anonymously while this repository is private. Authorized users can download signed-in releases; no GitHub credential is stored by the app.");
+                ui.label("Updates and installers are available from the project's GitHub Releases page.");
             });
             egui::CollapsingHeader::new("Exactly what can an agent see or change?").show(ui, |ui| {
                 ui.label("render_snapshot returns an image-only PNG and reproducible view manifest, not a photograph of your desktop. get_tags returns a geometry allowlist, not raw patient tags. No tool opens arbitrary paths.");
@@ -69,4 +71,5 @@ pub fn show(ctx: &egui::Context, open: &mut bool) {
                 ui.label(crate::copy::AGENT_PRIVACY);
             });
         });
+    licenses
 }
