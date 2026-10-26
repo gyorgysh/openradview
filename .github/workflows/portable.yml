@@ -8,6 +8,11 @@ on:
         type: choice
         options: [both, windows, linux]
         default: both
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: both
 permissions:
   contents: read
 concurrency:
@@ -20,7 +25,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'windows' && '[{"os":"windows-2025","target":"x86_64-pc-windows-msvc"}]' || inputs.platform == 'linux' && '[{"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu"}]' || '[{"os":"windows-2025","target":"x86_64-pc-windows-msvc"},{"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'windows' && '[{"os":"windows-2025","target":"x86_64-pc-windows-msvc"}]' || inputs.platform == 'linux' && '[{"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu"}]' || '[{"os":"windows-2025","target":"x86_64-pc-windows-msvc"},{"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu"}]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -44,7 +49,7 @@ jobs:
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
-          shared-key: orv-native-${{ runner.os }}
+          shared-key: orv-native-${{ runner.os }}${{ runner.os == 'Linux' && format('-{0}', matrix.os) || '' }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
@@ -59,11 +64,11 @@ jobs:
           cargo clippy --locked --workspace --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
       - name: Default native tests
         id: default_tests
-        run: cargo nextest run --locked --workspace --target ${{ matrix.target }} --no-fail-fast
+        run: cargo nextest run --locked --workspace --target ${{ matrix.target }} --profile native-default
       - name: Full native tests including GPU rendering
         id: full_tests
         if: ${{ !cancelled() && steps.default_tests.outcome != 'skipped' }}
-        run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }} --no-fail-fast
+        run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }} --profile native-full
       - name: Portable packaging helpers
         run: python -m unittest discover -s scripts/portable -p 'test_*.py'
       - name: Native optimized application archive
@@ -78,7 +83,12 @@ jobs:
         if: runner.os == 'Linux'
         run: python scripts/portable/installers.py --target ${{ matrix.target }}
       - name: Native installation, version probes and removal
+        id: installer_tests
         run: python scripts/portable/smoke_installers.py --target ${{ matrix.target }}
+      - name: Record actual native acceptance scope
+        env:
+          ORV_NATIVE_OUTCOMES: '{"format_clippy":"${{ steps.format_clippy.outcome }}","default_tests":"${{ steps.default_tests.outcome }}","full_tests":"${{ steps.full_tests.outcome }}","installer_tests":"${{ steps.installer_tests.outcome }}"}'
+        run: python scripts/ci/native_report.py --target ${{ matrix.target }}
       - name: Preserve native packages
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -87,4 +97,4 @@ jobs:
           path: dist/*
           if-no-files-found: ignore
           compression-level: 0
-          retention-days: 3
+          retention-days: 1

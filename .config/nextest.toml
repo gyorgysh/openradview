@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[profile.native-default]
+retries = 0
+fail-fast = false
+
+[profile.native-default.junit]
+path = "junit.xml"
+report-skipped = "all"
+
+[profile.native-full]
+retries = 0
+fail-fast = false
+
+[profile.native-full.junit]
+path = "junit.xml"
+report-skipped = "all"

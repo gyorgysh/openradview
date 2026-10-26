@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Installer boundaries: exact native inputs, payload integrity and isolated layout."""
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -106,7 +107,8 @@ class Installers(unittest.TestCase):
             package = root / 'debian-package'
             self.assertTrue((package / 'opt/openradview/.openradview-no-self-update').is_file())
             self.assertIn('exec /opt/openradview/openradview "$@"', (package / 'usr/bin/openradview').read_text())
-            self.assertEqual((package / 'usr/bin/openradview').stat().st_mode & 0o777, 0o755)
+            if os.name != 'nt':
+                self.assertEqual((package / 'usr/bin/openradview').stat().st_mode & 0o777, 0o755)
             self.assertIn('libc6 (>= 2.39)', (package / 'DEBIAN/control').read_text())
             self.assertIn('libvulkan1', (package / 'DEBIAN/control').read_text())
             self.assertEqual(command.call_args.args[0][:3], ['dpkg-deb', '--root-owner-group', '--build'])
