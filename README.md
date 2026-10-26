@@ -57,7 +57,7 @@ Approved agents can request snapshots, adjust supported views and query geometry
 
 ## Updates and platforms
 
-The first run asks about automatic GitHub update checks. A manual check is always available in **Privacy → Updates**. Checks contain no study data; GitHub receives ordinary connection information, app version and platform. Download, installation and restart require your action. The updater verifies signed manifests, target, size and hashes and supports rollback. Package-manager installations keep their own update path.
+Automatic GitHub update checks are enabled by default. You can turn them off on first launch or in **Privacy → Updates**, where a manual check is always available. Checks contain no study data; GitHub receives ordinary connection information, app version and platform. Download, installation and restart require your action. The updater verifies signed manifests, target, size and hashes and supports rollback. Package-manager installations keep their own update path.
 
 Apple Silicon with Metal is the tested platform. Windows and Linux builds are previews; native GPU, dialog, installation and update acceptance remain pending. [Platform status](docs/platforms.md) · [Validation scope](docs/validation.md)
 
@@ -71,4 +71,4 @@ sh scripts/bundle-macos.sh                  # Optimized local macOS app and conn
 
 Use the pinned Rust toolchain, CMake and your platform's development tools. macOS bundles need Xcode. Fonts and codecs are bundled; the installed app does not download them. [Contributing and development](CONTRIBUTING.md) · [Architecture](docs/architecture.md) · [Release process](docs/github-release.md)
 
-Built by [gyorgy.sh](https://gyorgy.sh). Licensed under [GPL-3.0-or-later](LICENSE); dependencies, fonts and demo images retain their own notices.
+Built by [gyorgy.sh](https://gyorgy.sh). Licensed under [GPL-3.0-or-later](LICENSE); dependencies, fonts and demo images retain their own notices, available in **Help → Third-party licenses**.

@@ -59,7 +59,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 });
             #[cfg(feature = "updates")]
             egui::CollapsingHeader::new("Keep OpenRadView up to date").show(ui, |ui| {
-                ui.label("Choose automatic GitHub checks on first entry, then change the preference or check manually in Privacy → Updates. Checks contain no study data; downloading and installing require your action.");
+                ui.label("Automatic GitHub update checks are enabled by default. Turn them off on first entry or in Privacy → Updates, where you can also check manually. Checks contain no study data; downloading and installing require your action.");
                 ui.label("Updates and installers are available from the project's GitHub Releases page.");
             });
             egui::CollapsingHeader::new("Exactly what can an agent see or change?").show(ui, |ui| {

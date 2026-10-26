@@ -23,9 +23,9 @@ remain until installation and the new app's startup complete.
 
 ## GitHub updates
 
-On first entry, you choose whether to check GitHub for updates automatically
-(preselected on). Change the saved choice or use **Check for updates…** under
-**Privacy → Updates**. Enabled background checks run about once a day; a manual
+Automatic GitHub update checks are enabled by default. Clear the checkbox on
+first entry or turn them off later under **Privacy → Updates**. Manual checks
+are available there too. Enabled background checks run about once a day; a manual
 check contacts GitHub when requested. Download, installation and restart are
 separate user actions, not automatic consequences of a check.
 
