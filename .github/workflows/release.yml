@@ -15,6 +15,7 @@ jobs:
     if: >-
       github.repository == 'gyorgysh/openradview' &&
       !github.event.repository.private &&
+      !github.event.deleted &&
       startsWith(github.ref, 'refs/tags/v') &&
       vars.ORV_RELEASE_APPROVAL_READY == 'reviewers-v1'
     runs-on: ubuntu-24.04

@@ -171,7 +171,7 @@ class ReleaseTests(unittest.TestCase):
                     patch.object(release.release_checks.native_evidence, "read", return_value={"schema_version": 1}), \
                     patch.object(update_protocol, "verify"), patch.object(release, "run", side_effect=command), \
                     patch.object(release, "github", side_effect=api), \
-                    patch.object(release, "find_release", side_effect=[None, remote]):
+                    patch.object(release, "find_release", side_effect=[None, remote]), patch("builtins.print"):
                 release.publish(folder, notes)
             creation = [c for c in commands if c[:3] == ["gh", "release", "create"]]
             self.assertEqual(len(creation), 1)
