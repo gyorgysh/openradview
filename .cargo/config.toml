@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Keep local checks, native builds and manual CI on the same Apple deployment
+# floor, avoiding rebuilds caused by changing this value between commands.
+# It is ignored by non-Apple targets; an explicit developer environment wins.
+[env]
+MACOSX_DEPLOYMENT_TARGET = "13.0"

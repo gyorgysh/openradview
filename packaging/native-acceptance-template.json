@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target": "REPLACE_WITH_EXACT_TARGET",
+  "version": "REPLACE_WITH_VERSION",
+  "source_revision": "REPLACE_WITH_FULL_COMMIT",
+  "archive_sha256": "REPLACE_WITH_FINAL_ARCHIVE_SHA256",
+  "checks": {
+    "format": false,
+    "clippy": false,
+    "default_tests": false,
+    "full_tests": false,
+    "native_gpu": false,
+    "file_folder_zip": false,
+    "large_study_cancel": false,
+    "navigation_resize": false,
+    "accessibility": false,
+    "labels_export": false,
+    "consent_revoke": false,
+    "unsaved_close": false,
+    "update_roundtrip": false
+  },
+  "evidence": "Replace with links to reviewed records for this exact artifact. This template is not an acceptance result."
+}

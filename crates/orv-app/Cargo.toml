@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "orv-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+default-run = "openradview"
+
+[features]
+gpu-tests = []
+updates = ["dep:orv-updates"]
+qa = []
+mcp = ["dep:orv-mcp", "dep:orv-agents", "dep:pollster"]
+
+[[bin]]
+name = "openradview"
+path = "src/main.rs"
+
+[dependencies]
+orv-core.workspace = true
+orv-render.workspace = true
+eframe.workspace = true
+image.workspace = true
+rfd.workspace = true
+orv-updates = { workspace = true, optional = true }
+orv-mcp = { workspace = true, optional = true }
+orv-agents = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+serde_json.workspace = true
+
+[dev-dependencies]
+dicom-object.workspace = true
+dicom-core = "=0.10.0"
+base64.workspace = true
+pollster.workspace = true
+tokio.workspace = true
+tempfile = "=3.27.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSAccessibility"] }
+
+[lints]
+workspace = true

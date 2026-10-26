@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Manual native checks
+on:
+  workflow_dispatch:
+    inputs:
+      cross_platform:
+        description: Also build Linux and Windows (uses additional CI minutes)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: native-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: ${{ fromJSON(inputs.cross_platform && '["macos-15","ubuntu-24.04","windows-2025"]' || '["macos-15"]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux native dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libvulkan1 mesa-vulkan-drivers
+      - name: Toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: orv-native-${{ runner.os }}
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.149
+      - name: Tests
+        run: cargo nextest run --locked --workspace
+      - name: Build native application
+        run: cargo build --locked --workspace

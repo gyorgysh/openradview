@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Approved macOS release draft
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type SIGN AND DRAFT to authorize the build, Apple submissions and private draft upload
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  draft:
+    # Owner setup arms this only after checking the environment and secrets.
+    # Private: owner dispatch only. Public: real environment reviewer gate.
+    # An absent/mismatched flag allocates no runner, including on tag pushes.
+    if: >-
+      github.repository == 'gyorgysh/openradview' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      ((github.event.repository.private && github.event_name == 'workflow_dispatch' &&
+        github.actor_id == '295578481' && inputs.confirm == 'SIGN AND DRAFT' &&
+        vars.ORV_RELEASE_APPROVAL_READY == 'manual-private-v1') ||
+       (!github.event.repository.private && vars.ORV_RELEASE_APPROVAL_READY == 'reviewers-v1'))
+    environment: release
+    runs-on: macos-26
+    timeout-minutes: 55
+    permissions:
+      contents: write
+      actions: read
+    env:
+      CARGO_TERM_COLOR: always
+      ORV_RELEASE_APPROVAL_READY: ${{ vars.ORV_RELEASE_APPROVAL_READY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.13'
+      - name: Check approved environment, immutable repository and exact source tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/release-policy.py --source
+      - name: Pinned Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: orv-native-${{ runner.os }}
+          # Tag caches cannot seed future tags. Restore manual-check caches only.
+          save-if: false
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+        with:
+          tool: cargo-nextest@0.9.149
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Local-equivalent non-GPU checks and release compilation
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --workspace --all-targets --features orv-app/mcp,orv-app/updates -- -D warnings
+          cargo nextest run --locked --workspace --features orv-app/mcp,orv-app/updates
+          cargo build --locked --release -p orv-app -p orv-mcp --bins --features orv-app/mcp,orv-app/updates
+          python3 -m unittest discover -s scripts/macos -p 'test_*.py'
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+          node --test scripts/ci/sign-manifest.test.mjs
+      - name: Hash-pinned installer tooling
+        run: |
+          python3 -m venv target/dmgbuild-venv
+          target/dmgbuild-venv/bin/pip install --disable-pip-version-check --require-hashes -r packaging/macos/installer/requirements.txt
+      - name: Sign, notarize and create a private draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          UPDATER_ED25519_PRIVATE_KEY: ${{ secrets.UPDATER_ED25519_PRIVATE_KEY }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: target/dmgbuild-venv/bin/python scripts/ci/build-release.py
+      - name: Preserve only nonsecret submission records if a job fails
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: notarization-records-${{ github.run_id }}
+          path: |
+            dist/notarization-submission.json
+            dist/notarization-log.json
+            dist/dmg-notarization-submission.json
+            dist/dmg-notarization-log.json
+          if-no-files-found: ignore
+          retention-days: 7

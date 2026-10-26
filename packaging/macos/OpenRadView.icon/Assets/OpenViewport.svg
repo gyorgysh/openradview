@@ -1,0 +1,10 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Supplied Open Viewport geometry, centred on an unmasked Icon Composer canvas. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g transform="translate(192 192) scale(10)">
+    <path d="M42 7H7V57H57V22" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linejoin="miter"/>
+    <path d="M30 14H50V34H44V20H30Z" fill="#6B6B6B"/>
+    <path d="M22 22H42V42H36V28H22Z" fill="#B3B3B3"/>
+    <path d="M14 30H34V50H14Z" fill="#FFFFFF"/>
+  </g>
+</svg>

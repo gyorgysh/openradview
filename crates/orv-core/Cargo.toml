@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "orv-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+schema = ["dep:schemars"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+schemars = { workspace = true, optional = true }
+moxcms = { version = "=0.8.1", default-features = false }
+dicom-core = "=0.10.0"
+dicom-parser = "=0.10.0"
+dicom-encoding = "=0.10.0"
+dicom-transfer-syntax-registry = { version = "=0.10.0", default-features = false }
+dicom-object.workspace = true
+dicom-pixeldata.workspace = true
+zip.workspace = true
+flate2 = { version = "=1.1.10", default-features = false, features = ["zlib-rs"] }
+
+[dev-dependencies]
+jpeg2k = { version = "=0.10.1", default-features = false, features = ["openjpeg-sys"] }
+charls = { version = "=0.4.2", features = ["static"] }
+crc32fast = "=1.5.3"
+
+[lints]
+workspace = true

@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "charls-sys",
+      "version": "2.4.5",
+      "path": "charls-sys",
+      "wrapper": {
+        "registry_url": "https://crates.io/api/v1/crates/charls-sys/2.4.5/download",
+        "registry_sha256": "28bd4cd0583158019ce942b42ec9b4200462199e65c76cd3be5df5322d3a159b"
+      },
+      "native": {
+        "name": "CharLS",
+        "version": "2.4.5",
+        "repository": "https://github.com/team-charls/charls",
+        "revision": "14b654dff1efed4d04e278ff3e99f0a486cf20cc"
+      },
+      "changes": [
+        "Replace bundled CharLS 2.4.2 with unmodified upstream 2.4.5 src/include/CMakeLists/license; omit unused tests, samples and data.",
+        "Add native source rerun-if-changed and MIT SPDX to wrapper build.rs."
+      ],
+      "files": {
+        "Cargo.toml": "0c4402fed2dbe2d13d53922ca55f4253214ec122514fd6d66c9cf6be65c66731",
+        "LICENSE.md": "b2c06a33544de153d64c76ad9f2cb69c61224815aecde5fe4bc4de676595e2a5",
+        "README.md": "47d61907e4107a7556fe62beffb3f03a14e079e02b7feb2c133caa8a1060f142",
+        "build.rs": "08ac892cbe96792fba3a2c37f51f45bdbb6cb8993fbc35dfd6c0ff6daa50e5f8",
+        "charls/CMakeLists.txt": "ea6bdce0c280bb7bc8930747a4aa0e2f00dc57d06b03f0a3ef0658bbd9af5ec3",
+        "charls/LICENSE.md": "e293ccc327ee42f4e723e73aac39b23ffc40655cc6f8baec5c046f2e7d093695",
+        "charls/include/charls/annotations.h": "62da77247d47c362ab54cd3fa92cddd4f2756a9fd052fb83d35d21d9de02761d",
+        "charls/include/charls/api_abi.h": "52f8a26a0bc8be37a4024fc9e4b74c813956ba4fa1cf73938682fc155afafb01",
+        "charls/include/charls/charls.h": "f32a46ded3e291a557458b6ac7a38fdc9411bbb07041d711ac12bcd7abf18ad5",
+        "charls/include/charls/charls_jpegls_decoder.h": "d50fa466c82cb7b98b7b3ed8c904b0379018e5540fe03ce676f4ac8bb4766aef",
+        "charls/include/charls/charls_jpegls_encoder.h": "e9d88b84d442311ac31709b9dee2bca2da6a447fa4c72c8560b5fa2b9d7ac0b2",
+        "charls/include/charls/jpegls_error.h": "af2b59269ca18fbe7b08688471ccc3f3af2a559bf919b4e5a431cfa39b106197",
+        "charls/include/charls/public_types.h": "9fc2df27de5f90ff80b08fdbca72136b857af94f984976070dc8535ad88f7d18",
+        "charls/include/charls/validate_spiff_header.h": "88ff486b8a3c8e6b7aaaad1ffb96b47e640fd7a5b86572a703a51b20be0e2980",
+        "charls/include/charls/version.h": "e6c8556cb084ae8b8f90d112d030ec660a8a2722a6239659036852068a1cced1",
+        "charls/src/CMakeLists.txt": "04aab5466d37b740b383a0a3828b6f7f6b815f18359c2458ec831d6325203097",
+        "charls/src/CharLS.vcxproj": "754b21d13680c66fd8dddbf7ff1d4f76bb33559fb7ecfc4022354f44f09012f3",
+        "charls/src/CharLS.vcxproj.filters": "7dc507cd1e9a70a85db9085ed65260b2317576bafd5bdfd2b72536978d169b7c",
+        "charls/src/byte_span.h": "4e62306e942aa1782cbbf4de5428dd7426dcf33c9ef522f95f57c9c275c2e04d",
+        "charls/src/charls-template.pc": "be48c6b22aba2426e60111137cd560f82e373477668f141d20c7cfc9a2060601",
+        "charls/src/charls.def": "ff767ec9004e5b3fb10cb70301eac9dca4b0c5adf33323e875729d4e6c17b2cb",
+        "charls/src/charls.rc": "7a434be4a51c175203a240a704fe41c3ea16c891edc33aaf9d4633039798f478",
+        "charls/src/charls.version": "04244eadbe3cedaa74337a1f85e09681c86ef994272fc2d0356139974da5ef41",
+        "charls/src/charls_jpegls_decoder.cpp": "e44d966b8770b27bb1b8eb194ef456728c667b5648dcf857825ab9e969d8715e",
+        "charls/src/charls_jpegls_encoder.cpp": "9c420dc66efd97cdb8597868ed9e36d7cf67447ff6d87bb3b346c59a4feebeec",
+        "charls/src/coding_parameters.h": "4c291cb1f5921fe57fcf905937804dcb6c112d18b5344479550c14501bcd432a",
+        "charls/src/color_transform.h": "636e97d6c5debaa0785c34a0531ce8aea3eeb8fd3daed6243d36cea14006527d",
+        "charls/src/conditional_static_cast.h": "9ca6e7ed1ae983469d065267a71aee83dc3fcad8d7520f10ee35a606cda3644a",
+        "charls/src/constants.h": "10ba0fbcde71ea337d245557dec85a72a40a7514e3a0a8e1bc8aa1269da41056",
+        "charls/src/context_regular_mode.h": "202af82bb2393b54c37929e1103fec1043cf879b5b86bbafa7835218e72fc52c",
+        "charls/src/context_run_mode.h": "a7d87389c5fd7449d73c0b4126e3beac9878d233d4a4685f4840a3b54c165d06",
+        "charls/src/decoder_strategy.h": "653c784c18f4d29fa60eba88e5dfe166dc41626b9626a919294cb61f20a89a48",
+        "charls/src/default_traits.h": "9505da0eb643d38e4873affba0a6de4a3ca4edb97bd509abea1f4681e78ace9e",
+        "charls/src/design/JpegStream.cd": "3c1fa88ae7c5ff26ea86eba62179e5c5fd5d08069c87dd14994d13e8931633ad",
+        "charls/src/design/Strategy.cd": "cee26c6a6c6b2ecdfa8e7002c27618854998f218809cba4751a7d949cd7fa631",
+        "charls/src/encoder_strategy.h": "8919c6b1dd9e2f8fb27c3d1d61c1fb92711fba62490273fa03ab536c64860808",
+        "charls/src/jls_codec_factory.h": "b169165d3d074dd4019dc345c58e0fbe3f858613f11e45128667a801db99c7ce",
+        "charls/src/jpeg_marker_code.h": "7061f61a35a76b2ba18af9835b1eb36a75e3d064ae0ae71987b3a1cfd1a822f4",
+        "charls/src/jpeg_stream_reader.cpp": "a2908aeaee7c911b44530a0df00f1a147134597fedc7d3f9cd5f3b79e6bf21f1",
+        "charls/src/jpeg_stream_reader.h": "401b4797fdedda372c33740bc3c2a5068b2f02081345ec1217cc1aed6fe30e25",
+        "charls/src/jpeg_stream_writer.cpp": "7ac3635e561e75b2262f3e2430509f4645286282d430d13859c1a63f998cdbd0",
+        "charls/src/jpeg_stream_writer.h": "5abaad6b4e2b93ba6b9af0d5eb59dd1ebfc257cef30088220b64887b79b3670c",
+        "charls/src/jpegls.cpp": "e8494110d6bc74c007372871223bd5c0783447ab83bfbdb33ef4099c368f2878",
+        "charls/src/jpegls_error.cpp": "b84a9c6f4a4b92370100aafb44c6c26f2c26c2205a13c39a8a4e255e6d36c45f",
+        "charls/src/jpegls_preset_coding_parameters.h": "426e5b6363cf6ec53fef5f72a0e49706fd457faac4410c37360ac11832d982fb",
+        "charls/src/jpegls_preset_parameters_type.h": "7284ea4eccf6b07ec1220a930465448da33dcaa7a8a37cc86ad67fcc90c93528",
+        "charls/src/lookup_table.h": "be4eb86aba79e57112ef7651bc770d55d73001802785171fe0458c6f2f28c79b",
+        "charls/src/lossless_traits.h": "188ee9d250595276b7c40d14fdb00a8b9fbf2dc0ec9716c0d08b94b5d5476c50",
+        "charls/src/process_line.h": "e1d4210020650e3040e587fe33eafd732bcbf36b65e1fd11e5d1c29bb5d54412",
+        "charls/src/scan.h": "013f9a23d2a0e85ad93569211bb40b0e6558ed15bd3bd6d24edccc6c7af8bd1d",
+        "charls/src/util.h": "261510b106f8de8d95203d5a77a38fbd4cf56220d3cc541695c94d57eca5851e",
+        "charls/src/validate_spiff_header.cpp": "ce7b04e635c09b37420f09b7a01c60c07fd91895dc2d78db5d0a46ed8740a543",
+        "charls/src/version.cpp": "c8e7c1af868f8da71d7f563832b458314bb24dcae80584456ac372742f6860f8",
+        "src/bindings.rs": "f72d7148d1e2521acfcd8aa2f71a1981903d2ef5942642e03b27c3f215ea0cd0",
+        "src/lib.rs": "f5a5bd7df980878abf83bef95d574b4a8af6225f4b3fa3ffaaaf29f9ace0717b",
+        "wrapper.h": "98e4c8fb8c0ebb60b06e7631ce773f339c265b038b1038938f20f6a7211cc2f9"
+      }
+    },
+    {
+      "name": "openjpeg-sys",
+      "version": "1.0.12",
+      "path": "openjpeg-sys",
+      "wrapper": {
+        "registry_url": "https://crates.io/api/v1/crates/openjpeg-sys/1.0.12/download",
+        "registry_sha256": "92682cb92e7b01e2c020cf8ec12f3374558924bb24621df1112d8a7c93d419ef"
+      },
+      "changes": [
+        "Replace native 2.5.3 with 2.5.4 and recorded decoder patches; omit unused tools/JPIP/tests.",
+        "Skip empty bands before precinct bounds check; preserve MCT source array until retargeted.",
+        "Update native and Rust version constants; watch native/config sources."
+      ],
+      "files": {
+        "Cargo.toml": "ccbe1df8953d906a8f8113d2ce84ebc838cdad3a7fec2dc26069e950ea3a2e08",
+        "README.md": "120cf23a4467e8404fdc605f2a2417f74cb676bcfd98dd75d8dd6ff0f557b91f",
+        "build.rs": "a5c361e5a9516d8645655b5c76428e25b83deb2dd47eb382e5e314563ca9f4cd",
+        "config/opj_config.h": "0741372295b484c2bb8b884c2f73232d764fa4c5500e973a9a09adeb7ec6422d",
+        "config/opj_config_private.h": "a1d725f71e67338de81a27b1a283eee90190690a31db495487423c9e0c78f0d5",
+        "patches/openjpeg-pr-1624.patch": "46cced81abca89918b49f9642cee7a3b0695dabd306beb49e65074f470f6f5f7",
+        "patches/openjpeg-pr-1661.patch": "c39ea3a18c2e713da446304e68685363cb8890fa75fdd868609fb23df393dab9",
+        "patches/openjpeg-pr-1662.patch": "e8d7312c7a195288f60558ddead24ad30061aa78ddff92f333efe0afecd8868f",
+        "patches/openjpeg-sod-bounds.patch": "08c155ce12887dfc61e83b5d658fb93e6e02fcee4c67e6b8dd2541f37a05fccf",
+        "patches/openradview-empty-band-mct.patch": "731a4295d5f56ac9a03d647d19b0def501ef090d167b0d9752d6149023dbb229",
+        "patches/upstream-warning-6d52531.patch": "8eaf8aff043925524051eff14c4f081daab1907ce5f630fe0d29b4f7d40bc62e",
+        "patches/upstream-warning-6f31fc6.patch": "adc2cf06a9213c5c0f49cea28e5e8f34f80302e9889852e95a78eafe505560bd",
+        "patches/upstream-warning-94f4293.patch": "501c97932f6d08968e58c5d95ef3d4fc94ffb312d373deefce239fb62a1862e4",
+        "patches/upstream-warning-a6ec867.patch": "b9679a701a9ee3a0cbbfc6ea2720e2775d51461b7227da16fbb229bc4b19d5b2",
+        "src/ffi.rs": "e756f1ea2f51bd568026cfd57e192099c4d32125cd037252454ab26ece65daac",
+        "src/lib.rs": "cccf2bf3dc42fb9cac5e53e28bf0fd8589b9a9b1f4d7393735058a87d8a779d5",
+        "vendor/LICENSE": "a6af136f3e15038a666b61f376612a07d9a4e48cb7c01adbf3e33b3f14ab49b6",
+        "vendor/src/lib/openjp2/CMakeLists.txt": "65d2ab3a0651e85c4d0d724c36ea9b6fcf1ceccd2ffdb7658502a72266fd28c1",
+        "vendor/src/lib/openjp2/bench_dwt.c": "86e31278dc29840b08c34ebb2fa915fdc27abcbe468078f3386ce21ecbdf0158",
+        "vendor/src/lib/openjp2/bio.c": "eab2df6d857ce33b73b9dde04c18e4b5906fa50064a1511b370104583f23e110",
+        "vendor/src/lib/openjp2/bio.h": "25a12f4ad6b8cb68819094d0d671f431a34843e34d6358c495b18c9ee3b786a9",
+        "vendor/src/lib/openjp2/cidx_manager.c": "a79245f742bbdb67e057a3c73c809bd9fd66523e5ef8b84d5fc298a1d532e306",
+        "vendor/src/lib/openjp2/cidx_manager.h": "a042f133118342cab678f32d1fabc855033b52495e463c8f300940e7ddaaaf14",
+        "vendor/src/lib/openjp2/cio.c": "5a70f55f8b655f06af55f4750a69a41d12cd813dffd9a6d3f103c28b4dc63b3e",
+        "vendor/src/lib/openjp2/cio.h": "91c84cc511735466e880b30b06c1d5c858e136e876c34fc325be39cc6457c5d7",
+        "vendor/src/lib/openjp2/dwt.c": "2aaea513c0c84922e7488f3556525e6f6538f5ca9e6cf77d8db525768559aef8",
+        "vendor/src/lib/openjp2/dwt.h": "5b2efbadc57042cf9c1865d87f0d2c46712003bb67bb059f41ed073fc8e9407c",
+        "vendor/src/lib/openjp2/event.c": "6af6dad4e683c22d7ba67159a4e644fee029aea4ec1aa4c4dca754f1b950378e",
+        "vendor/src/lib/openjp2/event.h": "3e451c164a8ad9b4bc58b1f0cf321388764b494c66c4ed20d7d196247a397c26",
+        "vendor/src/lib/openjp2/function_list.c": "4e1888dd7c21911b2baf954ad9cab498433ac37e4cb1ce39220904ae80455869",
+        "vendor/src/lib/openjp2/function_list.h": "df25ddfab444d485eabd9da4fdd6843b6b6d5f61b7513438c6d497a4b1e5817b",
+        "vendor/src/lib/openjp2/ht_dec.c": "7a5c66ddd5c9c159368230397c9e762d75bff399df6d59022b1a30ea9671c4e1",
+        "vendor/src/lib/openjp2/image.c": "d8cc7e7dd380aa39e8aeebea8bee62790d0fe4f02472eb7cc0e0617fc657ecd9",
+        "vendor/src/lib/openjp2/image.h": "3890c9fa361ebee6e276b56e25b80f44145516b6d15fa1655d8588b1da4fad1e",
+        "vendor/src/lib/openjp2/indexbox_manager.h": "c85cfa0feca00d01bb0bc2619199917a08717c5536d581724f4560a403b8a137",
+        "vendor/src/lib/openjp2/invert.c": "387fd5e2b3446b6caf3e29cec51713c0f698c086dca695b67a432e774930197a",
+        "vendor/src/lib/openjp2/invert.h": "52980bf14becaf7189e367e87c87f9f7c4bc0ddcc7bf4939237788332aca9830",
+        "vendor/src/lib/openjp2/j2k.c": "4a87daa99a47a91067535c481deb6aae22be2fbd4e71cee436dcf6895aac51fe",
+        "vendor/src/lib/openjp2/j2k.h": "9fc3343f01f6ce7998c001b44a324230a20664e9d27709bc1582d1aa6eddc5c0",
+        "vendor/src/lib/openjp2/jp2.c": "45211ee54d24e05f857acc960712fc3acd1655963e6ae12062a2de1075a6777e",
+        "vendor/src/lib/openjp2/jp2.h": "7ba31d730591a7a6465ced2d62f5b50a2abca4cefc4077be248ec875d67e7bda",
+        "vendor/src/lib/openjp2/libopenjp2.pc.cmake.in": "f293c27cedbcf7a36df37dd36bedf08e01c41324b92ed443559b0f331ec75a4a",
+        "vendor/src/lib/openjp2/mct.c": "d19ec7420ffa852d3ce823a36349979348b2287d3e5fd66ff74cffa12960a3bf",
+        "vendor/src/lib/openjp2/mct.h": "274ba52a3638998b1714fac81b8e2238199bffd5bb1d2604f6b8f1ab8ec6e1a2",
+        "vendor/src/lib/openjp2/mqc.c": "dedbcc4705cdf712fd50a7bc59df8f32a7a05c29df930504f80b2704fbdce3fe",
+        "vendor/src/lib/openjp2/mqc.h": "564c073098ba0d036d8af9d1c0ac1bebb2e63423b01c18fb63046dec0ee64a3d",
+        "vendor/src/lib/openjp2/mqc_inl.h": "4d94976da5d5063b96c86bf40c51a81d9ddc1746cd397e670c38def4d4ae5d0f",
+        "vendor/src/lib/openjp2/openjpeg.c": "88e5154fbd83966adaa430ab51af989095d96bf862f1d56f04b65399d3dc522a",
+        "vendor/src/lib/openjp2/openjpeg.h": "25a71f3c7eee8e090650b151cc7fcf5b967075d3a93596796fe941f7f222103e",
+        "vendor/src/lib/openjp2/opj_clock.c": "426f6681f19fc1ea061d31137da7cdb906508775bf8db628a3e471f920d3b95c",
+        "vendor/src/lib/openjp2/opj_clock.h": "43ac54b84019c391d14b29f1a22e4ca095b3451a6e27a4b897231d391371e9b9",
+        "vendor/src/lib/openjp2/opj_codec.h": "f5451538219c6f2fcef7ff817c802f57eb64e7e409ff4dc56876316e31cf5d38",
+        "vendor/src/lib/openjp2/opj_common.h": "1b2b8fb706888c37bbef7d3854fad71321c1e2d12701f318aca8892bc36bcbcc",
+        "vendor/src/lib/openjp2/opj_config.h.cmake.in": "5531108212d5d2074b74f7f2471e92d2f43a206c11421e9e04b483a1fd17e31c",
+        "vendor/src/lib/openjp2/opj_config_private.h.cmake.in": "b380f7c2fcfcc9be666f1c7804f97ba0e33e9ceb035ce9ccc162c577a6d752a6",
+        "vendor/src/lib/openjp2/opj_includes.h": "5800ff257eb62e0f5100b915b7e1ececc42702f270b3dfd1c138080ef124bca0",
+        "vendor/src/lib/openjp2/opj_intmath.h": "d8fe3e8b08059835705941dcf9cf763ca55fbae9178421f36ea1214ee3b4eebb",
+        "vendor/src/lib/openjp2/opj_malloc.c": "774d07a811c71b096950d218138d3d2788a87462ccb8e2b5f10d6de411717929",
+        "vendor/src/lib/openjp2/opj_malloc.h": "0f376f3c19215395416d25548f212f03abe56a7362cd9461e7200826ab84aa41",
+        "vendor/src/lib/openjp2/phix_manager.c": "b3dc924692cd361b783a8c266fc3bdbe881f670bd5f5bb1013df218b6518cd23",
+        "vendor/src/lib/openjp2/pi.c": "e12aa165a83f05e67e49316fbe084ca1ec99b04ff6815981515f25eac7c099b2",
+        "vendor/src/lib/openjp2/pi.h": "d6fb17dafb0ed68fa9f771df3f7ba45d741a82cdeb6e67c2d00398fd75ab5286",
+        "vendor/src/lib/openjp2/ppix_manager.c": "b2f8587377fa7d810cb02bfc5a2b788f020355bc0552a521307c5de00bb8eec9",
+        "vendor/src/lib/openjp2/sparse_array.c": "5159bf88dd47abcf73425b478821431183241557c92ce870809e95cb37697a13",
+        "vendor/src/lib/openjp2/sparse_array.h": "14a2b65c50e9bf1a2e0dbe821edcc1c7a3129021897160485f30d261f02eb3ff",
+        "vendor/src/lib/openjp2/t1.c": "69781f19af1c905fa0c0ae245803145c0047fcb1432e370a52d0e0b0e5b2d7b0",
+        "vendor/src/lib/openjp2/t1.h": "e4e7ad9ffc4c1334526c44384947dd01a7cb4d7e4cb63837e0fcc776c8c29f88",
+        "vendor/src/lib/openjp2/t1_generate_luts.c": "c31a1be28c47b9ef37860a9d6319dcd8eb76fa4ae31e3ed103e8263816e92f6c",
+        "vendor/src/lib/openjp2/t1_ht_generate_luts.c": "6bc6dd8e6e63a2a023a07ba033c6f3d5d76d2d073a8767c5df76ed3596ea82ea",
+        "vendor/src/lib/openjp2/t1_ht_luts.h": "5988bb6f3da45c4db3f233db782b24b18951f37e38b326c83beb350587e7928e",
+        "vendor/src/lib/openjp2/t1_luts.h": "1c6cd64611fc56641e7f48ae0575808e0ed135b845cd4806f6e7f47d7bbf7c79",
+        "vendor/src/lib/openjp2/t2.c": "6edbb662ab65372b2b90be161883fef80c9459cdf7a24b20587690f549b84045",
+        "vendor/src/lib/openjp2/t2.h": "3f9937680969cbb406373061246cf45e045ec81028b4f4db7e000fb3b54c0663",
+        "vendor/src/lib/openjp2/tcd.c": "0aa701d003b293649e71f7d5d432630af6dc72fd5538bc77e1f2240f8bb5c13a",
+        "vendor/src/lib/openjp2/tcd.h": "b694dd954f7f14f5f98323144ca486b450d51248010b6432d88a30d997c3df45",
+        "vendor/src/lib/openjp2/test_sparse_array.c": "e9a84b7b65a48f6d6f23193a0c464532a2b896ee599cdb5cacbddd3fb0dc6837",
+        "vendor/src/lib/openjp2/tgt.c": "df13b7632362da3e096f5f4103d92a4a92e6ba602f020f0d8ad10918bfcd8ec7",
+        "vendor/src/lib/openjp2/tgt.h": "24ecd11aa6a66a0e0b57c1ecb73229a5b05fab3c9199350a394d903e921907e7",
+        "vendor/src/lib/openjp2/thix_manager.c": "63072d557c294bf93cc8e7be82d9415af241303adc1ce5d3c0a867828baf517a",
+        "vendor/src/lib/openjp2/thread.c": "a801cc656c232ed6f3d3d8be0bae21b3c89389d0bf03613b5de483c692916b01",
+        "vendor/src/lib/openjp2/thread.h": "cce16c74c4906d3fdf4422f27484b580cf7e80ade7c1ec67db0eccf1ff3944c7",
+        "vendor/src/lib/openjp2/tls_keys.h": "95d63265be9028bd394ca4188d31373a4c1fb611f6db53ca28d956a15b527054",
+        "vendor/src/lib/openjp2/tpix_manager.c": "42b69c8b32f7d9476535d4c1832b6e417e2a0958fc537a7b57d8462298e5056d"
+      },
+      "native": {
+        "name": "OpenJPEG",
+        "version": "2.5.4 with reviewed decoder patches",
+        "repository": "https://github.com/uclouvain/openjpeg",
+        "revision": "6c4a29b00211eb0430fa0e5e890f1ce5c80f409f",
+        "patches": [
+          {
+            "name": "openjpeg-sod-bounds",
+            "revision": "d33cbecc148d3affcdf403211fddc2cc5d442379",
+            "source": "https://github.com/uclouvain/openjpeg/commit/d33cbecc148d3affcdf403211fddc2cc5d442379",
+            "sha256": "08c155ce12887dfc61e83b5d658fb93e6e02fcee4c67e6b8dd2541f37a05fccf"
+          },
+          {
+            "name": "openjpeg-pr-1624",
+            "revision": "e987f678105dd5e70334d7870852568675d5c11f",
+            "source": "https://github.com/uclouvain/openjpeg/pull/1624",
+            "sha256": "46cced81abca89918b49f9642cee7a3b0695dabd306beb49e65074f470f6f5f7"
+          },
+          {
+            "name": "openjpeg-pr-1661",
+            "revision": "d6ce0604d4c78ef5ea454be7c2b05e37916c0708",
+            "source": "https://github.com/uclouvain/openjpeg/pull/1661",
+            "sha256": "c39ea3a18c2e713da446304e68685363cb8890fa75fdd868609fb23df393dab9"
+          },
+          {
+            "name": "openjpeg-pr-1662",
+            "revision": "8e4113679322c1ee9955a1b0b1df3c733ae80530",
+            "source": "https://github.com/uclouvain/openjpeg/pull/1662",
+            "sha256": "e8d7312c7a195288f60558ddead24ad30061aa78ddff92f333efe0afecd8868f"
+          },
+          {
+            "name": "openradview-empty-band-mct",
+            "source": "Local BSD-2-Clause adaptation of the recorded decoder source",
+            "sha256": "731a4295d5f56ac9a03d647d19b0def501ef090d167b0d9752d6149023dbb229"
+          },
+          {
+            "name": "upstream-warning-6f31fc6",
+            "source": "https://github.com/uclouvain/openjpeg/commit/6f31fc6fcdd2fea562e12d58a416aeafd11de0f9",
+            "revision": "6f31fc6fcdd2fea562e12d58a416aeafd11de0f9",
+            "sha256": "adc2cf06a9213c5c0f49cea28e5e8f34f80302e9889852e95a78eafe505560bd"
+          },
+          {
+            "name": "upstream-warning-94f4293",
+            "source": "https://github.com/uclouvain/openjpeg/commit/94f42939bbc946b0cfc5d30a3d731cfba8a175de",
+            "revision": "94f42939bbc946b0cfc5d30a3d731cfba8a175de",
+            "sha256": "501c97932f6d08968e58c5d95ef3d4fc94ffb312d373deefce239fb62a1862e4"
+          },
+          {
+            "name": "upstream-warning-6d52531",
+            "source": "https://github.com/uclouvain/openjpeg/commit/6d52531cd2499af44846bbfb1ce561a2c64addee",
+            "revision": "6d52531cd2499af44846bbfb1ce561a2c64addee",
+            "sha256": "8eaf8aff043925524051eff14c4f081daab1907ce5f630fe0d29b4f7d40bc62e"
+          },
+          {
+            "name": "upstream-warning-a6ec867",
+            "source": "https://github.com/uclouvain/openjpeg/commit/a6ec867c712799e93f4e94705c6b654c1b62d97d",
+            "revision": "a6ec867c712799e93f4e94705c6b654c1b62d97d",
+            "sha256": "b9679a701a9ee3a0cbbfc6ea2720e2775d51461b7227da16fbb229bc4b19d5b2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "jpeg2k",
+      "version": "0.10.1",
+      "path": "jpeg2k",
+      "wrapper": {
+        "registry_url": "https://crates.io/api/v1/crates/jpeg2k/0.10.1/download",
+        "registry_sha256": "be2982db6b9f254c9df44d89bcfdc758924d538f576d9649f5b10008150f2a60"
+      },
+      "changes": [
+        "Enable native strict-mode call with openjpeg-sys; default strict=true for complete local codestreams.",
+        "Replace deprecated u32 minimum constant; narrowly mark file-only opaque encoding parameters when file-io is disabled."
+      ],
+      "files": {
+        "Cargo.toml": "75b919951cd0a1560f3ea3c31c2432de45d20073e9f449d028bb4a97d6d26588",
+        "LICENSE": "99a0f6a15b0d29bcc15432d3a986be42a539a858741d5747ddf5ec2d15af1ed8",
+        "README.md": "d8d25c2623b73a41214ef3fe22aeda6bbb4921dc93bfef24af5c455dec07c7e3",
+        "rustfmt.toml": "c2a9fc06d212b80af60bab2bbf1fa86f92e35c6088fef5cbe263c9eebea5da40",
+        "src/codec.rs": "e199326ed083917b08da955a8cd6b97c6aa323dc34dd28e50173ab17e3e54baf",
+        "src/dump.rs": "bb01fffdbb364481a8ffe76e2b18f168617ac559a3926c619392474f272e0f72",
+        "src/error.rs": "8f95484f3bc902b6c5f6b6e4c2876a2837700c13b7733864fc7bf2cc0f63316e",
+        "src/format.rs": "fc2619ee188c44c93ad428e983164dd478c7a4e7477a780d5815e54a24db209d",
+        "src/j2k_image.rs": "daf55e46258a2b073b565dda0b9149b51435d688e8d0bfa69fa214d34166bc1f",
+        "src/lib.rs": "efc1f1d2b0f186b9bea88462538e3c90f0638ca3d47baf151a2fb2651cf88fdd",
+        "src/stream.rs": "b487f14118c1c3a6086deaa896957a62e04e97e496c5d6cab5f24260e04ba9b4"
+      }
+    }
+  ]
+}

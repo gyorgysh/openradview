@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[workspace]
+members = ["crates/orv-core", "crates/orv-render", "crates/orv-app", "crates/orv-mcp", "crates/orv-agents", "crates/orv-updates"]
+exclude = ["vendor/charls-sys", "vendor/openjpeg-sys", "vendor/jpeg2k"]
+default-members = ["crates/orv-app"]
+resolver = "3"
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/gyorgysh/openradview"
+
+[workspace.dependencies]
+orv-core = { path = "crates/orv-core", version = "=1.0.0" }
+orv-render = { path = "crates/orv-render", version = "=1.0.0" }
+orv-mcp = { path = "crates/orv-mcp", version = "=1.0.0" }
+orv-agents = { path = "crates/orv-agents", version = "=1.0.0" }
+orv-updates = { path = "crates/orv-updates", version = "=1.0.0" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.145", features = ["float_roundtrip"] }
+sha2 = "=0.11.1"
+eframe = { version = "=0.36.2", default-features = false, features = ["wgpu_no_default_features", "x11", "wayland", "accesskit"] }
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "dx12", "vulkan", "wgsl"] }
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+dicom-object = "=0.10.0"
+dicom-pixeldata = { version = "=0.10.0", default-features = false, features = ["jpeg", "rle", "openjpeg-sys", "charls", "deflate"] }
+zip = { version = "=9.1.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal", "wayland"] }
+pollster = "=1.0.1"
+bytemuck = "=1.25.2"
+rmcp = { version = "=3.7.0", default-features = false, features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "json"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-std", "io-util"] }
+tokio-util = "=0.7.18"
+base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
+getrandom = "=0.4.3"
+subtle = "=2.6.1"
+zeroize = "=1.9.1"
+schemars = "=1.2.3"
+reqwest = { version = "=0.13.5", default-features = false, features = ["json"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# Keep native caches small while preserving file/line backtraces.
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.test]
+debug = "line-tables-only"
+incremental = false
+
+[profile.release]
+lto = "thin"
+strip = "debuginfo"
+
+# Keep native image interaction representative in development builds.
+# The shell retains fast debug builds; only the CPU image engine is optimized.
+[profile.dev.package.orv-core]
+opt-level = 2
+
+[profile.test.package.orv-core]
+opt-level = 2
+
+[patch.crates-io]
+charls-sys = { path = "vendor/charls-sys" }
+openjpeg-sys = { path = "vendor/openjpeg-sys" }
+jpeg2k = { path = "vendor/jpeg2k" }

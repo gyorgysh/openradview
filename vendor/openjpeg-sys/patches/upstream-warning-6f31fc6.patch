@@ -1,0 +1,23 @@
+diff --git a/src/lib/openjp2/mqc.c b/src/lib/openjp2/mqc.c
+index 4cbfabd..014f1f8 100644
+--- a/src/lib/openjp2/mqc.c
++++ b/src/lib/openjp2/mqc.c
+@@ -370,11 +370,6 @@ void opj_mqc_erterm_enc(opj_mqc_t *mqc)
+     }
+ }
+ 
+-static INLINE void opj_mqc_renorme(opj_mqc_t *mqc)
+-{
+-    opj_mqc_renorme_macro(mqc, mqc->a, mqc->c, mqc->ct);
+-}
+-
+ /**
+ Encode the most probable symbol
+ @param mqc MQC handle
+@@ -521,4 +516,4 @@ void opj_mqc_byteout(opj_mqc_t *mqc)
+             }
+         }
+     }
+-}
+\ No newline at end of file
++}

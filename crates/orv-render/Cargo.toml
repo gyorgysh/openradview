@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "orv-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+gpu-tests = []
+
+[[test]]
+name = "gpu_golden"
+required-features = ["gpu-tests"]
+
+[[test]]
+name = "volume_gpu"
+required-features = ["gpu-tests"]
+
+[dependencies]
+orv-core.workspace = true
+wgpu.workspace = true
+bytemuck.workspace = true
+image.workspace = true
+serde.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,61 @@
+OpenRadView public research examples
+
+These datasets retain their Creative Commons licenses, separately from the GPL
+software. Reuse for testing, demos and product screenshots requires attribution,
+license and change notices. No endorsement by the contributors, TCIA, IDC or NIH.
+
+Chest CT: NLST (80 images), CC BY 4.0
+National Lung Screening Trial Research Team. (2013). Data from the National
+Lung Screening Trial (NLST) [Data set]. The Cancer Imaging Archive.
+https://doi.org/10.7937/TCIA.HMQ8-J677
+https://www.cancerimagingarchive.net/collection/nlst/
+https://creativecommons.org/licenses/by/4.0/
+
+Breast MRI: I-SPY 1 (64 images), CC BY 3.0
+David Newitt, Nola Hylton, on behalf of the I-SPY 1 Network and ACRIN 6657 Trial
+Team. (2016). Multi-center breast DCE-MRI data and segmentations from patients
+in the I-SPY 1/ACRIN 6657 trials. The Cancer Imaging Archive.
+https://doi.org/10.7937/K9/TCIA.2016.HdHpgJLK
+https://www.cancerimagingarchive.net/collection/ispy1/
+https://creativecommons.org/licenses/by/3.0/
+Related publication: Hylton et al. (2016). Neoadjuvant Chemotherapy for Breast
+Cancer: Functional Tumor Volume by MR Imaging Predicts Recurrence-free
+Survival—Results from the ACRIN 6657/CALGB 150007 I-SPY 1 TRIAL.
+https://doi.org/10.1148/radiol.2015150013
+
+Chest X-ray: COVID-19-AR (1 image), CC BY 4.0
+Desai, S., Baghal, A., Wongsurawat, T., Al-Shukri, S., Gates, K., Farmer, P.,
+Rutherford, M., Blake, G.D., Nolan, T., Powell, T., Sexton, K., Bennett, W.,
+Prior, F. (2020). Data from Chest Imaging with Clinical and Genomic Correlates
+Representing a Rural COVID-19 Positive Population [Data set].
+The Cancer Imaging Archive. https://doi.org/10.7937/tcia.2020.py71-5978
+https://www.cancerimagingarchive.net/collection/covid-19-ar/
+https://creativecommons.org/licenses/by/4.0/
+Related publication: Desai et al. (2020). Chest imaging representing a COVID-19
+positive rural U.S. population. https://doi.org/10.1038/s41597-020-00741-6
+Acknowledgement: NCATS UL1 TR003107 and NCI Contract 75N91019D00024,
+Subcontract 20X023F.
+
+Repository acknowledgement
+Clark et al. (2013). The Cancer Imaging Archive (TCIA): maintaining and operating
+a public information repository. Journal of Digital Imaging, 26(6), 1045–1057.
+https://doi.org/10.1007/s10278-013-9622-7
+Downloaded directly from the NCI Imaging Data Commons public IDC v25 archive.
+https://portal.imaging.datacommons.cancer.gov/
+
+Changes by OpenRadView
+Only display, pixel encoding, series grouping and physical geometry tags are
+retained. Patient names/IDs, dates, institutions and private tags are omitted.
+Pixels, dimensions, source UIDs and physical geometry are unchanged. ZIPs use
+generic filenames. Exact provenance/hashes: assets/demos/manifest.json.
+Retained tags: scripts/datasets/prepare.py. No pixel redaction or resampling.
+Screenshots apply viewer window/level, resampling or projection as indicated.
+
+TCIA usage policy and downstream reuse
+https://www.cancerimagingarchive.net/data-usage-policies-and-restrictions/
+Do not try to identify or contact participants or reconstruct identifying
+representations. When redistributing images or screenshots, retain the relevant
+dataset citation, license, change notice, TCIA policy link and these reuse
+requirements. Public de-identification does not prove complete anonymity.
+Collection membership does not establish a diagnosis. Educational/research
+examples only, not for clinical decisions. No warranties.

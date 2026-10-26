@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

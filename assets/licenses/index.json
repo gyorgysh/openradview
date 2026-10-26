@@ -1,0 +1,681 @@
+{
+  "packages": {
+    "accesskit@0.24.1": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/a55d3e1a18bb9ef0e4bccc9083fb13c3e0ad8969/LICENSE-APACHE"
+        },
+        {
+          "file": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/a55d3e1a18bb9ef0e4bccc9083fb13c3e0ad8969/LICENSE-MIT"
+        },
+        {
+          "file": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308.txt",
+          "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/a55d3e1a18bb9ef0e4bccc9083fb13c3e0ad8969/LICENSE.chromium"
+        }
+      ]
+    },
+    "accesskit_atspi_common@0.18.1": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/f40dfc01a0c0e76de535969f82fb35e19513737d/LICENSE-APACHE"
+        },
+        {
+          "file": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/f40dfc01a0c0e76de535969f82fb35e19513737d/LICENSE-MIT"
+        },
+        {
+          "file": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308.txt",
+          "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/f40dfc01a0c0e76de535969f82fb35e19513737d/LICENSE.chromium"
+        }
+      ]
+    },
+    "accesskit_consumer@0.35.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/1bbcf100942bac96c2c3a4a91cb67b0b20201a24/LICENSE-APACHE"
+        },
+        {
+          "file": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/1bbcf100942bac96c2c3a4a91cb67b0b20201a24/LICENSE-MIT"
+        },
+        {
+          "file": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308.txt",
+          "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/1bbcf100942bac96c2c3a4a91cb67b0b20201a24/LICENSE.chromium"
+        }
+      ]
+    },
+    "accesskit_consumer@0.36.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/f40dfc01a0c0e76de535969f82fb35e19513737d/LICENSE-APACHE"
+        },
+        {
+          "file": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/f40dfc01a0c0e76de535969f82fb35e19513737d/LICENSE-MIT"
+        },
+        {
+          "file": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308.txt",
+          "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/f40dfc01a0c0e76de535969f82fb35e19513737d/LICENSE.chromium"
+        }
+      ]
+    },
+    "accesskit_consumer@0.38.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/c88605b96d04431f9c3c792464a0f2f253480e94/LICENSE-APACHE"
+        },
+        {
+          "file": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/c88605b96d04431f9c3c792464a0f2f253480e94/LICENSE-MIT"
+        },
+        {
+          "file": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308.txt",
+          "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/c88605b96d04431f9c3c792464a0f2f253480e94/LICENSE.chromium"
+        }
+      ]
+    },
+    "accesskit_macos@0.26.3": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/c88605b96d04431f9c3c792464a0f2f253480e94/LICENSE-APACHE"
+        },
+        {
+          "file": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/c88605b96d04431f9c3c792464a0f2f253480e94/LICENSE-MIT"
+        },
+        {
+          "file": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308.txt",
+          "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/c88605b96d04431f9c3c792464a0f2f253480e94/LICENSE.chromium"
+        }
+      ]
+    },
+    "accesskit_unix@0.21.1": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/f40dfc01a0c0e76de535969f82fb35e19513737d/LICENSE-APACHE"
+        },
+        {
+          "file": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/f40dfc01a0c0e76de535969f82fb35e19513737d/LICENSE-MIT"
+        },
+        {
+          "file": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308.txt",
+          "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/f40dfc01a0c0e76de535969f82fb35e19513737d/LICENSE.chromium"
+        }
+      ]
+    },
+    "accesskit_windows@0.32.1": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/1bbcf100942bac96c2c3a4a91cb67b0b20201a24/LICENSE-APACHE"
+        },
+        {
+          "file": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/1bbcf100942bac96c2c3a4a91cb67b0b20201a24/LICENSE-MIT"
+        },
+        {
+          "file": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308.txt",
+          "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/1bbcf100942bac96c2c3a4a91cb67b0b20201a24/LICENSE.chromium"
+        }
+      ]
+    },
+    "accesskit_winit@0.32.2": {
+      "license": "Apache-2.0",
+      "notices": [
+        {
+          "file": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/1bbcf100942bac96c2c3a4a91cb67b0b20201a24/LICENSE-APACHE"
+        },
+        {
+          "file": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/1bbcf100942bac96c2c3a4a91cb67b0b20201a24/LICENSE-MIT"
+        },
+        {
+          "file": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308.txt",
+          "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308",
+          "source": "https://raw.githubusercontent.com/AccessKit/accesskit/1bbcf100942bac96c2c3a4a91cb67b0b20201a24/LICENSE.chromium"
+        }
+      ]
+    },
+    "block2@0.5.1": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt"
+        }
+      ]
+    },
+    "block2@0.6.2": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md"
+        }
+      ]
+    },
+    "charls-sys@2.4.5": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "e293ccc327ee42f4e723e73aac39b23ffc40655cc6f8baec5c046f2e7d093695.txt",
+          "sha256": "e293ccc327ee42f4e723e73aac39b23ffc40655cc6f8baec5c046f2e7d093695",
+          "source": "https://raw.githubusercontent.com/team-charls/charls/14b654dff1efed4d04e278ff3e99f0a486cf20cc/LICENSE.md"
+        }
+      ],
+      "supplemental": true
+    },
+    "clipboard-win@5.4.3": {
+      "license": "BSL-1.0",
+      "notices": [
+        {
+          "file": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566.txt",
+          "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+          "source": "https://raw.githubusercontent.com/DoumanAsh/clipboard-win/ed27008ae5d1f10cfbb266de039f0fb35fd05a56/LICENSE"
+        }
+      ]
+    },
+    "dicom-core@0.10.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d.txt",
+          "sha256": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-APACHE"
+        },
+        {
+          "file": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f.txt",
+          "sha256": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-MIT"
+        }
+      ]
+    },
+    "dicom-dictionary-std@0.10.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d.txt",
+          "sha256": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-APACHE"
+        },
+        {
+          "file": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f.txt",
+          "sha256": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-MIT"
+        }
+      ]
+    },
+    "dicom-encoding@0.10.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d.txt",
+          "sha256": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-APACHE"
+        },
+        {
+          "file": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f.txt",
+          "sha256": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-MIT"
+        }
+      ]
+    },
+    "dicom-object@0.10.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d.txt",
+          "sha256": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-APACHE"
+        },
+        {
+          "file": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f.txt",
+          "sha256": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-MIT"
+        }
+      ]
+    },
+    "dicom-parser@0.10.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d.txt",
+          "sha256": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-APACHE"
+        },
+        {
+          "file": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f.txt",
+          "sha256": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-MIT"
+        }
+      ]
+    },
+    "dicom-pixeldata@0.10.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d.txt",
+          "sha256": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-APACHE"
+        },
+        {
+          "file": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f.txt",
+          "sha256": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-MIT"
+        }
+      ]
+    },
+    "dicom-transfer-syntax-registry@0.10.0": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d.txt",
+          "sha256": "ae8a8e2f408f02b92bbaa5a4b482209288ec1d9dac85b5722b001040f1f13a9d",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-APACHE"
+        },
+        {
+          "file": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f.txt",
+          "sha256": "77fbf925c55b05c210868fa639de038b4f01d9a19b9309f7db46f32ce0d5661f",
+          "source": "https://raw.githubusercontent.com/Enet4/dicom-rs/2941c54cae434dd63a54d0a5546b3b0df42e9f6c/LICENSE-MIT"
+        }
+      ]
+    },
+    "dispatch2@0.3.1": {
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md"
+        }
+      ]
+    },
+    "dispatch@0.2.0": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "f23463755445ef35153be54df7d382b6efa12bd73cb7e29cc46412aa54ba109f.txt",
+          "sha256": "f23463755445ef35153be54df7d382b6efa12bd73cb7e29cc46412aa54ba109f",
+          "source": "https://raw.githubusercontent.com/SSheldon/rust-dispatch/82d6c7a5b75dc0c71c3f46f87bb6c16a476f7748/Cargo.toml (license/authorship); https://spdx.org/licenses/MIT.html (standard terms)"
+        }
+      ]
+    },
+    "ecolor@0.36.2": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt",
+          "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE"
+        },
+        {
+          "file": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c.txt",
+          "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT"
+        }
+      ]
+    },
+    "eframe@0.36.2": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt",
+          "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE"
+        },
+        {
+          "file": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c.txt",
+          "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT"
+        }
+      ]
+    },
+    "egui-wgpu@0.36.2": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt",
+          "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE"
+        },
+        {
+          "file": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c.txt",
+          "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT"
+        }
+      ]
+    },
+    "egui-winit@0.36.2": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt",
+          "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE"
+        },
+        {
+          "file": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c.txt",
+          "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT"
+        }
+      ]
+    },
+    "egui@0.36.2": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt",
+          "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE"
+        },
+        {
+          "file": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c.txt",
+          "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT"
+        }
+      ]
+    },
+    "emath@0.36.2": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt",
+          "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE"
+        },
+        {
+          "file": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c.txt",
+          "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT"
+        }
+      ]
+    },
+    "encoding-index-japanese@1.20141219.5": {
+      "license": "CC0-1.0",
+      "notices": [
+        {
+          "file": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9.txt",
+          "sha256": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9",
+          "source": "https://crates.io/crates/encoding-index-japanese/1.20141219.5 (published source copyright header)"
+        }
+      ]
+    },
+    "encoding-index-korean@1.20141219.5": {
+      "license": "CC0-1.0",
+      "notices": [
+        {
+          "file": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9.txt",
+          "sha256": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9",
+          "source": "https://crates.io/crates/encoding-index-korean/1.20141219.5 (published source copyright header)"
+        }
+      ]
+    },
+    "encoding-index-simpchinese@1.20141219.5": {
+      "license": "CC0-1.0",
+      "notices": [
+        {
+          "file": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9.txt",
+          "sha256": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9",
+          "source": "https://crates.io/crates/encoding-index-simpchinese/1.20141219.5 (published source copyright header)"
+        }
+      ]
+    },
+    "encoding-index-singlebyte@1.20141219.5": {
+      "license": "CC0-1.0",
+      "notices": [
+        {
+          "file": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9.txt",
+          "sha256": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9",
+          "source": "https://crates.io/crates/encoding-index-singlebyte/1.20141219.5 (published source copyright header)"
+        }
+      ]
+    },
+    "encoding-index-tradchinese@1.20141219.5": {
+      "license": "CC0-1.0",
+      "notices": [
+        {
+          "file": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9.txt",
+          "sha256": "a92757dbbda63334e31ea783a195df71871bb1ed1e9b1d1b642423b6218a2af9",
+          "source": "https://crates.io/crates/encoding-index-tradchinese/1.20141219.5 (published source copyright header)"
+        }
+      ]
+    },
+    "encoding_index_tests@0.1.4": {
+      "license": "CC0-1.0",
+      "notices": [
+        {
+          "file": "1a56cb2c268f47cf106a0d14f2e372babdaf391a40720e9be4e1d18de6bee30e.txt",
+          "sha256": "1a56cb2c268f47cf106a0d14f2e372babdaf391a40720e9be4e1d18de6bee30e",
+          "source": "https://crates.io/crates/encoding_index_tests/0.1.4 (published Cargo license/authorship declaration)"
+        }
+      ]
+    },
+    "epaint@0.36.2": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90.txt",
+          "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE"
+        },
+        {
+          "file": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c.txt",
+          "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+          "source": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT"
+        }
+      ]
+    },
+    "objc-sys@0.3.5": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt"
+        }
+      ]
+    },
+    "objc2-app-kit@0.2.2": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt"
+        }
+      ]
+    },
+    "objc2-app-kit@0.3.2": {
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+        }
+      ]
+    },
+    "objc2-core-foundation@0.3.2": {
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+        }
+      ]
+    },
+    "objc2-core-graphics@0.3.2": {
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+        }
+      ]
+    },
+    "objc2-encode@4.1.0": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md"
+        }
+      ]
+    },
+    "objc2-foundation@0.2.2": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt"
+        }
+      ]
+    },
+    "objc2-foundation@0.3.2": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+        }
+      ]
+    },
+    "objc2-metal@0.3.2": {
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+        }
+      ]
+    },
+    "objc2-quartz-core@0.3.2": {
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
+        }
+      ]
+    },
+    "objc2@0.5.3": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/5237cbf081d04ef75a1f6a207b4018e7c1ae7438/LICENSE.txt"
+        }
+      ]
+    },
+    "objc2@0.6.5": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md"
+        }
+      ]
+    },
+    "openjpeg-sys@1.0.12": {
+      "license": "BSD-2-Clause",
+      "notices": [
+        {
+          "file": "a6af136f3e15038a666b61f376612a07d9a4e48cb7c01adbf3e33b3f14ab49b6.txt",
+          "sha256": "a6af136f3e15038a666b61f376612a07d9a4e48cb7c01adbf3e33b3f14ab49b6",
+          "source": "https://raw.githubusercontent.com/uclouvain/openjpeg/6c4a29b00211eb0430fa0e5e890f1ce5c80f409f/LICENSE"
+        }
+      ]
+    },
+    "profiling@1.0.18": {
+      "license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "file": "10d30a673cd5e9349bdc02aeb48f14b3386d27d0da32df8f0a555d4aa16aa551.txt",
+          "sha256": "10d30a673cd5e9349bdc02aeb48f14b3386d27d0da32df8f0a555d4aa16aa551",
+          "source": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-APACHE"
+        },
+        {
+          "file": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333.txt",
+          "sha256": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333",
+          "source": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT"
+        }
+      ]
+    },
+    "sparkle-updater@0.1.0": {
+      "license": "MIT",
+      "notices": [
+        {
+          "file": "aa9c0caa9dcb658957b15ade1cdef6f0b9a098ca131678cb350b57daf8077799.txt",
+          "sha256": "aa9c0caa9dcb658957b15ade1cdef6f0b9a098ca131678cb350b57daf8077799",
+          "source": "https://github.com/ahonn/tauri-plugin-sparkle-updater/tree/7e7bdaf70f4c37e88cbf7772740c7c1981b62178/crates/sparkle-updater"
+        }
+      ]
+    },
+    "spirv@0.4.0+sdk-1.4.341.0": {
+      "license": "Apache-2.0",
+      "notices": [
+        {
+          "file": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": "https://raw.githubusercontent.com/gfx-rs/rspirv/8afc3d0ac8e158128cd1410bb2e4b4c26ab11bb4/LICENSE"
+        }
+      ]
+    }
+  },
+  "schema_version": 1
+}

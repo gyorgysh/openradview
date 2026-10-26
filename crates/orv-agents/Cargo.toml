@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "orv-agents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+orv-core.workspace = true
+orv-render.workspace = true
+serde.workspace = true
+sha2.workspace = true
+schemars.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+
+[lints]
+workspace = true
