@@ -148,3 +148,53 @@ fn decoded_cache_is_shared_across_imports_evicts_and_releases_without_history() 
     drop(first);
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn cached_frames_do_not_wait_for_busy_readers_and_waiting_reads_cancel() {
+    let temp = Temp::new();
+    for z in 0..2 {
+        fs::write(
+            temp.0.join(z.to_string()),
+            support::fixture(z as f64, z, false, false),
+        )
+        .unwrap();
+    }
+    let study = index_paths(std::slice::from_ref(&temp.0), || false, |_| {}).unwrap();
+    let series = &study.series[0];
+    let cached = series.read_frame(0, || false).unwrap();
+    let readers = series
+        .source
+        .as_ref()
+        .unwrap()
+        .cache
+        .lock()
+        .unwrap()
+        .readers
+        .clone();
+    let guards: Vec<_> = (0..4)
+        .map(|id| readers.acquire(id, &|| false).unwrap())
+        .collect();
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let started = std::sync::Barrier::new(2);
+    let polls = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        let (send, receive) = std::sync::mpsc::channel();
+        scope.spawn(move || send.send(series.read_frame(0, || false)).unwrap());
+        let result = receive.recv_timeout(std::time::Duration::from_secs(2));
+        let waiting = scope.spawn(|| {
+            series.read_frame(1, || {
+                if polls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 2 {
+                    started.wait();
+                }
+                cancel.load(std::sync::atomic::Ordering::Acquire)
+            })
+        });
+        started.wait();
+        cancel.store(true, std::sync::atomic::Ordering::Release);
+        let cancelled = waiting.join().unwrap();
+        drop(guards);
+        assert!(Arc::ptr_eq(&cached, &result.unwrap().unwrap()));
+        assert_eq!(cancelled.unwrap_err(), LoadError::Cancelled);
+    });
+    assert!(series.source.as_ref().unwrap().discard_cached_frames());
+}

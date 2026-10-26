@@ -89,7 +89,9 @@ oversized inputs fail explicitly. Large ambiguous encapsulated multiframe and
 bit-packed DICOM use a fallback limited to 64 MiB per input object. Larger ambiguous objects are refused.
 
 Gzip and deflated datasets/ZIP members are sequential compressed streams. Forward
-navigation can reuse a hot reader; reverse/distant reads can restart decompression.
+navigation can reuse one of four bounded hot readers; reverse/distant reads can
+restart decompression. Slow I/O/decoding does not hold the decoded-entry lock, so
+already-cached slices remain retrievable by other workers.
 Opening an already uncompressed source can be faster. Integrity, cancellation and
 resource tests are software checks; native codecs/OS allocations are not a hard
 process-memory sandbox. No runtime-validated Windows/Linux release or built-in AI model is claimed.

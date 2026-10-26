@@ -12,6 +12,8 @@
   admission also checks the selected adapter; limits and allocation failures
   retain a 2D/MPR fallback. Active views reuse prepared sources, and CPU MPR avoids
   repeated coordinate transforms while preserving geometry and missing samples.
+- Cached slices remain retrievable while other workers decode slow input. Hot
+  decompression streams stay bounded and waiting reads remain cancellable.
 - Linux packages declare the missing desktop libraries and a Vulkan driver.
 - Native Linux OpenGL fallback, explicit `WGPU_BACKEND` selection, actionable
   graphics startup errors and local adapter/driver diagnostics. Drivers without

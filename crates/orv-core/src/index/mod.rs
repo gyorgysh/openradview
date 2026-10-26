@@ -7,6 +7,7 @@ mod import;
 mod nifti;
 mod nifti_input;
 mod pairs;
+mod readers;
 pub use import::index_paths;
 mod source;
 #[cfg(test)]
@@ -43,7 +44,7 @@ struct CacheEntry {
 struct Cache {
     entries: VecDeque<CacheEntry>,
     bytes: u64,
-    reader: ReadState,
+    readers: Arc<readers::Readers>,
     budget: Arc<MemoryBudget>,
 }
 impl Default for Cache {
@@ -51,7 +52,7 @@ impl Default for Cache {
         Self {
             entries: VecDeque::new(),
             bytes: 0,
-            reader: ReadState::default(),
+            readers: Arc::new(readers::Readers::default()),
             budget: MemoryBudget::decoded_cache(),
         }
     }
@@ -66,6 +67,17 @@ impl Cache {
     }
     fn trim(&mut self) {
         while self.budget.used() > self.budget.limit() && self.evict() {}
+    }
+    fn get(&mut self, source: u64, frame: u32) -> Option<Arc<Frame>> {
+        self.trim();
+        let position = self
+            .entries
+            .iter()
+            .position(|entry| entry.source == source && entry.frame == frame)?;
+        let entry = self.entries.remove(position)?;
+        let image = entry.image.clone();
+        self.entries.push_back(entry);
+        Some(image)
     }
 }
 
@@ -184,39 +196,31 @@ impl IndexedSeries {
     ) -> Result<Arc<Frame>, LoadError> {
         crate::resources::refresh_memory_policy();
         let entry = self.frames.get(index).ok_or(LoadError::Unsupported)?;
-        // A worker waiting behind another decoder can still be cancelled promptly.
-        let mut cache = loop {
-            if cancelled() {
-                return Err(LoadError::Cancelled);
+        let readers = {
+            let mut cache = self.lock_cache(&cancelled)?;
+            if let Some(image) = cache.get(entry.source.id, entry.frame) {
+                return Ok(image);
             }
-            match self.cache.try_lock() {
-                Ok(cache) => break cache,
-                Err(std::sync::TryLockError::Poisoned(_)) => return Err(LoadError::Io),
-                Err(std::sync::TryLockError::WouldBlock) => {
-                    std::thread::sleep(Duration::from_millis(1))
-                }
-            }
+            cache.readers.clone()
         };
-        cache.trim();
-        if let Some(position) = cache
-            .entries
-            .iter()
-            .position(|e| e.source == entry.source.id && e.frame == entry.frame)
+        let mut reader = readers.acquire(entry.source.id, &cancelled)?;
+        // Another worker may have completed this frame while a reader was busy.
+        if let Some(image) = self
+            .lock_cache(&cancelled)?
+            .get(entry.source.id, entry.frame)
         {
-            let cached = cache.entries.remove(position).ok_or(LoadError::Io)?;
-            let image = cached.image.clone();
-            cache.entries.push_back(cached);
             return Ok(image);
         }
         let image = decode::decode(
             &entry.source,
             &entry.header,
             entry.frame,
-            &mut cache.reader,
+            &mut reader,
             &cancelled,
         )?;
-        if cancelled() {
-            return Err(LoadError::Cancelled);
+        let mut cache = self.lock_cache(&cancelled)?;
+        if let Some(image) = cache.get(entry.source.id, entry.frame) {
+            return Ok(image);
         }
         let size = image.byte_len();
         let mut reservation = None;
@@ -239,6 +243,23 @@ impl IndexedSeries {
         }
         Ok(image)
     }
+    fn lock_cache(
+        &self,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<std::sync::MutexGuard<'_, Cache>, LoadError> {
+        loop {
+            if cancelled() {
+                return Err(LoadError::Cancelled);
+            }
+            match self.cache.try_lock() {
+                Ok(cache) => return Ok(cache),
+                Err(std::sync::TryLockError::Poisoned(_)) => return Err(LoadError::Io),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(Duration::from_millis(1))
+                }
+            }
+        }
+    }
     pub fn materialize(&self, cancelled: impl Fn() -> bool) -> Result<Vec<Arc<Frame>>, LoadError> {
         if self.decoded_bytes() > self.budget.limit().min(MAX_VOLUME_BYTES) {
             return Err(LoadError::Limit);
@@ -256,8 +277,9 @@ impl IndexedSeries {
         if let Ok(mut cache) = self.cache.try_lock() {
             cache.entries.clear();
             cache.bytes = 0;
-            cache.reader.stream = None;
-            true
+            let readers = cache.readers.clone();
+            drop(cache);
+            readers.clear()
         } else {
             false
         }

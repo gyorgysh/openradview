@@ -17,7 +17,9 @@ rendering code remain independent of the UI.
 ## Input, memory and geometry
 
 Metadata-first indexing avoids decoding every image at import. Requested frames
-share a bounded LRU; each indexed read checks source identity. ZIP/gzip/deflate
+share a bounded LRU; each indexed read checks source identity. Cached-entry locking
+is separate from slow I/O/decoding. At most four hot decompression readers are
+retained per study cache, with matching-stream reuse and cancellable contention. ZIP/gzip/deflate
 processing streams without extracting patient files to disk. Dimensions, payloads,
 metadata, expanded data, frame counts and materialized volumes have explicit
 bounds. Load, decode, filtering, statistics and export run on cancellable workers.
