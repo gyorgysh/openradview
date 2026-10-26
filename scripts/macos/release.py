@@ -19,6 +19,7 @@ from verify import verify
 REPOSITORY = "gyorgysh/openradview"
 sys.path.insert(0, str(ROOT / "scripts/portable"))
 import release_checks
+from github_releases import find_release
 
 
 def local_file(folder, name):
@@ -223,7 +224,7 @@ def publish(folder, notes, *, finalize, ci_draft=False):
         raise ValueError("Unexpected release repository")
     immutability_gate(finalize=finalize, ci_draft=ci_draft)
     assets = record["assets"] + [{"name": "release.json", "size": (folder / "release.json").stat().st_size, "sha256": sha256(folder / "release.json")}]
-    remote = github(f"repos/{REPOSITORY}/releases/tags/{tag}", missing=True)
+    remote = find_release(tag, lambda path: github(f"repos/{REPOSITORY}/{path}"))
     if not finalize:
         if remote is not None:
             raise ValueError("A release/draft already exists. Inspect it; this tool never overwrites or blindly retries uploads.")
@@ -231,7 +232,9 @@ def publish(folder, notes, *, finalize, ci_draft=False):
             raise ValueError("An explicit reviewed --notes-file is required to create a draft")
         run(["gh", "release", "create", tag, "--repo", REPOSITORY, "--draft", "--verify-tag", "--notes-file", str(notes),
              *[str(local_file(folder, a["name"])) for a in assets]])
-        remote = github(f"repos/{REPOSITORY}/releases/tags/{tag}")
+        remote = find_release(tag, lambda path: github(f"repos/{REPOSITORY}/{path}"))
+        if remote is None or remote.get("draft") is not True:
+            raise ValueError("Draft creation state is uncertain; inspect GitHub before retrying")
         check_remote_assets(remote, assets)
         print("Draft uploaded and hash-verified. Review it before the separate --publish action.")
     else:
@@ -239,7 +242,9 @@ def publish(folder, notes, *, finalize, ci_draft=False):
             raise ValueError("An existing reviewed draft is required; published releases are never modified")
         check_remote_assets(remote, assets)
         run(["gh", "release", "edit", tag, "--repo", REPOSITORY, "--draft=false"])
-        result = github(f"repos/{REPOSITORY}/releases/tags/{tag}")
+        result = find_release(tag, lambda path: github(f"repos/{REPOSITORY}/{path}"))
+        if result is None:
+            raise ValueError("Published release is missing; inspect GitHub before retrying")
         if result.get("draft") is not False or result.get("immutable") is not True:
             raise ValueError("Publication state is uncertain; inspect GitHub. Do not retry or replace assets.")
         check_remote_assets(result, assets)

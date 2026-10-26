@@ -45,7 +45,7 @@ Do not add a Markdown report or tag for every development task.
 
 - Use DCO sign-offs (`git commit -s`). Version tags identify actual release candidates
   or releases; do not recreate development milestone tags. Changelog entries describe
-  changes relevant to readers. Keep the repository private until explicitly authorized.
+  changes relevant to readers. Visibility changes and publication need owner instructions.
 - Development CI stays manual and cached. Private release jobs require explicit
   owner dispatch; public tag builds require the release environment reviewer gate.
   Do not add routine branch/PR builds or dispatch paid jobs without authorization.

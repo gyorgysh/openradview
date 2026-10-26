@@ -11,6 +11,8 @@ import sys
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts'))
+from github_releases import find_release
 REPO = 'gyorgysh/openradview'
 OWNER = 295578481
 READY = 'reviewers-v1'
@@ -66,7 +68,7 @@ def check_source():
     sys.path.insert(0,str(ROOT/'scripts/macos'))
     from common import release_notes
     release_notes(version)
-    if api(f'releases/tags/{tag}', missing=True) is not None: raise ValueError('A release already exists; use a new version, never overwrite')
+    if find_release(tag, api) is not None: raise ValueError('A release already exists; use a new version, never overwrite')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
