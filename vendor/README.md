@@ -11,6 +11,11 @@ order, local adaptations and the SHA-256 of every included file. The patches in
 source. Native tools, tests, sample data and unused JPIP code are omitted. No additional native
 source download or system codec lookup occurs during the ordinary pinned build.
 
+The CharLS wrapper explicitly selects CMake's non-debug MSVC runtime to match
+Rust in both profiles (`MultiThreaded` for `crt-static`, otherwise
+`MultiThreadedDLL`). CMake's default Debug DLL runtime cannot be linked into the
+static Rust test executables. The native codec source itself remains unchanged.
+
 Run `python3 scripts/macos/vendor_sources.py` before building after any source
 change. A hash mismatch requires source/license review; do not refresh the
 inventory just to make the check pass. Packaging includes these packages in its

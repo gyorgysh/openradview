@@ -17,13 +17,14 @@
       },
       "changes": [
         "Replace bundled CharLS 2.4.2 with unmodified upstream 2.4.5 src/include/CMakeLists/license; omit unused tests, samples and data.",
-        "Add native source rerun-if-changed and MIT SPDX to wrapper build.rs."
+        "Add native source rerun-if-changed and MIT SPDX to wrapper build.rs.",
+        "Select the non-debug MSVC CRT to match Rust static/dynamic runtime selection in both profiles; native codec source unchanged."
       ],
       "files": {
         "Cargo.toml": "0c4402fed2dbe2d13d53922ca55f4253214ec122514fd6d66c9cf6be65c66731",
         "LICENSE.md": "b2c06a33544de153d64c76ad9f2cb69c61224815aecde5fe4bc4de676595e2a5",
         "README.md": "47d61907e4107a7556fe62beffb3f03a14e079e02b7feb2c133caa8a1060f142",
-        "build.rs": "08ac892cbe96792fba3a2c37f51f45bdbb6cb8993fbc35dfd6c0ff6daa50e5f8",
+        "build.rs": "f6edb4a5ce2a87d87c5a65e3a8420959fb9916e041f319cbe3bb1034539f79fd",
         "charls/CMakeLists.txt": "ea6bdce0c280bb7bc8930747a4aa0e2f00dc57d06b03f0a3ef0658bbd9af5ec3",
         "charls/LICENSE.md": "e293ccc327ee42f4e723e73aac39b23ffc40655cc6f8baec5c046f2e7d093695",
         "charls/include/charls/annotations.h": "62da77247d47c362ab54cd3fa92cddd4f2756a9fd052fb83d35d21d9de02761d",

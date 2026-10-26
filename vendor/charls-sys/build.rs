@@ -6,7 +6,24 @@ fn main() {
 
     #[cfg(not(feature = "vcpkg"))]
     {
-        let dst = cmake::Config::new("charls")
+        let mut config = cmake::Config::new("charls");
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            // Rust uses the non-debug CRT in both profiles. CMake's default
+            // Debug runtime would otherwise add MSVCRTD to a static Rust link.
+            let static_crt = std::env::var("CARGO_CFG_TARGET_FEATURE")
+                .unwrap_or_default()
+                .split(',')
+                .any(|feature| feature == "crt-static");
+            config.static_crt(static_crt).define(
+                "CMAKE_MSVC_RUNTIME_LIBRARY",
+                if static_crt {
+                    "MultiThreaded"
+                } else {
+                    "MultiThreadedDLL"
+                },
+            );
+        }
+        let dst = config
             .define("BUILD_SHARED_LIBS", "0")
             .define("CMAKE_LINK_DEPENDS_USE_LINKER", "0")
             .define("CHARLS_BUILD_TESTS", "0")
