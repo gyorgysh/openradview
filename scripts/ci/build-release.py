@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Approved ephemeral runner only: sign, notarize and upload a private draft."""
+"""Approved ephemeral runner only: sign, notarize and publish exact release files."""
 import base64
 import json
 import os
@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT/'scripts/macos'))
 import common
 import release
 import verify
+import native_inputs
 
 NAMES = ('DEVELOPER_ID_APP','DEVELOPER_ID_P12_BASE64','DEVELOPER_ID_P12_PASSWORD',
          'NOTARY_ISSUER_ID','NOTARY_KEY_ID','NOTARY_KEY_P8_BASE64','UPDATER_ED25519_PRIVATE_KEY','TEAM_ID')
@@ -45,6 +46,15 @@ def main():
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GITHUB_REPOSITORY') != release.REPOSITORY or platform.system() != 'Darwin' or platform.machine() != 'arm64': raise ValueError('Expected the approved Apple Silicon GitHub release runner')
     if not re.fullmatch(r'[A-Z0-9]{10}', credentials['TEAM_ID']): raise ValueError('Invalid Apple team identifier')
     common.DIST.mkdir(exist_ok=True)
+    revision = common.run(['git', 'rev-parse', 'HEAD'], capture=True).strip()
+    import tomllib
+    version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['package']['version']
+    os.environ['GH_TOKEN'] = github_token
+    try:
+        release.reviewed_ci(revision)
+    finally:
+        os.environ.pop('GH_TOKEN', None)
+    native_inputs.stage(common.DIST / 'native-inputs', common.DIST, version, revision)
     old_search = shlex.split(secret_command(['security','list-keychains','-d','user']))
     old_default = shlex.split(secret_command(['security','default-keychain','-d','user']))[0]
     with tempfile.TemporaryDirectory(prefix='orv-signing-', dir=os.environ['RUNNER_TEMP']) as folder:
@@ -90,16 +100,17 @@ def main():
             if log.get('status') != 'Accepted' or log.get('sha256') != common.sha256(dmg) or log.get('issues'): raise ValueError('DMG notarization log does not accept this exact image')
             run('xcrun','stapler','staple',str(dmg))
             run(sys.executable,'scripts/macos/dmg.py','--audit',str(dmg),'--notarized','--record-stapled','--notary-log',str(log_path))
-            archive = common.DIST/(stem+'.zip')
-            target = 'aarch64-apple-darwin'
-            run(sys.executable,'scripts/update_protocol.py',str(archive),'--version',build['version'],'--target',target)
-            signature = common.DIST/f'update-{target}.signature.txt'
-            signing_env = os.environ.copy(); signing_env['UPDATER_ED25519_PRIVATE_KEY'] = credentials['UPDATER_ED25519_PRIVATE_KEY']
-            try: run('node','scripts/ci/sign-manifest.mjs',str(common.DIST/f'update-{target}.raw.json'),str(signature),env=signing_env)
-            finally: signing_env.pop('UPDATER_ED25519_PRIVATE_KEY',None)
-            run(sys.executable,'scripts/update_protocol.py',str(archive),'--version',build['version'],'--target',target,'--signature-file',str(signature))
+            for target in ('aarch64-apple-darwin', *native_inputs.TARGETS):
+                archive_name, _ = native_inputs.release_checks.update_protocol.names(build['version'], target)
+                archive = common.DIST / archive_name
+                run(sys.executable,'scripts/update_protocol.py',str(archive),'--version',build['version'],'--target',target)
+                signature = common.DIST/f'update-{target}.signature.txt'
+                signing_env = os.environ.copy(); signing_env['UPDATER_ED25519_PRIVATE_KEY'] = credentials['UPDATER_ED25519_PRIVATE_KEY']
+                try: run('node','scripts/ci/sign-manifest.mjs',str(common.DIST/f'update-{target}.raw.json'),str(signature),env=signing_env)
+                finally: signing_env.pop('UPDATER_ED25519_PRIVATE_KEY',None)
+                run(sys.executable,'scripts/update_protocol.py',str(archive),'--version',build['version'],'--target',target,'--signature-file',str(signature))
             try:
-                candidate, _ = release.prepare('arm64')
+                candidate, _ = release.prepare('arm64', native_inputs.TARGETS)
             except (ValueError, OSError, subprocess.CalledProcessError) as error:
                 print('Release payload verification failed: ' + str(error), file=sys.stderr)
                 raise
@@ -107,8 +118,7 @@ def main():
             run('gh','auth','setup-git','--hostname','github.com')
             notes = common.DIST/'release-notes.md'
             with notes.open('x') as output: output.write(common.release_notes(build['version']))
-            release.publish(candidate, notes, finalize=False, ci_draft=True)
-            print('Signed/notarized candidate uploaded as a private draft. Publication and native update acceptance remain separate.')
+            release.publish(candidate, notes, ci_release=True)
         finally:
             # Restore only this disposable runner's state and delete only its own keychain.
             if created:

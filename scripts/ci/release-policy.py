@@ -46,7 +46,8 @@ def check_environment(*, executing=False):
     protected(api('environments/release'), api('environments/release/deployment-branch-policies'), require_reviewer=not private)
     if executing:
         # GITHUB_TOKEN cannot read Administration-scoped repository settings.
-        # The owner checked immutability when arming; this job can draft only.
+        # The owner checks immutability when arming. Publication separately checks
+        # this exact run's release-environment review and immutable response.
         if os.environ.get('ORV_RELEASE_APPROVAL_READY') != (MANUAL if private else READY): raise ValueError('Owner release preflight is missing; arm with an admin session first')
     elif api('immutable-releases').get('enabled') is not True: raise ValueError('Enable immutable releases first')
     if executing and private and (os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch' or os.environ.get('GITHUB_ACTOR_ID') != str(OWNER)):

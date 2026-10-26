@@ -99,8 +99,8 @@ hashes. They are never modified; changed bytes require a new candidate/version.
 Portable inputs need the same source/version and artifact-bound native acceptance.
 [Portable release inputs](platforms.md#frozen-release-inputs)
 
-The separate [GitHub workflow](github-release.md) performs signing/notarization
-only after its approval trigger and uploads a draft. Final publication requires
-explicit review, a matching annotated source tag, exact remote digests and release
-immutability. While the repository is private, anonymous feed/download requests
-cannot succeed; no GitHub token is embedded in the app.
+The protected [GitHub workflow](github-release.md) signs/notarizes only after
+release-environment approval, then publishes the complete macOS, Windows and
+Linux payload as a normal immutable release. Manual test packages stay in
+Actions artifacts. Publication verifies the matching annotated source tag,
+exact remote digests and immutable state.

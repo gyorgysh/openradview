@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/portable'))
 import bundle
 import installers
+import native_evidence
 
 
 def tests(path, *, gpu):
@@ -74,8 +75,7 @@ def main():
               'checks': {'format_clippy': True, 'default_tests': True, 'full_tests': True,
                          'native_gpu': True, 'loaded_executable_swap': True, 'installer_roundtrip': True},
               'run_id': int(run_id), 'evidence': f'https://github.com/gyorgysh/openradview/actions/runs/{run_id}',
-              'limitations': ['Interactive desktop, accessibility and GPU performance on consumer hardware require separate checks.',
-                              'A production upgrade from an older published version is not established by these installer and filesystem tests.']}
+              'limitations': native_evidence.LIMITATIONS}
     destination = ROOT / 'dist' / f'acceptance-{args.target}.json'
     with destination.open('x') as output:
         json.dump(report, output, sort_keys=True, indent=2)

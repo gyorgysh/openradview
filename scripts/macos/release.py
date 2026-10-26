@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Freeze a local release candidate; draft/publish only through explicit commands."""
+"""Freeze exact release files; publish a normal immutable release after approval."""
 import argparse
 import hashlib
 import json
@@ -98,8 +98,8 @@ def prepare(architecture, portable_targets=()):
         if not notarized:
             pending.append(edition + ": notarization/stapling remains required")
     for target in sorted(portable_targets):
-        selected, accepted = release_checks.verify(DIST, target, version, revision, require_acceptance=False)
-        portable.append({"target": target, "acceptance": accepted})
+        selected, accepted = release_checks.verify(DIST, target, version, revision, require_acceptance=False, require_installer=True)
+        portable.append({"target": target, "acceptance": accepted, "installer": True})
         names.update(selected)
         if not accepted:
             pending.append(target + ": native runtime/update acceptance remains required")
@@ -108,7 +108,7 @@ def prepare(architecture, portable_targets=()):
     destination = DIST / "releases" / ("v" + version + "-" + revision[:12] + "-" + payload_hash)
     record = {"schema_version": 1, "repository": REPOSITORY, "tag": "v" + version, "source_revision": revision,
               "editions": stems, "assets": assets, "publication_pending": pending,
-              "policy": "Approved local or protected release build. No overwrite. Explicit draft, review, then publish with server immutability enabled."}
+              "policy": "Approved protected release build. Publish once with server immutability enabled; never overwrite."}
     record["update_protocol"] = "ed25519-manifest-v1"
     if portable:
         record["portable"] = portable
@@ -150,7 +150,7 @@ def validate_payload(folder):
         raise ValueError("Invalid portable target selection")
     seen = set()
     for platform in portable:
-        if (not isinstance(platform, dict) or set(platform) != {"target", "acceptance"}
+        if (not isinstance(platform, dict) or set(platform) not in ({"target", "acceptance"}, {"target", "acceptance", "installer"})
                 or not isinstance(platform["target"], str)
                 or platform["target"] not in release_checks.TARGETS or platform["target"] in seen
                 or type(platform["acceptance"]) is not bool or protocol != "ed25519-manifest-v1"):
@@ -159,6 +159,13 @@ def validate_payload(folder):
         seen.add(target)
         archive, _ = release_checks.update_protocol.names(version, target)
         canonical.update({archive, archive + ".sha256", f"update-{target}.json"})
+        if platform.get("installer") is True:
+            installer_names = release_checks.native_evidence.installer_names(version, target)
+            if not installer_names:
+                raise ValueError("Missing canonical native installer")
+            canonical.update(installer_names)
+        elif "installer" in platform:
+            raise ValueError("Invalid native installer selection")
         if platform["acceptance"]:
             canonical.add(f"acceptance-{target}.json")
     if not isinstance(record.get("assets"), list) or {a.get("name") for a in record["assets"]} != canonical:
@@ -187,24 +194,47 @@ def check_remote_assets(remote, assets):
     expected = {a["name"]: a for a in assets}
     actual = {a["name"]: a for a in remote["assets"]}
     if len(actual) != len(remote["assets"]) or set(actual) != set(expected):
-        raise ValueError("Draft must contain exactly the frozen assets; no automatic replacement is allowed")
+        raise ValueError("Release must contain exactly the frozen assets; no automatic replacement is allowed")
     for name, a in actual.items():
         if a.get("state") != "uploaded" or a.get("size") != expected[name]["size"] or a.get("digest") != "sha256:" + expected[name]["sha256"]:
-            raise ValueError("GitHub draft asset digest/size/state differs from the frozen payload")
+            raise ValueError("GitHub release asset digest/size/state differs from the frozen payload")
 
 
-def immutability_gate(*, finalize, ci_draft=False):
-    if ci_draft:
-        # The job-scoped GITHUB_TOKEN cannot read Administration settings.
-        # An admin verified the real setting when arming. This exception can
-        # create a draft only; final publication always checks the live API.
-        if finalize or os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("ORV_RELEASE_APPROVAL_READY") not in ("manual-private-v1", "reviewers-v1"):
-            raise ValueError("CI draft requires the owner preflight and cannot publish")
+def reviewed_ci(revision):
+    if (os.environ.get("GITHUB_ACTIONS") != "true"
+            or os.environ.get("GITHUB_REPOSITORY") != REPOSITORY
+            or os.environ.get("ORV_RELEASE_APPROVAL_READY") != "reviewers-v1"
+            or os.environ.get("GITHUB_SHA") != revision
+            or os.environ.get("GITHUB_RUN_ATTEMPT") != "1"
+            or not re.fullmatch(r"refs/tags/v\d+\.\d+\.\d+", os.environ.get("GITHUB_REF", ""))):
+        raise ValueError("Publication requires the exact approved tagged CI source")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    if not run_id.isdigit():
+        raise ValueError("Invalid release workflow identity")
+    repo = github(f"repos/{REPOSITORY}")
+    current = github(f"repos/{REPOSITORY}/actions/runs/{run_id}")
+    if (repo.get("private") is not False or current.get("head_sha") != revision
+            or current.get("run_attempt") != 1 or current.get("event") not in ("push", "workflow_dispatch")
+            or current.get("path") != ".github/workflows/release.yml"):
+        raise ValueError("Expected the public protected release workflow")
+    reviews = github(f"repos/{REPOSITORY}/actions/runs/{run_id}/approvals")
+    relevant = [r for r in reviews if any(e.get("name") == "release" for e in r.get("environments", []))]
+    if (any(r.get("state") == "rejected" for r in relevant)
+            or not any(r.get("state") == "approved" and r.get("user", {}).get("id") == 295578481 for r in relevant)):
+        raise ValueError("The owner must approve this run's release environment")
+
+
+def immutability_gate(revision, *, ci_release=False):
+    if ci_release:
+        # The job token cannot read Administration settings. Owner arming checks
+        # immutability; this source's real environment review is checked here.
+        # Publication also requires GitHub's immutable=true response below.
+        reviewed_ci(revision)
     elif github(f"repos/{REPOSITORY}/immutable-releases").get("enabled") is not True:
-        raise ValueError("Enable GitHub release immutability before drafting/publishing")
+        raise ValueError("Enable GitHub release immutability before publishing")
 
 
-def publish(folder, notes, *, finalize, ci_draft=False):
+def publish(folder, notes, *, ci_release=False):
     record = validate_payload(folder)
     # Actual local notarization/signature checks precede ALL GitHub mutations.
     for stem in record["editions"]:
@@ -212,62 +242,57 @@ def publish(folder, notes, *, finalize, ci_draft=False):
         if build["source_revision"] != record["source_revision"] or build["version"] != record["tag"][1:]:
             raise ValueError("Frozen build does not match the release identity")
     for platform in record.get("portable", []):
-        release_checks.verify(folder, platform["target"], record["tag"][1:], record["source_revision"], require_acceptance=True)
-    sys.path.insert(0,str(ROOT / "scripts"))
+        options = {"require_acceptance": True}
+        if platform.get("installer") is True:
+            options["require_installer"] = True
+        release_checks.verify(folder, platform["target"], record["tag"][1:], record["source_revision"], **options)
+        evidence = release_checks.native_evidence.read(local_file(folder, f"acceptance-{platform['target']}.json"))
+        if evidence.get("schema_version") == 2:
+            release_checks.native_evidence.verify_run(evidence, lambda path: github(f"repos/{REPOSITORY}/{path}"))
+    expected_targets = {"x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"}
+    if ({p["target"] for p in record.get("portable", [])} != expected_targets
+            or any(p.get("installer") is not True or p["acceptance"] is not True for p in record["portable"])):
+        raise ValueError("Publication requires both native Windows/Linux installers and acceptance records")
+    sys.path.insert(0, str(ROOT / "scripts"))
     import update_protocol
-    update_protocol.verify(local_file(folder,f"update-{build['target']}.json"),build["target"],local_file(folder,record["editions"][0]+".zip"),build["version"])
+    update_protocol.verify(local_file(folder, f"update-{build['target']}.json"), build["target"], local_file(folder, record["editions"][0]+".zip"), build["version"])
     tag = record["tag"]
     peeled = run(["git", "ls-remote", "origin", f"refs/tags/{tag}^{{}}"], capture=True).split()
     if not peeled or peeled[0] != record["source_revision"]:
         raise ValueError("Push the matching annotated source tag first; tags are never created or moved here")
     if github(f"repos/{REPOSITORY}").get("full_name", "").lower() != REPOSITORY:
         raise ValueError("Unexpected release repository")
-    immutability_gate(finalize=finalize, ci_draft=ci_draft)
+    immutability_gate(record["source_revision"], ci_release=ci_release)
     assets = record["assets"] + [{"name": "release.json", "size": (folder / "release.json").stat().st_size, "sha256": sha256(folder / "release.json")}]
     remote = find_release(tag, lambda path: github(f"repos/{REPOSITORY}/{path}"))
-    if not finalize:
-        if remote is not None:
-            raise ValueError("A release/draft already exists. Inspect it; this tool never overwrites or blindly retries uploads.")
-        if notes is None or not notes.is_file():
-            raise ValueError("An explicit reviewed --notes-file is required to create a draft")
-        run(["gh", "release", "create", tag, "--repo", REPOSITORY, "--draft", "--verify-tag", "--notes-file", str(notes),
-             *[str(local_file(folder, a["name"])) for a in assets]])
-        remote = find_release(tag, lambda path: github(f"repos/{REPOSITORY}/{path}"))
-        if remote is None or remote.get("draft") is not True:
-            raise ValueError("Draft creation state is uncertain; inspect GitHub before retrying")
-        check_remote_assets(remote, assets)
-        print("Draft uploaded and hash-verified. Review it before the separate --publish action.")
-    else:
-        if remote is None or remote.get("draft") is not True:
-            raise ValueError("An existing reviewed draft is required; published releases are never modified")
-        check_remote_assets(remote, assets)
-        run(["gh", "release", "edit", tag, "--repo", REPOSITORY, "--draft=false"])
-        result = find_release(tag, lambda path: github(f"repos/{REPOSITORY}/{path}"))
-        if result is None:
-            raise ValueError("Published release is missing; inspect GitHub before retrying")
-        if result.get("draft") is not False or result.get("immutable") is not True:
-            raise ValueError("Publication state is uncertain; inspect GitHub. Do not retry or replace assets.")
-        check_remote_assets(result, assets)
-        print("Published immutable release; tag and assets verified by GitHub.")
+    if remote is not None:
+        raise ValueError("A release already exists. Inspect it; this tool never overwrites or blindly retries uploads.")
+    if notes is None or notes.is_symlink() or not notes.is_file():
+        raise ValueError("An explicit reviewed --notes-file is required")
+    run(["gh", "release", "create", tag, "--repo", REPOSITORY, "--verify-tag", "--notes-file", str(notes),
+         *[str(local_file(folder, a["name"])) for a in assets]])
+    result = find_release(tag, lambda path: github(f"repos/{REPOSITORY}/{path}"))
+    if result is None or result.get("draft") is not False or result.get("immutable") is not True:
+        raise ValueError("Publication state is uncertain; inspect GitHub. Do not retry or replace assets.")
+    check_remote_assets(result, assets)
+    print("Published immutable release; tag and assets verified by GitHub.")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--draft", type=Path)
-    mode.add_argument("--publish", type=Path)
+    parser.add_argument("--publish", type=Path)
     parser.add_argument("--architecture", choices=["arm64", "x86_64"], default="arm64")
     parser.add_argument("--notes-file", type=Path)
     parser.add_argument("--portable-target", action="append", choices=sorted(release_checks.TARGETS), default=[], help="include an exact native portable archive; no cross-build previews")
     args = parser.parse_args()
-    if args.draft or args.publish:
+    if args.publish:
         if args.portable_target:
-            parser.error("Portable selection is frozen during preparation, not draft/publication")
-        publish((args.draft or args.publish).resolve(strict=True), args.notes_file, finalize=bool(args.publish))
+            parser.error("Portable selection is frozen during preparation, not publication")
+        publish(args.publish.resolve(strict=True), args.notes_file)
     else:
         destination, record = prepare(args.architecture, args.portable_target)
         print("Frozen locally: " + str(destination.relative_to(ROOT)))
-        print("No upload performed. " + ("; ".join(record["publication_pending"]) or "Explicit draft/review/publish remains required."))
+        print("No upload performed. " + ("; ".join(record["publication_pending"]) or "Protected release approval and explicit publication remain required."))
 
 
 if __name__ == "__main__":

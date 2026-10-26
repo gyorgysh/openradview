@@ -34,16 +34,30 @@ class ReleaseTests(unittest.TestCase):
                 changelog.write_text(text)
                 with self.assertRaises(ValueError): common.release_notes("1.0.0")
 
-    def test_ci_draft_exception_cannot_publish_or_replace_live_admin_preflight(self):
-        with patch.dict(os.environ, {"GITHUB_ACTIONS":"true", "ORV_RELEASE_APPROVAL_READY":"manual-private-v1"}, clear=True), patch.object(release,"github") as api:
-            release.immutability_gate(finalize=False,ci_draft=True)
-            api.assert_not_called()
-            with self.assertRaises(ValueError): release.immutability_gate(finalize=True,ci_draft=True)
-            api.assert_not_called()
-            api.return_value = {"enabled":False}
-            with self.assertRaises(ValueError): release.immutability_gate(finalize=True)
-            api.assert_called_once()
-        with patch.dict(os.environ,{},clear=True), self.assertRaises(ValueError): release.immutability_gate(finalize=False,ci_draft=True)
+    def test_ci_publication_requires_the_exact_run_and_owner_environment_review(self):
+        revision = "a" * 40
+        environment = {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": release.REPOSITORY,
+                       "ORV_RELEASE_APPROVAL_READY": "reviewers-v1", "GITHUB_SHA": revision,
+                       "GITHUB_RUN_ATTEMPT": "1", "GITHUB_RUN_ID": "123", "GITHUB_REF": "refs/tags/v1.0.0"}
+        review = {"state": "approved", "user": {"id": 295578481}, "environments": [{"name": "release"}]}
+        run = {"head_sha": revision, "run_attempt": 1, "event": "push", "path": ".github/workflows/release.yml"}
+        responses = {f"repos/{release.REPOSITORY}": {"private": False},
+                     f"repos/{release.REPOSITORY}/actions/runs/123": run,
+                     f"repos/{release.REPOSITORY}/actions/runs/123/approvals": [review]}
+        with patch.dict(os.environ, environment, clear=True), patch.object(release, "github", side_effect=lambda p: responses[p]):
+            release.immutability_gate(revision, ci_release=True)
+            for key, value in (("GITHUB_SHA", "b" * 40), ("GITHUB_RUN_ATTEMPT", "2"),
+                               ("GITHUB_REF", "refs/heads/main"), ("ORV_RELEASE_APPROVAL_READY", "manual-private-v1")):
+                with patch.dict(os.environ, {key: value}), self.assertRaises(ValueError):
+                    release.immutability_gate(revision, ci_release=True)
+            for key, value in (("state", "rejected"), ("user", {"id": 1}), ("environments", [{"name": "other"}])):
+                original = review[key]; review[key] = value
+                with self.assertRaises(ValueError): release.immutability_gate(revision, ci_release=True)
+                review[key] = original
+            run["head_sha"] = "b" * 40
+            with self.assertRaises(ValueError): release.immutability_gate(revision, ci_release=True)
+        with patch.object(release, "github", return_value={"enabled": False}), self.assertRaises(ValueError):
+            release.immutability_gate(revision)
 
     def test_shared_update_layout_manifest_and_overwrite_guard(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -120,6 +134,53 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.check_remote_assets(changed, [asset])
 
+    def test_normal_release_creates_once_without_draft_and_checks_immutability(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            stem = "OpenRadView-1.2.3-macos-arm64-standard"
+            revision = "a" * 40
+            names = {stem + s for s in (".zip", ".json", ".sha256", ".dmg", ".dmg.json", ".dmg.sha256")}
+            names.update({"OpenRadView-1.2.3-source-" + revision[:12] + ".tar.gz", "update-aarch64-apple-darwin.json"})
+            platforms = []
+            for target in ("x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"):
+                archive, _ = update_protocol.names("1.2.3", target)
+                names.update({archive, archive + ".sha256", f"update-{target}.json", f"acceptance-{target}.json"})
+                names.update(release.release_checks.native_evidence.installer_names("1.2.3", target))
+                platforms.append({"target": target, "acceptance": True, "installer": True})
+            for name in names:
+                (folder / name).write_bytes(b"synthetic exact artifact")
+            record = {"schema_version": 1, "repository": release.REPOSITORY, "tag": "v1.2.3",
+                      "source_revision": revision, "editions": [stem], "update_protocol": "ed25519-manifest-v1",
+                      "portable": platforms, "assets": [{"name": n, "size": (folder / n).stat().st_size,
+                      "sha256": common.sha256(folder / n)} for n in sorted(names)]}
+            common.write_json(folder / "release.json", record)
+            assets = [*record["assets"], {"name": "release.json", "size": (folder / "release.json").stat().st_size,
+                                        "sha256": common.sha256(folder / "release.json")}]
+            remote = {"draft": False, "immutable": True, "assets": [
+                {"name": a["name"], "size": a["size"], "digest": "sha256:" + a["sha256"], "state": "uploaded"} for a in assets]}
+            notes = folder.parent / "notes.md"; notes.write_text("Reviewed release notes")
+            commands = []
+            def command(args, **kwargs):
+                commands.append(args)
+                return revision + " refs/tags/v1.2.3^{}" if args[:2] == ["git", "ls-remote"] else ""
+            def api(path):
+                return {"enabled": True} if path.endswith("immutable-releases") else {"full_name": release.REPOSITORY}
+            build = {"source_revision": revision, "version": "1.2.3", "target": "aarch64-apple-darwin"}
+            with patch.object(release, "verify_edition", return_value=(build, [], True)), \
+                    patch.object(release.release_checks, "verify"), \
+                    patch.object(release.release_checks.native_evidence, "read", return_value={"schema_version": 1}), \
+                    patch.object(update_protocol, "verify"), patch.object(release, "run", side_effect=command), \
+                    patch.object(release, "github", side_effect=api), \
+                    patch.object(release, "find_release", side_effect=[None, remote]):
+                release.publish(folder, notes)
+            creation = [c for c in commands if c[:3] == ["gh", "release", "create"]]
+            self.assertEqual(len(creation), 1)
+            self.assertNotIn("--draft", creation[0])
+            with patch.object(release, "verify_edition", side_effect=ValueError("Bad sealed app")), \
+                    patch.object(release, "github") as github, self.assertRaises(ValueError):
+                release.publish(folder, notes)
+            github.assert_not_called()
+
     def test_staging_validates_existing_notary_tickets_before_publication_is_required(self):
         for archive_notarized, image_notarized in ((False, False), (True, False), (True, True)):
             with self.subTest(archive=archive_notarized, image=image_notarized), tempfile.TemporaryDirectory() as temporary:
@@ -189,7 +250,7 @@ class ReleaseTests(unittest.TestCase):
                     patch.object(release.release_checks, "verify", side_effect=ValueError("Native acceptance is required")) as native, \
                     patch.object(release, "github") as github:
                 with self.assertRaises(ValueError):
-                    release.publish(folder, None, finalize=False)
+                    release.publish(folder, None)
                 native.assert_called_once_with(folder, target, "1.2.3", "a" * 40, require_acceptance=True)
                 github.assert_not_called()
             for portable in ([{"target": target, "acceptance": True}],

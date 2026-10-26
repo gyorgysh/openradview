@@ -1,14 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-name: Approved macOS release draft
+name: Approved release
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      confirm:
-        description: Type SIGN AND DRAFT to authorize the build, Apple submissions and private draft upload
-        required: true
-        type: string
 permissions:
   contents: read
   actions: read
@@ -16,17 +11,35 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  draft:
-    # Owner setup arms this only after checking the environment and secrets.
-    # Private: owner dispatch only. Public: real environment reviewer gate.
-    # An absent/mismatched flag allocates no runner, including on tag pushes.
+  source:
     if: >-
       github.repository == 'gyorgysh/openradview' &&
+      !github.event.repository.private &&
       startsWith(github.ref, 'refs/tags/v') &&
-      ((github.event.repository.private && github.event_name == 'workflow_dispatch' &&
-        github.actor_id == '295578481' && inputs.confirm == 'SIGN AND DRAFT' &&
-        vars.ORV_RELEASE_APPROVAL_READY == 'manual-private-v1') ||
-       (!github.event.repository.private && vars.ORV_RELEASE_APPROVAL_READY == 'reviewers-v1'))
+      vars.ORV_RELEASE_APPROVAL_READY == 'reviewers-v1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      ORV_RELEASE_APPROVAL_READY: ${{ vars.ORV_RELEASE_APPROVAL_READY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.13'
+      - name: Check release policy and exact source tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/release-policy.py --source
+  native:
+    needs: source
+    uses: ./.github/workflows/portable.yml
+    with:
+      platform: both
+  publish:
+    needs: native
     environment: release
     runs-on: macos-26
     timeout-minutes: 55
@@ -74,7 +87,11 @@ jobs:
         run: |
           python3 -m venv target/dmgbuild-venv
           target/dmgbuild-venv/bin/pip install --disable-pip-version-check --require-hashes -r packaging/macos/installer/requirements.txt
-      - name: Sign, notarize and create a private draft
+      - name: Download this source's checked native packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --pattern "native-*-$GITHUB_SHA" --dir dist/native-inputs
+      - name: Sign, notarize and publish the approved release
         id: release_candidate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -112,7 +129,14 @@ jobs:
             dist/OpenRadView-*-macos-*-standard.dmg.json
             dist/OpenRadView-*-macos-*-standard.dmg.sha256
             dist/OpenRadView-*-source-*.tar.gz
-            dist/update-aarch64-apple-darwin.json
+            dist/update-*.json
+            dist/OpenRadView-*-x86_64-*.zip
+            dist/OpenRadView-*-x86_64-*.tar.gz
+            dist/OpenRadView-*-windows-x64-setup.exe*
+            dist/openradview_*_amd64.deb*
+            dist/acceptance-*.json
+            dist/installer-acceptance-*.json
+            dist/releases/**
           compression-level: 0
           if-no-files-found: ignore
           retention-days: 1

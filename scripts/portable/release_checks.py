@@ -16,6 +16,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import update_protocol
+import native_evidence
 
 TARGETS = {"x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-gnu", "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"}
 CHECKS = {"format", "clippy", "default_tests", "full_tests", "native_gpu", "file_folder_zip", "large_study_cancel", "navigation_resize", "accessibility", "labels_export", "consent_revoke", "unsaved_close", "update_roundtrip"}
@@ -133,10 +134,14 @@ def source_digest(revision):
         return digest(compressed)
 
 
-def acceptance(path, target, version, revision, archive_hash):
+def acceptance(path, target, version, revision, archive_hash, installer_hash=None):
     if path.stat().st_size > 64 * 1024:
         raise ValueError("Native acceptance record is too large")
     record = json.loads(path.read_text())
+    if record.get("schema_version") == 2:
+        native_evidence.ci_acceptance(record, target=target, version=version, revision=revision,
+                                      archive_hash=archive_hash, installer_hash=installer_hash)
+        return
     if (record.get("schema_version") != 1 or record.get("target") != target
             or record.get("version") != version or record.get("source_revision") != revision
             or record.get("archive_sha256") != archive_hash
@@ -146,7 +151,7 @@ def acceptance(path, target, version, revision, archive_hash):
         raise ValueError("Native acceptance must cover this exact archive and every required check")
 
 
-def verify(folder, target, version, revision, *, require_acceptance):
+def verify(folder, target, version, revision, *, require_acceptance, require_installer=False):
     if target not in TARGETS or not re.fullmatch(r"\d+\.\d+\.\d+", version) or not re.fullmatch(r"[a-f0-9]{40}", revision):
         raise ValueError("Unsupported portable release identity")
     name, bundle = update_protocol.names(version, target)
@@ -178,11 +183,16 @@ def verify(folder, target, version, revision, *, require_acceptance):
     feed = local(folder, f"update-{target}.json")
     update_protocol.verify(feed, target, archive, version)
     names = [name, checksum.name, feed.name]
+    installer_hash = None
+    if require_installer:
+        selected, installer_hash = native_evidence.installer(folder, target, version, revision, archive, hashes,
+                                                             digest=digest, local=local)
+        names.extend(selected)
     report_name = f"acceptance-{target}.json"
     report = folder / report_name
     accepted = report.exists()
     if accepted:
-        acceptance(local(folder, report_name), target, version, revision, archive_hash)
+        acceptance(local(folder, report_name), target, version, revision, archive_hash, installer_hash)
         names.append(report_name)
     elif require_acceptance:
         raise ValueError("Native runtime/update acceptance is required before publication: " + target)

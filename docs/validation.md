@@ -26,24 +26,26 @@ update preferences. No private patient files or provider account are needed.
 
 ## Platform and release acceptance
 
-Apple Silicon/macOS with Metal has native local evidence. Windows GNU and Linux
-GNU app/companion cross-builds check compilation/linking only. They do not verify
-native file locking, GPU drivers, file dialogs, accessibility, installation or
-updater behavior. [Current platform status](platforms.md)
+Apple Silicon/macOS with Metal has native local evidence. Native Windows MSVC and Linux GNU CI run default/full suites, GPU rendering,
+loaded-executable swaps/rollback and installer install/probe/uninstall checks.
+Their artifact-bound reports preserve actual counts and source/hash identity.
+They do not establish interactive file dialogs, accessibility, consumer GPU
+performance or an older-version production update roundtrip. [Current platform status](platforms.md)
 
 Before distributing a binary, validate the exact clean signed artifact on the
 intended OS: launch, supported inputs and multi-GB cancellation, all view modes,
 resize/input/accessibility, labels and unsaved changes, local consent/revoke,
 installation, updater roundtrip/relaunch, recovery and backup cleanup. Record
-source revision, artifact hashes and what was actually tested. Portable release
-checks require an artifact-bound [native acceptance record](../packaging/native-acceptance-template.json).
+source revision, artifact hashes and what was actually tested. Portable releases include artifact-bound CI evidence with its explicit scope.
+The broader [manual acceptance record](../packaging/native-acceptance-template.json)
+can document the interactive checks.
 Never fill it by treating a cross-build or a placeholder as runtime evidence.
 
 Signatures, notarization, hashes and exact source/notice inventories establish
 specific distribution-integrity properties. They do not establish medical
-accuracy, universal OS support or compliance with every jurisdiction. Production
-signing/notarization, native portable acceptance and updater roundtrips remain
-release gates until completed against the actual artifacts.
+accuracy, universal OS support or compliance with every jurisdiction. Production signing/notarization and exact native package checks gate publication.
+Windows/Linux packages retain preview status while broader interactive and
+production update acceptance is incomplete.
 
 ## Dependencies and performance
 
