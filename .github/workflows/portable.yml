@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Manual Windows and Linux packages
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: portable-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  package:
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: ${{ matrix.os == 'windows-2025' && '-C target-feature=+crt-static' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.13'
+      - name: Linux build, graphics and installer dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config binutils dpkg-dev desktop-file-utils libxkbcommon-dev libwayland-dev libvulkan1 libegl1 mesa-vulkan-drivers xdg-desktop-portal xdg-desktop-portal-gtk
+      - name: Pinned Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: orv-native-${{ runner.os }}
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+        with:
+          tool: cargo-nextest@0.9.149
+      - name: Fetch exact dependencies
+        run: cargo fetch --locked --target ${{ matrix.target }}
+      - name: Format and full native Clippy
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --workspace --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
+      - name: Default native tests
+        run: cargo nextest run --locked --workspace --target ${{ matrix.target }}
+      - name: Full native tests including GPU rendering
+        run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }}
+      - name: Portable packaging helpers
+        run: python -m unittest discover -s scripts/portable -p 'test_*.py'
+      - name: Native optimized application archive
+        run: python scripts/portable/bundle.py --target ${{ matrix.target }}
+      - name: Pinned Windows installer compiler
+        if: runner.os == 'Windows'
+        run: python scripts/ci/inno.py
+      - name: Windows installer
+        if: runner.os == 'Windows'
+        run: python scripts/portable/installers.py --target ${{ matrix.target }} --compiler "$ORV_INNO_COMPILER"
+      - name: Debian installer
+        if: runner.os == 'Linux'
+        run: python scripts/portable/installers.py --target ${{ matrix.target }}
+      - name: Native installation, version probes and removal
+        run: python scripts/portable/smoke_installers.py --target ${{ matrix.target }}
+      - name: Preserve native packages
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: native-${{ matrix.target }}-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3

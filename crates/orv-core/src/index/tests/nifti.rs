@@ -194,7 +194,7 @@ fn nifti_multigib_volume_uses_metadata_and_one_frame_not_whole_volume() {
     for (at, n) in [(42, 512u16), (44, 512), (46, 8191)] {
         header[at..at + 2].copy_from_slice(&n.to_le_bytes());
     }
-    let mut file = File::create(&path).unwrap();
+    let mut file = large::create_sparse_file(&path);
     file.write_all(&header).unwrap();
     file.set_len(352 + 512 * 512 * 2 * 8191).unwrap();
     file.seek(SeekFrom::End(-2)).unwrap();

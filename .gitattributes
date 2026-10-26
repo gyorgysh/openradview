@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+* text=auto eol=lf
 
 # Preserve byte-exact upstream notices; packaging checks their SHA-256.
-/assets/licenses/*.txt -whitespace
+/assets/licenses/*.txt -text -whitespace
+/assets/fonts/*-OFL.txt -text
 # Third-party sources retain upstream formatting and are checked by inventory hash.
-/vendor/** -whitespace
+/vendor/** -text -whitespace

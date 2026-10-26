@@ -51,11 +51,43 @@ python scripts/portable/bundle.py
 
 The ZIP keeps the application and stdio companion together. The packager selects
 the static MSVC runtime, inspects PE imports and refuses unknown non-system DLLs.
-It does not silently produce an archive missing a compiler runtime. No installer,
-registry change, elevation or Authenticode signature is performed. MinGW builds
+It does not silently produce an archive missing a compiler runtime. This archive
+step does not install files or add an Authenticode signature. MinGW builds
 can also be packaged with a statically linked C++ runtime, subject to the same
 import audit. MSVC remains the preferred native release target; neither compiler
 preview establishes runtime acceptance.
+
+## Native installers
+
+After creating a clean native archive, `python scripts/portable/installers.py
+--target TARGET` produces the matching installer. On Windows, supply
+`--compiler PATH_TO_ISCC_EXE` for the pinned Inno Setup compiler. The CI-only
+`scripts/ci/inno.py` downloads it from the official release and verifies its exact
+size and SHA-256. Installer names and update archives are defined in
+[the target contract](../packaging/release-targets.json).
+
+The Windows x64 Setup EXE installs for the current user under
+`%LOCALAPPDATA%\Programs\OpenRadView`. The managed application is in its `app`
+subfolder; uninstall metadata and shortcuts stay outside the folder replaced by
+the updater. A desktop shortcut is optional. The installer does not launch the
+viewer, add an account or modify the system PATH. Windows Authenticode signing
+requires a separate certificate; Apple credentials do not sign Windows programs.
+
+The Linux amd64 `.deb` targets Debian/Ubuntu systems with compatible runtime
+libraries. Its dependencies are derived from the actual ELF programs, with the
+desktop/Vulkan libraries declared explicitly. It installs the app under
+`/opt/openradview`, commands under `/usr/bin`, and the desktop entry and icon in
+their standard locations. Its marker disables folder replacement by the in-app
+updater; install later `.deb` versions through the package manager. The portable
+TAR.GZ keeps the writable-folder update path.
+
+**Manual Windows and Linux packages** runs the native default/full test suites,
+GPU tests, archive and installer builds, then a real unattended install/version
+probe/uninstall check on each host. It runs only when dispatched, serializes the
+two hosts, saves reusable caches on main and retains packages for three days.
+These checks establish their recorded scope; interactive UI and production update
+acceptance are separate from command-line probes. No checklist is filled by
+assuming that compilation proves runtime behavior.
 
 ## Preview and release boundaries
 

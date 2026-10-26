@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Desktop Entry]
+Type=Application
+Name=OpenRadView
+Comment=Explore your own CT, MRI and X-ray images
+Exec=/opt/openradview/openradview
+Icon=openradview
+Terminal=false
+Categories=Education;Science;
+StartupWMClass=OpenRadView

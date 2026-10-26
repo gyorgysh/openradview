@@ -73,7 +73,7 @@ impl OpenRadView {
                     ui.weak("Export or discard local labels before installing or restarting.");
                 }
                 ui.weak("When enabled, checks run about once a day. Download, installation and restart require your action. No telemetry or automatic installation.");
-                ui.label("Updates use public GitHub Releases. While the repository is private, use signed-in downloads; the app contains no GitHub credential.");
+                ui.hyperlink_to("Downloads on GitHub", "https://github.com/gyorgysh/openradview/releases/latest");
             });
         ui.separator();
     }

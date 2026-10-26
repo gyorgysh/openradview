@@ -506,7 +506,7 @@ fn indexed_color_volume_budget_counts_retained_code_buffers_before_decoding() {
     let n = bytes.len();
     let payload = 13u32 * 2048 * 2048 * 6;
     bytes[n - 4..].copy_from_slice(&payload.to_le_bytes());
-    let mut file = File::create(&path).unwrap();
+    let mut file = super::super::large::create_sparse_file(&path);
     file.write_all(&bytes).unwrap();
     file.set_len(bytes.len() as u64 + payload as u64).unwrap();
     drop(file);

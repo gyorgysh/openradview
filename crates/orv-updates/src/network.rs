@@ -44,9 +44,7 @@ fn status(response: &reqwest::blocking::Response) -> Result<()> {
     match response.status().as_u16() {
         200 => Ok(()),
         403 | 429 => Err("GitHub is limiting update requests. Try again later."),
-        404 => Err(
-            "No public update is available. Private or unpublished GitHub releases cannot be checked anonymously.",
-        ),
+        404 => Err("No public update package is available for this platform."),
         _ => Err("GitHub could not provide the update. Try again later."),
     }
 }

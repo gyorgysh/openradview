@@ -3,6 +3,22 @@
 use super::*;
 use dicom_core::{DataElement, PrimitiveValue, Tag, VR};
 
+pub(super) fn create_sparse_file(path: &Path) -> File {
+    let file = File::create(path).unwrap();
+    // NTFS needs an explicit sparse flag before multi-GiB extension; other
+    // hosts already leave unwritten fixture ranges unallocated.
+    #[cfg(windows)]
+    {
+        let status = std::process::Command::new("fsutil")
+            .args(["sparse", "setflag"])
+            .arg(path)
+            .output()
+            .expect("NTFS sparse fixture setup must run");
+        assert!(status.status.success(), "NTFS sparse fixture setup failed");
+    }
+    file
+}
+
 pub(super) fn native(folder: &Path) -> (PathBuf, Vec<u8>, u64) {
     native_frames(folder, 8191)
 }
@@ -42,7 +58,7 @@ pub(super) fn native_with_padding(
     header.extend_from_slice(&[0xe0, 0x7f, 0x10, 0, b'O', b'W', 0, 0]);
     header.extend_from_slice(&(bytes as u32).to_le_bytes());
     let path = folder.join("synthetic-four-gib.dcm");
-    let mut file = File::create(&path).unwrap();
+    let mut file = create_sparse_file(&path);
     file.write_all(&header).unwrap();
     file.set_len(header.len() as u64 + bytes).unwrap();
     patch(&mut file, header.len() as u64, false);
@@ -74,7 +90,7 @@ pub(super) fn zip64(folder: &Path, native: &Path, header: &[u8], bytes: u64) -> 
     let size = header.len() as u64 + bytes;
     let name = b"synthetic.dcm";
     let path = folder.join("synthetic-four-gib.zip");
-    let mut file = File::create(&path).unwrap();
+    let mut file = create_sparse_file(&path);
     let mut local = Vec::new();
     local.extend_from_slice(&0x04034b50u32.to_le_bytes());
     for n in [45u16, 0, 0, 0, 0] {

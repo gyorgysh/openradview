@@ -17,6 +17,46 @@ fn manifest() -> Manifest {
         sha256: "a".repeat(64),
     }
 }
+
+#[test]
+fn release_target_contract_matches_client_payload_names_and_download_urls() {
+    let catalog: serde_json::Value =
+        serde_json::from_str(include_str!("../../../packaging/release-targets.json")).unwrap();
+    for entry in catalog["targets"].as_array().unwrap() {
+        let target = entry["target"].as_str().unwrap();
+        assert!(protocol::supported_target(target));
+        let (archive, folder) = protocol::names("1.2.3", target);
+        assert_eq!(
+            archive,
+            entry["archive"]
+                .as_str()
+                .unwrap()
+                .replace("{version}", "1.2.3")
+        );
+        assert_eq!(
+            folder,
+            entry["bundle"]
+                .as_str()
+                .unwrap()
+                .replace("{version}", "1.2.3")
+        );
+        let mut release = manifest();
+        release.target = target.into();
+        release.archive = archive.clone();
+        release.bundle = folder;
+        assert_eq!(
+            release.url(),
+            format!("https://github.com/gyorgysh/openradview/releases/download/v1.2.3/{archive}")
+        );
+        assert_ne!(
+            archive,
+            entry["installer"]
+                .as_str()
+                .unwrap()
+                .replace("{version}", "1.2.3")
+        );
+    }
+}
 fn envelope(manifest: &Manifest, key: &SigningKey) -> Vec<u8> {
     let raw = serde_json::to_vec(manifest).unwrap();
     serde_json::to_vec(&serde_json::json!({"manifest":BASE64_STANDARD.encode(&raw),"signature":BASE64_STANDARD.encode(key.sign(&raw).to_bytes())})).unwrap()
@@ -427,3 +467,4 @@ fn quitting_during_a_swap_waits_for_the_rename_or_rollback_to_finish() {
     assert!(lifecycle.request_close());
     assert!(lifecycle.begin_commit().is_err());
 }
+mod native_process;

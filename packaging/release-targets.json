@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "targets": [
+    {
+      "target": "aarch64-apple-darwin",
+      "platform": "mac",
+      "architecture": "arm64",
+      "archive": "OpenRadView-{version}-macos-arm64-standard.zip",
+      "bundle": "OpenRadView.app",
+      "installer": "OpenRadView-{version}-macos-arm64-standard.dmg",
+      "manifest": "update-aarch64-apple-darwin.json"
+    },
+    {
+      "target": "x86_64-pc-windows-msvc",
+      "platform": "windows",
+      "architecture": "x86_64",
+      "archive": "OpenRadView-{version}-x86_64-pc-windows-msvc.zip",
+      "bundle": "OpenRadView-{version}-x86_64-pc-windows-msvc",
+      "installer": "OpenRadView-{version}-windows-x64-setup.exe",
+      "manifest": "update-x86_64-pc-windows-msvc.json"
+    },
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "archive": "OpenRadView-{version}-x86_64-unknown-linux-gnu.tar.gz",
+      "bundle": "OpenRadView-{version}-x86_64-unknown-linux-gnu",
+      "installer": "openradview_{version}_amd64.deb",
+      "manifest": "update-x86_64-unknown-linux-gnu.json"
+    }
+  ]
+}

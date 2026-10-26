@@ -323,7 +323,7 @@ fn paired_v2_sparse_multigib_seeks_to_one_slice_with_a_bounded_cache() {
         header(2, false, true, [512, 512, 8191, 1, 1, 1, 1], 4, 16),
     )
     .unwrap();
-    let mut file = File::create(&dp).unwrap();
+    let mut file = large::create_sparse_file(&dp);
     file.set_len(512 * 512 * 8191 * 2).unwrap();
     file.seek(SeekFrom::End(-2)).unwrap();
     file.write_all(&42i16.to_le_bytes()).unwrap();
