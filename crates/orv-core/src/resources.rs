@@ -1,15 +1,72 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Reservations bound concurrently retained resources without retaining study data.
+mod policy;
+pub use policy::MemoryPolicy;
 use std::sync::{
-    Arc,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicU64, Ordering},
 };
+use std::time::{Duration, Instant};
 
-pub const VOLUME_BYTES: u64 = 1536 * 1024 * 1024;
+pub const MAX_VOLUME_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+pub const MAX_CACHE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+struct Resources {
+    volumes: Arc<MemoryBudget>,
+    cache: Arc<MemoryBudget>,
+    gpu: Arc<MemoryBudget>,
+    refreshed: Mutex<Instant>,
+}
+fn resources() -> &'static Resources {
+    static RESOURCES: OnceLock<Resources> = OnceLock::new();
+    RESOURCES.get_or_init(|| {
+        let (total, available) = policy::query();
+        let policy = MemoryPolicy::from_memory(total, available);
+        Resources {
+            volumes: MemoryBudget::new(policy.volume_bytes),
+            cache: MemoryBudget::new(policy.cache_bytes),
+            gpu: MemoryBudget::new(policy.gpu_bytes),
+            refreshed: Mutex::new(Instant::now()),
+        }
+    })
+}
+pub fn memory_policy() -> MemoryPolicy {
+    let resources = resources();
+    MemoryPolicy {
+        cache_bytes: resources.cache.limit(),
+        volume_bytes: resources.volumes.limit(),
+        gpu_bytes: resources.gpu.limit(),
+    }
+}
+/// Worker-only, activity-driven refresh. No timer, study state or process list.
+pub fn refresh_memory_policy() -> MemoryPolicy {
+    let resources = resources();
+    let mut refreshed = resources
+        .refreshed
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if refreshed.elapsed() >= Duration::from_secs(1) {
+        let (total, available) = policy::query();
+        let policy = MemoryPolicy::with_usage(
+            total,
+            available,
+            MemoryPolicy {
+                cache_bytes: resources.cache.used(),
+                volume_bytes: resources.volumes.used(),
+                gpu_bytes: resources.gpu.used(),
+            },
+        );
+        resources.cache.set_limit(policy.cache_bytes);
+        resources.volumes.set_limit(policy.volume_bytes);
+        resources.gpu.set_limit(policy.gpu_bytes);
+        *refreshed = Instant::now();
+    }
+    memory_policy()
+}
 
 #[derive(Debug)]
 pub struct MemoryBudget {
-    limit: u64,
+    limit: AtomicU64,
     used: AtomicU64,
 }
 
@@ -21,26 +78,37 @@ pub struct Reservation {
 
 impl MemoryBudget {
     pub fn volumes() -> Arc<Self> {
-        static VOLUMES: std::sync::OnceLock<Arc<MemoryBudget>> = std::sync::OnceLock::new();
-        VOLUMES.get_or_init(|| Self::new(VOLUME_BYTES)).clone()
+        resources().volumes.clone()
+    }
+    pub fn decoded_cache() -> Arc<Self> {
+        resources().cache.clone()
+    }
+    pub fn gpu() -> Arc<Self> {
+        resources().gpu.clone()
     }
     pub fn new(limit: u64) -> Arc<Self> {
         Arc::new(Self {
-            limit,
+            limit: AtomicU64::new(limit),
             used: AtomicU64::new(0),
         })
     }
     pub fn used(&self) -> u64 {
         self.used.load(Ordering::Acquire)
     }
+    pub fn limit(&self) -> u64 {
+        self.limit.load(Ordering::Acquire)
+    }
+    pub fn set_limit(&self, limit: u64) {
+        self.limit.store(limit, Ordering::Release);
+    }
     pub fn reserve(self: &Arc<Self>, bytes: u64) -> Option<Reservation> {
-        self.reserve_with_limit(bytes, self.limit)
+        self.reserve_with_limit(bytes, self.limit())
     }
     pub fn reserve_with_limit(self: &Arc<Self>, bytes: u64, limit: u64) -> Option<Reservation> {
         self.used
             .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
                 used.checked_add(bytes)
-                    .filter(|total| *total <= self.limit.min(limit))
+                    .filter(|total| *total <= self.limit().min(limit))
             })
             .ok()?;
         Some(Reservation {
@@ -100,6 +168,22 @@ mod tests {
                 .count();
             assert_eq!(admitted, 3);
         });
+        assert_eq!(budget.used(), 0);
+    }
+    #[test]
+    fn lowering_a_limit_preserves_live_allocations_and_blocks_new_admission() {
+        let budget = MemoryBudget::new(100);
+        let retained = budget.reserve(80).unwrap();
+        budget.set_limit(40);
+        assert_eq!(budget.used(), 80);
+        assert!(budget.reserve(1).is_none());
+        drop(retained);
+        assert_eq!(budget.used(), 0);
+        assert!(budget.reserve(41).is_none());
+        let next = budget.reserve(40).unwrap();
+        budget.set_limit(80);
+        assert!(budget.reserve(40).is_some());
+        drop(next);
         assert_eq!(budget.used(), 0);
     }
 }

@@ -133,6 +133,7 @@ pub fn index_paths(
     cancelled: impl Fn() -> bool,
     mut progress: impl FnMut(Progress),
 ) -> Result<Study, LoadError> {
+    crate::resources::refresh_memory_policy();
     let mut resolver = super::pairs::Resolver::default();
     let files = collect(paths, &cancelled, &mut resolver)?;
     let mut builder = Builder {

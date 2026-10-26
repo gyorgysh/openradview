@@ -385,13 +385,13 @@ fn implicit_vr_preserves_signed_padding_and_unused_high_bits() {
 #[test]
 fn padded_volume_is_budgeted_before_materializing_but_remains_viewable_in_2d() {
     let temp = Temp::new();
-    let frames = (VOLUME_BYTES / (512 * 512 * 5) + 1) as u32;
+    let frames = (MAX_VOLUME_BYTES / (512 * 512 * 5) + 1) as u32;
     let (path, _, _) = super::large::native_with_padding(&temp.0, frames, Some(0));
     let study = index_paths(&[path], || false, |_| {}).unwrap();
     let series = &study.series[0];
     let indexed = series.source.as_ref().unwrap();
     assert_eq!(indexed.decoded_bytes(), 512 * 512 * u64::from(frames) * 5);
-    assert!(indexed.decoded_bytes() > VOLUME_BYTES);
+    assert!(indexed.decoded_bytes() > MAX_VOLUME_BYTES);
     assert_eq!(indexed.materialize(|| false).unwrap_err(), LoadError::Limit);
     assert_eq!(indexed.cache_bytes(), Some(0), "Reject before pixel I/O");
     let first = series.read_frame(0, || false).unwrap();

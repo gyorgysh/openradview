@@ -45,12 +45,39 @@ or in-plane shear gets no anatomical labels/physical measurements; the source
 pixel grid remains viewable in 2D. MPR/3D require a valid regular stack; scalar and color samples or different color contexts cannot be mixed.
 Time/component indices and complex presentation survive source hashes and snapshot metadata. Nonspatial axes are never mixed into a spatial stack. Paired files require a unique same-directory companion; no header-supplied paths are followed. Both files must remain unchanged. The NIfTI source grid is not relabelled as an acquisition plane. Non-CT volumes start with a neutral source intensity range calculated on the worker; CT retains its Bone starting preset. Source range and Reset are available in 3D controls. Transfer functions retain their explicit numeric limits.
 
-The decoded cache is shared and bounded at 128 MiB. Active MPR/oblique/3D sources
-share a separate 1536 MiB (1.5 GiB) decoded-volume allowance, including retained
-RGB code buffers and validity masks. GPU source/output reservations have their own
-shared ceiling of 1536 MiB, with lower admission on constrained devices and actual
-texture/compute limits. Preparation scratch space, cache, labels and driver memory
-are separate; these allowances are not a total process-memory guarantee.
+The decoded 2D cache and prepared-volume pools grow with total/available physical
+RAM, up to 8 GiB each. They are shared across imports/views and allocate only as
+images are requested. A 500 MiB study is not restricted to 128 MiB: file size is
+separate from decoded memory, which also depends on compression, scaling and color.
+The cache evicts older slices when its allowance is full; eviction changes speed,
+not which source images can be opened. Prepared MPR/oblique/3D sources retain their
+pixels while needed, including RGB code buffers and validity masks.
+
+For example, the policy chooses these initial ceilings when the stated physical
+memory is available. Actual pressure/device limits can lower them:
+
+| RAM / available RAM | Decoded slice cache | Prepared CPU volumes | Host-side GPU ceiling |
+|---|---:|---:|---:|
+| 8 / 4 GiB | 512 MiB | 1 GiB | 1 GiB |
+| 16 / 8 GiB | 1 GiB | 2 GiB | 2 GiB |
+| 32 / 20 GiB | 2 GiB | 4 GiB | 4 GiB |
+| 64 / 48 GiB | 4 GiB | 8 GiB | 8 GiB |
+| 128 / 100 GiB | 8 GiB | 8 GiB | 8 GiB |
+
+CPU sources, cache and GPU copies share the host headroom calculation, so Apple
+Silicon memory is not counted twice as independent RAM and VRAM. GPU admission is
+also limited by the selected adapter, texture/compute support and source/output
+costs. Metal uses its recommended working-set size; Windows uses matching dedicated
+adapter capacity (not a free-VRAM claim); Linux uses matching DRM memory counters
+when exposed by the driver. Unknown/ambiguous adapter capacity keeps a conservative
+limit. Allocation failures retain a 2D/MPR fallback within their own limits.
+
+RAM counters refresh on worker activity, without an idle timer or process listing.
+Optional cached pixels are evicted on use after the ceiling falls. Active volumes
+stay valid while pressure restricts new preparation. Swap is not counted as fast
+working memory, and the app creates no study-data spill files, persistent cache or
+memory/session log. Preparation scratch, displayed slices, labels and driver memory
+remain separate; these allowances are not a total process-memory guarantee.
 Maximum32million samples per frame
 counts all three color channels; maximum dimension8192, compressed frame payload64MiB,
 metadata8MiB/object and128MiB/study,200,000 entries and one million images apply.
@@ -98,7 +125,7 @@ f64 sform in RAS millimetres, without source pixels/names/identifiers. Existing
 files are never overwritten. Maps remain in memory until export; closing, study
 replacement and quitting protect unsaved work. Only one source series has a label
 map at a time; changing series retains it until explicitly removed. The limits
-are32Mi voxels and4Mi pixels/slice, alongside the shared 1.5 GiB source-volume allowance.
+are32Mi voxels and4Mi pixels/slice, alongside the adaptive shared source-volume allowance.
 Workers clone a private edit, publish only successful results and retain two
 checkpoints; cancellation leaves the displayed map unchanged. Labels show only
 in source2D, and are excluded from renderer/MCP snapshots. No new agent tool or

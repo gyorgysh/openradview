@@ -510,7 +510,10 @@ fn indexed_color_volume_budget_counts_retained_code_buffers_before_decoding() {
     file.write_all(&bytes).unwrap();
     file.set_len(bytes.len() as u64 + payload as u64).unwrap();
     drop(file);
-    let study = index_paths(&[path], || false, |_| {}).unwrap();
+    let mut study = index_paths(&[path], || false, |_| {}).unwrap();
+    Arc::get_mut(study.series[0].source.as_mut().unwrap())
+        .unwrap()
+        .budget = crate::resources::MemoryBudget::new(1536 * 1024 * 1024);
     let series = &study.series[0];
     assert_eq!(
         series.source.as_ref().unwrap().decoded_bytes(),

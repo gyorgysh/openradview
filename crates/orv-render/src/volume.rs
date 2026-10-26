@@ -89,14 +89,13 @@ impl VolumeRenderer {
         let bytes = dimensions
             .iter()
             .try_fold(bytes_per_voxel, |n, d| n.checked_mul(*d as u64));
-        if bytes.is_none_or(|b| b > orv_core::index::VOLUME_BYTES) {
+        if bytes.is_none_or(|b| b > orv_core::index::MAX_VOLUME_BYTES) {
             return Err("Volume and validity exceed the GPU source budget; use 2D/MPR");
         }
         if cancelled() {
             return Err("Cancelled");
         }
-        let reservation =
-            allocation::reserve(dimensions, volume.has_missing_scalar(), &device.limits())?;
+        let reservation = allocation::reserve(dimensions, volume.has_missing_scalar(), device)?;
         let texture = allocation::texture(
             device,
             &wgpu::TextureDescriptor {

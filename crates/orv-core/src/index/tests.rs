@@ -149,7 +149,10 @@ fn indexed_sources_reject_mutation_traversal_and_cancellation() {
 fn four_gib_native_multiframe_is_lazy_random_access_and_cache_bounded() {
     let temp = Temp::new();
     let (path, _, _) = large::native(&temp.0);
-    let study = index_paths(std::slice::from_ref(&path), || false, |_| {}).unwrap();
+    let mut study = index_paths(std::slice::from_ref(&path), || false, |_| {}).unwrap();
+    let source = Arc::get_mut(study.series[0].source.as_mut().unwrap()).unwrap();
+    source.budget = MemoryBudget::new(1536 * 1024 * 1024);
+    source.cache.lock().unwrap().budget = MemoryBudget::new(128 * 1024 * 1024);
     let series = &study.series[0];
     assert_eq!(series.frame_count(), 8191);
     assert!(series.frames.is_empty());
@@ -176,7 +179,7 @@ fn four_gib_native_multiframe_is_lazy_random_access_and_cache_bounded() {
         weak.upgrade().is_none(),
         "Eviction releases old pixel payloads"
     );
-    assert!(series.source.as_ref().unwrap().cache_bytes().unwrap() <= CACHE_BYTES);
+    assert!(series.source.as_ref().unwrap().cache_bytes().unwrap() <= 128 * 1024 * 1024);
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;

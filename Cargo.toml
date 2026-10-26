@@ -39,6 +39,7 @@ getrandom = "=0.4.3"
 subtle = "=2.6.1"
 zeroize = "=1.9.1"
 schemars = "=1.2.3"
+sysinfo = { version = "=0.39.6", default-features = false, features = ["system", "apple-sandbox"] }
 reqwest = { version = "=0.13.5", default-features = false, features = ["json"] }
 
 [workspace.lints.rust]

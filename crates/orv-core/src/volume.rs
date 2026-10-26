@@ -32,13 +32,18 @@ impl Volume {
         frames: Vec<Arc<Frame>>,
         cancelled: impl Fn() -> bool,
     ) -> Result<Arc<Self>, String> {
+        crate::resources::refresh_memory_policy();
         let bytes = frames
             .iter()
             .try_fold(0u64, |sum, frame| sum.checked_add(frame.byte_len()))
             .ok_or("Volume size overflow")?;
-        let reservation = crate::resources::MemoryBudget::volumes()
-            .reserve(bytes)
-            .ok_or("Active volumes exceed the shared 1.5 GiB memory budget; use 2D browsing")?;
+        let budget = crate::resources::MemoryBudget::volumes();
+        let reservation = budget.reserve(bytes).ok_or_else(|| {
+            format!(
+                "Active volumes exceed the current shared {} MiB memory allowance; use 2D browsing",
+                budget.limit() / (1024 * 1024)
+            )
+        })?;
         let mut volume =
             Self::new_cancellable(frames, cancelled).map_err(|error| error.to_string())?;
         volume.retain_reservation(reservation);
@@ -73,7 +78,7 @@ impl Volume {
         if frames
             .iter()
             .try_fold(0u64, |sum, frame| sum.checked_add(frame.byte_len()))
-            .is_none_or(|bytes| bytes > crate::index::VOLUME_BYTES)
+            .is_none_or(|bytes| bytes > crate::index::MAX_VOLUME_BYTES)
         {
             return Err(GeometryError::Limit);
         }
@@ -81,7 +86,7 @@ impl Volume {
             .iter()
             .try_fold(1usize, |a, b| a.checked_mul(*b))
             .ok_or(GeometryError::Limit)?
-            > (crate::resources::VOLUME_BYTES / 4) as usize
+            > (crate::resources::MAX_VOLUME_BYTES / 4) as usize
         {
             return Err(GeometryError::Limit);
         }

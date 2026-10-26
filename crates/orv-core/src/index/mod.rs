@@ -21,8 +21,7 @@ use std::{
     time::Duration,
 };
 
-pub const CACHE_BYTES: u64 = 128 * 1024 * 1024;
-pub use crate::resources::VOLUME_BYTES;
+pub use crate::resources::{MAX_CACHE_BYTES, MAX_VOLUME_BYTES};
 
 #[derive(Clone, Copy, Default)]
 pub struct Progress {
@@ -39,12 +38,35 @@ struct CacheEntry {
     source: u64,
     frame: u32,
     image: Arc<Frame>,
+    _reservation: crate::resources::Reservation,
 }
-#[derive(Default)]
 struct Cache {
     entries: VecDeque<CacheEntry>,
     bytes: u64,
     reader: ReadState,
+    budget: Arc<MemoryBudget>,
+}
+impl Default for Cache {
+    fn default() -> Self {
+        Self {
+            entries: VecDeque::new(),
+            bytes: 0,
+            reader: ReadState::default(),
+            budget: MemoryBudget::decoded_cache(),
+        }
+    }
+}
+impl Cache {
+    fn evict(&mut self) -> bool {
+        let Some(old) = self.entries.pop_front() else {
+            return false;
+        };
+        self.bytes = self.bytes.saturating_sub(old.image.byte_len());
+        true
+    }
+    fn trim(&mut self) {
+        while self.budget.used() > self.budget.limit() && self.evict() {}
+    }
 }
 
 /// Does not expose source paths, raw headers or arbitrary file operations.
@@ -64,6 +86,7 @@ impl std::fmt::Debug for IndexedSeries {
 impl IndexedSeries {
     /// Worker-only shared preparation. A weak cache never keeps a closed view alive.
     pub fn volume(&self, cancelled: impl Fn() -> bool) -> Result<Arc<Volume>, String> {
+        crate::resources::refresh_memory_policy();
         let mut cached = loop {
             if cancelled() {
                 return Err(LoadError::Cancelled.to_string());
@@ -79,9 +102,10 @@ impl IndexedSeries {
         if let Some(volume) = cached.upgrade() {
             return Ok(volume);
         }
-        let reservation = self.budget.reserve(self.decoded_bytes()).ok_or(
-            "The active volumes exceed the shared 1.5 GiB budget. Close a volume view or use indexed 2D browsing."
-        )?;
+        let reservation = self.budget.reserve(self.decoded_bytes()).ok_or_else(|| format!(
+            "The active volumes exceed the current shared {} MiB memory allowance. Close a volume view or use indexed 2D browsing.",
+            self.budget.limit() / (1024 * 1024)
+        ))?;
         let first = self
             .read_frame(0, &cancelled)
             .map_err(|error| error.to_string())?;
@@ -158,6 +182,7 @@ impl IndexedSeries {
         index: usize,
         cancelled: impl Fn() -> bool,
     ) -> Result<Arc<Frame>, LoadError> {
+        crate::resources::refresh_memory_policy();
         let entry = self.frames.get(index).ok_or(LoadError::Unsupported)?;
         // A worker waiting behind another decoder can still be cancelled promptly.
         let mut cache = loop {
@@ -172,6 +197,7 @@ impl IndexedSeries {
                 }
             }
         };
+        cache.trim();
         if let Some(position) = cache
             .entries
             .iter()
@@ -193,24 +219,28 @@ impl IndexedSeries {
             return Err(LoadError::Cancelled);
         }
         let size = image.byte_len();
-        while cache.bytes + size > CACHE_BYTES {
-            let Some(old) = cache.entries.pop_front() else {
-                break;
-            };
-            cache.bytes = cache.bytes.saturating_sub(old.image.byte_len());
+        let mut reservation = None;
+        if size <= cache.budget.limit() {
+            loop {
+                reservation = cache.budget.reserve(size);
+                if reservation.is_some() || !cache.evict() {
+                    break;
+                }
+            }
         }
-        if size <= CACHE_BYTES {
+        if let Some(reservation) = reservation {
             cache.bytes += size;
             cache.entries.push_back(CacheEntry {
                 source: entry.source.id,
                 frame: entry.frame,
                 image: image.clone(),
+                _reservation: reservation,
             });
         }
         Ok(image)
     }
     pub fn materialize(&self, cancelled: impl Fn() -> bool) -> Result<Vec<Arc<Frame>>, LoadError> {
-        if self.decoded_bytes() > VOLUME_BYTES {
+        if self.decoded_bytes() > self.budget.limit().min(MAX_VOLUME_BYTES) {
             return Err(LoadError::Limit);
         }
         (0..self.len())

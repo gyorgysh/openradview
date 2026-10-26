@@ -13,6 +13,7 @@ schema = ["dep:schemars"]
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+sysinfo.workspace = true
 schemars = { workspace = true, optional = true }
 moxcms = { version = "=0.8.1", default-features = false }
 dicom-core = "=0.10.0"

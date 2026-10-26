@@ -1,14 +1,31 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Shared GPU admission and recoverable texture allocation, without study metadata.
-use orv_core::resources::{MemoryBudget, Reservation, VOLUME_BYTES};
-use std::sync::OnceLock;
+use orv_core::resources::{MemoryBudget, Reservation};
+mod hardware;
 
 pub(super) fn reserve(
     dimensions: [usize; 3],
     masked: bool,
-    limits: &wgpu::Limits,
+    device: &wgpu::Device,
 ) -> Result<Reservation, &'static str> {
-    static BUDGET: OnceLock<std::sync::Arc<MemoryBudget>> = OnceLock::new();
+    let limits = device.limits();
+    let budget = MemoryBudget::gpu();
+    let total = allocation_bytes(dimensions, masked)?;
+    let device_budget = if limits.max_texture_dimension_3d < 1024 {
+        512 * 1024 * 1024
+    } else {
+        hardware::ceiling(&device.adapter_info(), budget.used())
+    }
+    .min(budget.limit());
+    if total > device_budget {
+        return Err("Volume and output buffers exceed this device's GPU budget; use 2D/MPR");
+    }
+    budget
+        .reserve_with_limit(total, device_budget)
+        .ok_or("Active volume views exceed the shared GPU budget; close a 3D view or use 2D/MPR")
+}
+
+fn allocation_bytes(dimensions: [usize; 3], masked: bool) -> Result<u64, &'static str> {
     let source = dimensions
         .into_iter()
         .try_fold(if masked { 5u64 } else { 4 }, |bytes, side| {
@@ -16,21 +33,9 @@ pub(super) fn reserve(
         })
         .ok_or("Volume allocation size overflow; use 2D/MPR")?;
     // Reserve both maximum outputs and bounded dispatch metadata before any GPU allocation.
-    let total = source
+    source
         .checked_add(2 * 1024 * 1024 * 4 + 65536 + 1)
-        .ok_or("Volume allocation size overflow")?;
-    let device_budget = if limits.max_texture_dimension_3d < 1024 {
-        512 * 1024 * 1024
-    } else {
-        VOLUME_BYTES
-    };
-    if total > device_budget {
-        return Err("Volume and output buffers exceed this device's GPU budget; use 2D/MPR");
-    }
-    BUDGET
-        .get_or_init(|| MemoryBudget::new(VOLUME_BYTES))
-        .reserve_with_limit(total, device_budget)
-        .ok_or("Active volume views exceed the shared GPU budget; close a 3D view or use 2D/MPR")
+        .ok_or("Volume allocation size overflow")
 }
 
 pub(super) fn texture(
@@ -84,15 +89,9 @@ mod tests {
     }
     #[test]
     fn gpu_admission_counts_masks_outputs_and_constrained_devices() {
-        let normal = wgpu::Limits::default();
-        assert!(reserve([1024, 1024, 384], false, &normal).is_err());
-        assert!(reserve([usize::MAX, 2, 2], false, &normal).is_err());
-        let constrained = wgpu::Limits {
-            max_texture_dimension_3d: 512,
-            ..normal
-        };
-        assert!(reserve([512, 512, 505], false, &constrained).is_err());
-        assert!(reserve([512, 512, 410], true, &constrained).is_err());
-        assert!(reserve([16; 3], false, &constrained).is_ok());
+        assert!(allocation_bytes([usize::MAX, 2, 2], false).is_err());
+        assert!(allocation_bytes([512, 512, 505], false).unwrap() > 512 * 1024 * 1024);
+        assert!(allocation_bytes([512, 512, 410], true).unwrap() > 512 * 1024 * 1024);
+        assert!(allocation_bytes([16; 3], false).unwrap() < 512 * 1024 * 1024);
     }
 }

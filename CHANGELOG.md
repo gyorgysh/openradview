@@ -6,10 +6,12 @@
   Separate time, echo, diffusion and component acquisitions before reconstruction;
   incomplete geometry stays in 2D. Refuse conflicting functional groups and
   unsupported value mappings instead of assuming spatial or intensity meaning.
-- Larger volumes use a shared 1.5 GiB decoded-volume allowance, including color
-  buffers and validity masks. Active views reuse prepared sources; GPU limits
-  and allocation failures keep a clear 2D/MPR fallback. CPU MPR avoids repeated
-  coordinate transforms while preserving physical geometry and missing samples.
+- Adapt decoded-slice caching and prepared-volume capacity to physical memory,
+  with shared ceilings up to 8 GiB each and lower limits under pressure. Large
+  studies can retain more decoded slices for back-and-forth browsing. GPU
+  admission also checks the selected adapter; limits and allocation failures
+  retain a 2D/MPR fallback. Active views reuse prepared sources, and CPU MPR avoids
+  repeated coordinate transforms while preserving geometry and missing samples.
 - Linux packages declare the missing desktop libraries and a Vulkan driver.
 - Native Linux OpenGL fallback, explicit `WGPU_BACKEND` selection, actionable
   graphics startup errors and local adapter/driver diagnostics. Drivers without

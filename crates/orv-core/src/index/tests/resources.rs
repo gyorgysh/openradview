@@ -98,3 +98,53 @@ fn two_series_cannot_each_take_the_whole_study_volume_allowance() {
     assert!(study.series[1].volume(|| false).is_ok());
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn decoded_cache_is_shared_across_imports_evicts_and_releases_without_history() {
+    let temp = Temp::new();
+    for z in 0..3 {
+        fs::write(
+            temp.0.join(z.to_string()),
+            support::fixture(z as f64, z, false, false),
+        )
+        .unwrap();
+    }
+    let first = index_paths(std::slice::from_ref(&temp.0), || false, |_| {}).unwrap();
+    let second = index_paths(std::slice::from_ref(&temp.0), || false, |_| {}).unwrap();
+    let a = first.series[0].source.as_ref().unwrap();
+    let b = second.series[0].source.as_ref().unwrap();
+    assert!(Arc::ptr_eq(
+        &a.cache.lock().unwrap().budget,
+        &b.cache.lock().unwrap().budget
+    ));
+    let bytes = 2 * 2 * 4;
+    let budget = MemoryBudget::new(2 * bytes);
+    a.cache.lock().unwrap().budget = budget.clone();
+    b.cache.lock().unwrap().budget = budget.clone();
+    let image = a.read_frame(0, || false).unwrap();
+    let weak_a = Arc::downgrade(&image);
+    drop(image);
+    let image = b.read_frame(0, || false).unwrap();
+    let weak_b = Arc::downgrade(&image);
+    drop(image);
+    assert_eq!(budget.used(), 2 * bytes);
+    drop(a.read_frame(1, || false).unwrap());
+    assert!(
+        weak_a.upgrade().is_none(),
+        "Eviction releases app-owned cache pixels"
+    );
+    assert_eq!(budget.used(), 2 * bytes);
+    budget.set_limit(0);
+    assert_eq!(a.read_frame(2, || false).unwrap().pixels.len(), 4);
+    assert_eq!(
+        a.cache_bytes(),
+        Some(0),
+        "2D still works with no cache allowance"
+    );
+    assert_eq!(budget.used(), bytes);
+    drop(second);
+    assert!(weak_b.upgrade().is_none());
+    assert_eq!(budget.used(), 0);
+    drop(first);
+    assert_eq!(budget.used(), 0);
+}

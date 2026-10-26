@@ -23,6 +23,15 @@ metadata, expanded data, frame counts and materialized volumes have explicit
 bounds. Load, decode, filtering, statistics and export run on cancellable workers.
 [Exact limits](supported-formats.md)
 
+RAM-only slice-cache entries, prepared CPU volumes and GPU resources use
+process-wide reservation pools with physical-memory-based ceilings. The policy
+keeps headroom for the OS/transients and accounts for CPU/GPU competition on
+unified-memory systems. Worker activity refreshes RAM counters; idle views do not
+poll. Pressure lowers optional cache capacity and restricts new volume preparation
+without invalidating live views. No swap-based admission or study-data spill is
+introduced. Hardware hints are matched to the selected adapter; missing or
+ambiguous capacity retains a conservative GPU ceiling. [Policy and limits](supported-formats.md)
+
 Prepared volumes use one process-wide retained-source reservation pool. Indexed
 sources reserve their conservative decoded size before materialization; weak
 per-source caches share a live immutable volume without keeping closed data alive.

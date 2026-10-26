@@ -29,6 +29,12 @@ pollster.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 wgpu = { workspace = true, features = ["gles"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-metal = { version = "=0.3.2", default-features = false, features = ["std", "MTLDevice"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winsafe = { version = "=0.0.29", default-features = false, features = ["dxgi"] }
+
 [dev-dependencies]
 serde_json.workspace = true
 
