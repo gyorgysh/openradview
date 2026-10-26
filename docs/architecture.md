@@ -44,6 +44,13 @@ remain explicit: template/aligned coordinates are not assumed to be patient
 coordinates. Unknown geometry stays viewable in 2D without inferred anatomical
 labels or physical measurements.
 
+DICOM functional groups are validated before decoding. Explicit per-frame geometry
+and numeric/coded acquisition context partition nonspatial dimensions before stack
+construction. Acquisition digests participate in source identity without exposing
+raw tags. Missing dimension/geometry context keeps source browsing available;
+conflicting macros and unsupported value mappings fail. Single-frame decode clones
+only its selected functional group, avoiding a full per-frame metadata-table copy.
+
 ## Rendering and interaction
 
 The UI paints the last completed acquired image or coherent linked-plane result

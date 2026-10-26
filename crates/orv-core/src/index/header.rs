@@ -29,6 +29,8 @@ pub(super) struct Header {
     pub bits: u16,
     pub big_endian: bool,
     pub geometry: Option<Geometry>,
+    pub frame_spatial: Vec<crate::dicom_geometry::FrameSpatial>,
+    pub acquisition: Option<[u8; 32]>,
     pub key: String,
     pub modality: &'static str,
     pub series_number: i32,
@@ -40,6 +42,33 @@ pub(super) enum Format {
     Nifti(super::nifti::Nifti),
 }
 impl Header {
+    pub fn geometry_for(&self, frame: u32) -> Option<&Geometry> {
+        if self.frame_spatial.is_empty() {
+            self.geometry.as_ref()
+        } else {
+            self.frame_spatial.get(frame as usize)?.geometry.as_ref()
+        }
+    }
+    pub fn acquisition_for(&self, frame: u32) -> Option<[u8; 32]> {
+        if self.frame_spatial.is_empty() {
+            self.acquisition
+        } else {
+            self.frame_spatial.get(frame as usize)?.acquisition
+        }
+    }
+    pub fn spatial_bytes(&self) -> u64 {
+        self.frame_spatial
+            .iter()
+            .map(|frame| {
+                std::mem::size_of::<crate::dicom_geometry::FrameSpatial>() as u64
+                    + frame
+                        .geometry
+                        .as_ref()
+                        .and_then(|geometry| geometry.frame_of_reference.as_ref())
+                        .map_or(0, |value| value.len() as u64)
+            })
+            .sum()
+    }
     pub fn dicom(&self) -> Result<&DefaultDicomObject, LoadError> {
         match &self.format {
             Format::Dicom(object) => Ok(object),
@@ -238,36 +267,14 @@ pub(super) fn read_header(
     if color.is_some() && width * height * 3 > MAX_FRAME_SAMPLES {
         return Err(LoadError::Limit);
     }
-    let reference = crate::load::text(&object, "FrameOfReferenceUID").filter(|s| !s.is_empty());
-    let uid = crate::load::text(&object, "SeriesInstanceUID")
-        .filter(|s| !s.is_empty())
-        .ok_or(LoadError::Unsupported)?;
-    let geometry = if frames == 1
-        && matches!(
-            crate::load::text(&object, "AnatomicalOrientationType").as_deref(),
-            None | Some("BIPED")
-        ) {
-        crate::load::numbers::<3>(&object, "ImagePositionPatient")
-            .zip(crate::load::numbers::<6>(
-                &object,
-                "ImageOrientationPatient",
-            ))
-            .zip(crate::load::numbers::<2>(&object, "PixelSpacing"))
-            .and_then(|((position, orientation), spacing)| {
-                spacing.iter().all(|v| *v > 0.).then(|| Geometry {
-                    nifti_transform: None,
-                    frame_of_reference: reference.clone(),
-                    position,
-                    orientation,
-                    spacing,
-                })
-            })
-    } else {
-        None
-    };
+    let reference = crate::load::identifier(&object, "FrameOfReferenceUID")?;
+    let uid =
+        crate::load::identifier(&object, "SeriesInstanceUID")?.ok_or(LoadError::Unsupported)?;
+    let spatial = crate::dicom_geometry::read(&object, frames as u32, &cancelled)?;
     let modality = match crate::load::text(&object, "Modality").as_deref() {
         Some("CT") => "CT",
         Some("MR") => "MR",
+        Some("PT") => "PT",
         Some("DX") => "DX",
         Some("CR") => "CR",
         Some("XA") => "XA",
@@ -276,7 +283,7 @@ pub(super) fn read_header(
     };
     let key = format!(
         "{}|{}|{}",
-        crate::load::text(&object, "StudyInstanceUID").unwrap_or_default(),
+        crate::load::identifier(&object, "StudyInstanceUID")?.unwrap_or_default(),
         uid,
         reference.as_deref().unwrap_or_default()
     );
@@ -297,7 +304,9 @@ pub(super) fn read_header(
         ) && bits != 1,
         bits: bits as u16,
         big_endian: syntax == "1.2.840.10008.1.2.2",
-        geometry,
+        geometry: spatial.geometry,
+        frame_spatial: spatial.frames,
+        acquisition: spatial.acquisition,
         key,
         modality,
         series_number: crate::load::number(&object, "SeriesNumber").unwrap_or(1.) as i32,

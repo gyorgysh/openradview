@@ -135,6 +135,10 @@ pub fn fingerprint_series(
     hash.update((series.frame_count() as u64).to_le_bytes());
     hash.update((series.modality.len() as u64).to_le_bytes());
     hash.update(series.modality.as_bytes());
+    if let Some(acquisition) = series.acquisition {
+        hash.update(b"DICOM acquisition partition v1\0");
+        hash.update(acquisition);
+    }
     let mut references: Vec<String> = Vec::new();
     let mut frame_sha256 = series
         .source

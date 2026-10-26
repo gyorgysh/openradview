@@ -37,8 +37,7 @@ pub(super) fn decode(
             )
             .ok_or(LoadError::Limit)?;
         let bytes = source.range(offset, bytes_per_frame as usize, state, cancelled)?;
-        let mut object = header.dicom()?.clone();
-        single_frame(&mut object, frame)?;
+        let mut object = frame_object(header.dicom()?, frame)?;
         let value = match header.bits {
             8 => PrimitiveValue::U8(bytes.into()),
             16 => PrimitiveValue::U16(
@@ -80,8 +79,7 @@ pub(super) fn decode(
     } else if header.pixel_length.is_none() {
         match super::encapsulated::fragments(source, header, frame, state, cancelled) {
             Ok(fragments) => {
-                let mut object = header.dicom()?.clone();
-                single_frame(&mut object, frame)?;
+                let mut object = frame_object(header.dicom()?, frame)?;
                 object.put(DataElement::new(
                     Tag(0x7fe0, 0x0010),
                     VR::OB,
@@ -144,7 +142,7 @@ pub(super) fn decode(
             height: header.height,
             pixels: Arc::from([]),
             rgba: Some(presentation.rgba),
-            geometry: header.geometry.clone(),
+            geometry: header.geometry_for(frame).cloned(),
             instance: header.instance,
             frame_index: frame,
             monochrome1: false,
@@ -184,7 +182,7 @@ pub(super) fn decode(
         width: header.width,
         height: header.height,
         pixels: pixels.into(),
-        geometry: header.geometry.clone(),
+        geometry: header.geometry_for(frame).cloned(),
         instance: header.instance,
         frame_index: frame,
         monochrome1: crate::load::text(&object, "PhotometricInterpretation").as_deref()
@@ -193,14 +191,22 @@ pub(super) fn decode(
     }))
 }
 
-fn single_frame(
-    object: &mut dicom_object::DefaultDicomObject,
+fn frame_object(
+    source: &dicom_object::DefaultDicomObject,
     frame: u32,
-) -> Result<(), LoadError> {
+) -> Result<dicom_object::DefaultDicomObject, LoadError> {
+    // Only the selected functional group is cloned, not every frame's metadata.
+    let mut object = dicom_object::InMemDicomObject::from_element_iter(
+        source
+            .iter()
+            .filter(|element| element.header().tag != Tag(0x5200, 0x9230))
+            .cloned(),
+    )
+    .with_exact_meta(source.meta().clone());
     object.put_str(Tag(0x0028, 0x0008), VR::IS, "1");
     // Preserve the selected frame's enhanced rescale metadata. Geometry is
-    // deliberately not inferred from enhanced functional groups yet.
-    if let Ok(element) = object.element(Tag(0x5200, 0x9230)) {
+    // validated independently from the full shared/per-frame source metadata.
+    if let Ok(element) = source.element(Tag(0x5200, 0x9230)) {
         let selected = element
             .value()
             .items()
@@ -213,5 +219,5 @@ fn single_frame(
             DicomValue::new_sequence(vec![selected], dicom_core::Length::UNDEFINED),
         ));
     }
-    Ok(())
+    Ok(object)
 }

@@ -236,13 +236,15 @@ impl IndexedSeries {
         let normal = self
             .frames
             .first()
-            .and_then(|f| f.header.geometry.as_ref())
+            .and_then(|f| f.header.geometry_for(f.frame))
             .map(|g| g.normal());
-        if let Some(normal) =
-            normal.filter(|_| self.frames.iter().all(|f| f.header.geometry.is_some()))
-        {
+        if let Some(normal) = normal.filter(|_| {
+            self.frames
+                .iter()
+                .all(|f| f.header.geometry_for(f.frame).is_some())
+        }) {
             let location = |frame: &IndexedFrame| {
-                frame.header.geometry.as_ref().map_or(0., |g| {
+                frame.header.geometry_for(frame.frame).map_or(0., |g| {
                     g.position
                         .iter()
                         .zip(normal)

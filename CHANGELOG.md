@@ -2,6 +2,10 @@
 
 ## 1.1.0 — Unreleased
 
+- Support explicit enhanced CT/MR/PET frame geometry within a bounded subset.
+  Separate time, echo, diffusion and component acquisitions before reconstruction;
+  incomplete geometry stays in 2D. Refuse conflicting functional groups and
+  unsupported value mappings instead of assuming spatial or intensity meaning.
 - Larger volumes use a shared 1.5 GiB decoded-volume allowance, including color
   buffers and validity masks. Active views reuse prepared sources; GPU limits
   and allocation failures keep a clear 2D/MPR fallback. CPU MPR avoids repeated

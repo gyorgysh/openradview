@@ -139,6 +139,8 @@ impl Frame {
 
 #[derive(Clone, Debug)]
 pub struct Series {
+    pub(crate) acquisition: Option<[u8; 32]>,
+    pub(crate) part: u32,
     pub(crate) volume: Arc<std::sync::Mutex<std::sync::Weak<crate::volume::Volume>>>,
     /// Internal grouping key. Never exported/displayed by default.
     pub(crate) key: String,
@@ -220,7 +222,12 @@ impl Series {
         if let Some(view) = self.source.as_ref().and_then(|source| source.nifti_view()) {
             return view.label();
         }
-        format!("{} · Series {}", self.modality, self.number)
+        let base = format!("{} · Series {}", self.modality, self.number);
+        if self.part > 0 {
+            format!("{base} · Acquisition {}", self.part)
+        } else {
+            base
+        }
     }
     pub fn sort(&mut self) {
         // Use one common reference normal; MPR must separately validate geometry.
@@ -315,6 +322,8 @@ pub fn demo_study() -> Study {
     }
     Study {
         series: vec![Series {
+            acquisition: None,
+            part: 0,
             volume: Default::default(),
             key: "synthetic".into(),
             source: None,

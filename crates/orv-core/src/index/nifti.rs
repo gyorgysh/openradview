@@ -168,6 +168,8 @@ pub(super) fn read_headers(
                 bits,
                 big_endian: big,
                 geometry: geometry.clone(),
+                frame_spatial: Vec::new(),
+                acquisition: None,
                 key: format!("nifti-{id}-{volume}-{view:?}"),
                 modality: "NIFTI",
                 series_number: (headers.len() + 1) as i32,

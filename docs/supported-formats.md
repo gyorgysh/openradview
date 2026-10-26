@@ -6,7 +6,7 @@ that an image, orientation, reconstruction or measurement is correct for care.
 
 | Input | Supported scope | Limits |
 |---|---|---|
-| Grayscale DICOM | Integer 8/16-bit MONOCHROME1/2; native implicit/explicit little endian, explicit big endian, JPEG, RLE, JPEG-LS, JPEG 2000 and deflated explicit-VR datasets | Stored precision must fit the allocated sample. Nonlinear modality LUTs, floating pixel data and unsupported transfer syntaxes are refused. Enhanced per-frame geometry is not inferred. |
+| Grayscale DICOM | Integer 8/16-bit MONOCHROME1/2; native implicit/explicit little endian, explicit big endian, JPEG, RLE, JPEG-LS, JPEG 2000 and deflated explicit-VR datasets | Stored precision must fit the allocated sample. Nonlinear modality LUTs, real-world value mappings, floating pixel data and unsupported transfer syntaxes are refused. Enhanced spatial support has the explicit subset below. |
 | RGB/YBR DICOM | Unsigned 8/16-bit RGB and YBR_FULL, native interleaved/planar; native packed YBR_FULL_422 at 8-bit, even width, planar 0; JPEG RGB/YBR_FULL/YBR_FULL_422; JPEG2000 RGB/YBR_RCT/YBR_ICT; RGB/YBR_FULL RLE/JPEG-LS | JPEG/JPEG2000 perform their own color transform; native/RLE/JPEG-LS YBR is converted once. 2D, linked MPR, oblique and experimental RGB volume/maxima views with valid regular geometry and consistent color context. Scalar window/level does not apply. Desktop rectangle statistics report separate RGB code values; MCP roi_stats remains scalar-only. Pan, zoom, browse, invert and snapshots work. |
 | Palette DICOM | Signed/unsigned 8/16-bit stored indices, direct 8/16-bit RGB LUTs (including 8-bit entries in words), segmented discrete/linear/indirect tables | Matching descriptors required; indices clip to table endpoints. No alpha/enhanced/supplemental palette semantics. Invalid or cyclic/nested indirect segments are refused. |
 | Embedded color profile | DICOM RGB input ICC v2/v4 (scnr, XYZ/Lab PCS), converted to sRGB with relative colorimetric intent | Max 1 MiB profile, bounded CLUT/TRCs; no fetching. Invalid/unsupported profiles fail rather than silently assuming sRGB. Absent profile assumes sRGB. This is profile conversion, not monitor calibration or a calibrated-display guarantee. |
@@ -21,6 +21,20 @@ pixel occupies 10 decoded-cache bytes. Palette/YBR code statistics refer to the
 converted RGB codes, not the original indices/chroma or physical modality units. The native view and MCP PNG snapshots share the same renderer.
 PNG manifests identify color presentation, source encoding/precision and the
 applied profile hash, with display calibration explicitly unverified.
+
+Enhanced CT, MR/MR Color and PET can use explicit shared/per-frame patient
+position, orientation and pixel spacing. Spatial reconstruction requires a complete
+dimension-index table with a matching in-stack index, valid regular geometry and
+consistent reference. Time, echo, diffusion, complex components and other declared
+nonspatial indices form separate acquisitions. Classical echo/time context is
+also separated. Acquisition labels use generated numbers, not patient tags.
+Missing/incomplete geometry, unresolved mixed components and sampled/distorted
+frames remain source-only 2D. No positions are inferred from slice thickness.
+Conflicting shared/per-frame macros, mismatched frame counts and unsupported value
+mappings are refused. Functional-group tables are limited to 65,536 frames and
+16 dimension indices, within the existing metadata/token bounds; an import is
+limited to 4,096 series/acquisitions. This is a supported subset, not general
+enhanced-DICOM or quantitative PET support; no HU/SUV unit is inferred.
 
 NIfTI spatial units are converted from metres/mm/micrometres into LPS millimetres.
 A valid known sform takes precedence over qform, including a negative qfac. The

@@ -11,6 +11,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 mod color;
+mod enhanced;
 mod formats;
 mod large;
 mod nifti;

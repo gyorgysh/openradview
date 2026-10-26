@@ -3,6 +3,7 @@
 pub mod color;
 mod dicom_codec;
 mod dicom_color;
+mod dicom_geometry;
 mod dicom_padding;
 pub mod index;
 pub mod inspection;

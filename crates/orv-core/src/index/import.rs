@@ -14,12 +14,13 @@ use std::{
 };
 pub(super) const MAX_ENTRIES: usize = 200_000;
 const MAX_IMAGES: usize = 1_000_000;
+const MAX_SERIES: usize = 4096;
 const MAX_METADATA: u64 = 128 * 1024 * 1024;
 pub(super) const MAX_EXPANDED: u64 = 64 * 1024 * 1024 * 1024;
 
 struct Builder {
     study: Study,
-    groups: HashMap<String, usize>,
+    groups: HashMap<String, HashMap<Option<[u8; 32]>, usize>>,
     series: Vec<IndexedSeries>,
     cache: Arc<Mutex<Cache>>,
     budget: Arc<MemoryBudget>,
@@ -28,13 +29,19 @@ struct Builder {
     next_source: u64,
 }
 impl Builder {
-    fn add(&mut self, mut source: Source, header: Header) -> Result<(), LoadError> {
+    fn add(
+        &mut self,
+        mut source: Source,
+        header: Header,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<(), LoadError> {
         self.metadata = self
             .metadata
             .checked_add(match &header.format {
                 super::header::Format::Nifti(nifti) => nifti.metadata_bytes,
                 _ => header.offset,
             })
+            .and_then(|bytes| bytes.checked_add(header.spatial_bytes()))
             .ok_or(LoadError::Limit)?;
         self.images = self
             .images
@@ -67,29 +74,48 @@ impl Builder {
         source.assign_id(self.next_source);
         self.next_source += 1;
         let source = Arc::new(source);
-        let index = if let Some(index) = self.groups.get(&header.key) {
-            *index
-        } else {
-            let index = self.series.len();
-            self.groups.insert(header.key.clone(), index);
-            self.study.series.push(Series {
-                volume: Default::default(),
-                key: header.key.clone(),
-                modality: header.modality,
-                number: header.series_number,
-                frames: Vec::new(),
-                source: None,
-            });
-            self.series.push(IndexedSeries {
-                frames: Vec::new(),
-                cache: self.cache.clone(),
-                budget: self.budget.clone(),
-                volume: Mutex::new(std::sync::Weak::new()),
-            });
-            index
-        };
         let header = Arc::new(header);
+        let groups = self.groups.entry(header.key.clone()).or_default();
         for frame in 0..header.frames {
+            if frame % 1024 == 0 && cancelled() {
+                return Err(LoadError::Cancelled);
+            }
+            let acquisition = header.acquisition_for(frame);
+            let index = if let Some(index) = groups.get(&acquisition) {
+                *index
+            } else {
+                let index = self.series.len();
+                if index >= MAX_SERIES {
+                    return Err(LoadError::Limit);
+                }
+                let part = if acquisition.is_some() {
+                    groups.len() as u32 + u32::from(!groups.contains_key(&None))
+                } else {
+                    0
+                };
+                groups.insert(acquisition, index);
+                let key = acquisition.map_or_else(
+                    || header.key.clone(),
+                    |hash| format!("{}|{}", header.key, crate::scene::hex(&hash)),
+                );
+                self.study.series.push(Series {
+                    key,
+                    acquisition,
+                    part,
+                    volume: Default::default(),
+                    modality: header.modality,
+                    number: header.series_number,
+                    frames: Vec::new(),
+                    source: None,
+                });
+                self.series.push(IndexedSeries {
+                    frames: Vec::new(),
+                    cache: self.cache.clone(),
+                    budget: self.budget.clone(),
+                    volume: Mutex::new(std::sync::Weak::new()),
+                });
+                index
+            };
             self.series[index].frames.push(IndexedFrame {
                 source: source.clone(),
                 header: header.clone(),
@@ -229,7 +255,7 @@ pub fn index_paths(
                                 &mut report,
                                 &mut progress,
                             )?;
-                            builder.add(source.clone(), header)?;
+                            builder.add(source.clone(), header, &cancelled)?;
                         }
                     }
                     Err(LoadError::Unsupported) => builder.study.skipped_files += 1,
@@ -289,7 +315,7 @@ pub fn index_paths(
                             &mut report,
                             &mut progress,
                         )?;
-                        builder.add(source.clone(), header)?;
+                        builder.add(source.clone(), header, &cancelled)?;
                     }
                 }
                 Err(LoadError::Unsupported) => builder.study.skipped_files += 1,

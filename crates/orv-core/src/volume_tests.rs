@@ -208,6 +208,8 @@ fn source_validity_survives_hashes_mpr_oblique_and_threshold_without_copying_pix
     assert!(oblique.pixels.iter().any(|v| v.is_nan()));
     assert!(oblique.pixels.iter().any(|v| v.is_finite()));
     let series = crate::study::Series {
+        acquisition: None,
+        part: 0,
         volume: Default::default(),
         key: "synthetic".into(),
         source: None,

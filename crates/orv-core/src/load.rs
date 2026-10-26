@@ -2,7 +2,7 @@
 //! Local-only bounded loading. Never stores paths or raw tags in the resulting study.
 use crate::{
     WindowLevel,
-    study::{Frame, Geometry, Series, Study},
+    study::{Frame, Series, Study},
 };
 use dicom_object::DefaultDicomObject;
 use dicom_pixeldata::{ConvertOptions, PixelDecoder, VoiLutOption};
@@ -57,11 +57,6 @@ pub(crate) fn number(obj: &DefaultDicomObject, name: &str) -> Option<f64> {
         .ok()
         .filter(|v| v.is_finite())
 }
-pub(crate) fn numbers<const N: usize>(obj: &DefaultDicomObject, name: &str) -> Option<[f64; N]> {
-    let values = obj.element_by_name(name).ok()?.to_multi_float64().ok()?;
-    let array: [f64; N] = values.try_into().ok()?;
-    array.iter().all(|v| v.is_finite()).then_some(array)
-}
 pub(crate) fn text(obj: &DefaultDicomObject, name: &str) -> Option<String> {
     Some(
         obj.element_by_name(name)
@@ -71,6 +66,25 @@ pub(crate) fn text(obj: &DefaultDicomObject, name: &str) -> Option<String> {
             .trim()
             .to_owned(),
     )
+}
+pub(crate) fn identifier(
+    obj: &DefaultDicomObject,
+    name: &str,
+) -> Result<Option<String>, LoadError> {
+    let value = text(obj, name).filter(|value| !value.is_empty());
+    if value.as_ref().is_some_and(|value| !valid_identifier(value)) {
+        return Err(LoadError::Unsupported);
+    }
+    Ok(value)
+}
+pub(crate) fn valid_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value.split('.').all(|part| {
+            !part.is_empty()
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+                && (part.len() == 1 || !part.starts_with('0'))
+        })
 }
 pub(crate) fn integer(obj: &DefaultDicomObject, name: &str) -> Option<u64> {
     obj.element_by_name(name).ok()?.to_int::<u64>().ok()
@@ -138,12 +152,11 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
     {
         return Err(LoadError::Unsupported);
     }
-    let series_uid = text(&obj, "SeriesInstanceUID")
-        .filter(|s| !s.is_empty())
-        .ok_or(LoadError::Unsupported)?;
+    let series_uid = identifier(&obj, "SeriesInstanceUID")?.ok_or(LoadError::Unsupported)?;
     let modality = match text(&obj, "Modality").as_deref() {
         Some("CT") => "CT",
         Some("MR") => "MR",
+        Some("PT") => "PT",
         Some("DX") => "DX",
         Some("CR") => "CR",
         Some("XA") => "XA",
@@ -152,33 +165,19 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
     };
     let series_number = number(&obj, "SeriesNumber").unwrap_or(1.0) as i32;
     let instance = number(&obj, "InstanceNumber").unwrap_or(0.0) as i32;
-    let reference = text(&obj, "FrameOfReferenceUID").filter(|s| !s.is_empty());
+    let reference = identifier(&obj, "FrameOfReferenceUID")?;
     let key = format!(
         "{}|{}|{}",
-        text(&obj, "StudyInstanceUID").unwrap_or_default(),
+        identifier(&obj, "StudyInstanceUID")?.unwrap_or_default(),
         series_uid,
         reference.as_deref().unwrap_or_default()
     );
-    let biped = matches!(
-        text(&obj, "AnatomicalOrientationType").as_deref(),
-        None | Some("BIPED")
-    );
-    let geometry = if count == 1 && biped {
-        numbers::<3>(&obj, "ImagePositionPatient")
-            .zip(numbers::<6>(&obj, "ImageOrientationPatient"))
-            .zip(numbers::<2>(&obj, "PixelSpacing"))
-            .and_then(|((position, orientation), spacing)| {
-                spacing.iter().all(|v| *v > 0.0).then_some(Geometry {
-                    nifti_transform: None,
-                    frame_of_reference: reference.clone(),
-                    position,
-                    orientation,
-                    spacing,
-                })
-            })
-    } else {
-        None
-    }; // Enhanced per-frame functional groups require explicit support before MPR.
+    let spatial = crate::dicom_geometry::read(&obj, count as u32, &|| false)?;
+    let acquisition = spatial.uniform_acquisition();
+    let uniform_spatial = spatial.uniform();
+    let key = acquisition.map_or(key.clone(), |hash| {
+        format!("{key}|{}", crate::scene::hex(&hash))
+    });
     let window = number(&obj, "WindowWidth")
         .zip(number(&obj, "WindowCenter"))
         .map(|(w, c)| WindowLevel {
@@ -228,7 +227,9 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
             width: width as u32,
             height: height as u32,
             pixels: pixels.into(),
-            geometry: geometry.clone(),
+            geometry: uniform_spatial
+                .then(|| spatial.geometry_for(frame_index).cloned())
+                .flatten(),
             instance,
             frame_index: frame_index as u32,
             monochrome1: photometric == "MONOCHROME1",
@@ -245,6 +246,8 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
         }));
     }
     Ok(Series {
+        acquisition,
+        part: 0,
         volume: Default::default(),
         key,
         source: None,
@@ -361,6 +364,8 @@ impl<F: FnMut(usize)> Import<'_, F> {
                 frames,
                 source: _,
                 volume: _,
+                acquisition,
+                part: _,
             }) => {
                 self.bytes += frames.iter().map(|f| f.byte_len()).sum::<u64>();
                 if self.bytes > MAX_STUDY_BYTES {
@@ -370,6 +375,8 @@ impl<F: FnMut(usize)> Import<'_, F> {
                     series.frames.extend(frames);
                 } else {
                     self.study.series.push(Series {
+                        acquisition,
+                        part: 0,
                         volume: Default::default(),
                         key,
                         source: None,
