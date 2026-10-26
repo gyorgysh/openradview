@@ -49,7 +49,9 @@ fn bounded_rle_frames_use_basic_empty_and_extended_offsets_without_loading_large
         object.write_to_file(&path).unwrap();
         // Valid trailing padding makes the object larger than the eager parser's
         // 64MiB cap. Only the requested compressed frame must be read/decoded.
-        let mut file = File::options().append(true).open(&path).unwrap();
+        let mut file = File::options().write(true).open(&path).unwrap();
+        large::mark_sparse_file(&path);
+        file.seek(SeekFrom::End(0)).unwrap();
         file.write_all(&[0xfc, 0xff, 0xfc, 0xff, b'O', b'B', 0, 0])
             .unwrap();
         file.write_all(&(80u32 * 1024 * 1024).to_le_bytes())

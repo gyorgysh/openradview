@@ -5,6 +5,11 @@ use dicom_core::{DataElement, PrimitiveValue, Tag, VR};
 
 pub(super) fn create_sparse_file(path: &Path) -> File {
     let file = File::create(path).unwrap();
+    mark_sparse_file(path);
+    file
+}
+
+pub(super) fn mark_sparse_file(path: &Path) {
     // NTFS needs an explicit sparse flag before multi-GiB extension; other
     // hosts already leave unwritten fixture ranges unallocated.
     #[cfg(windows)]
@@ -16,7 +21,8 @@ pub(super) fn create_sparse_file(path: &Path) -> File {
             .expect("NTFS sparse fixture setup must run");
         assert!(status.status.success(), "NTFS sparse fixture setup failed");
     }
-    file
+    #[cfg(not(windows))]
+    let _ = path;
 }
 
 pub(super) fn native(folder: &Path) -> (PathBuf, Vec<u8>, u64) {

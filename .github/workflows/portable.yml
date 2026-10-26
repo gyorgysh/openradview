@@ -53,13 +53,17 @@ jobs:
       - name: Fetch exact dependencies
         run: cargo fetch --locked --target ${{ matrix.target }}
       - name: Format and full native Clippy
+        id: format_clippy
         run: |
           cargo fmt --all --check
           cargo clippy --locked --workspace --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
       - name: Default native tests
-        run: cargo nextest run --locked --workspace --target ${{ matrix.target }}
+        id: default_tests
+        run: cargo nextest run --locked --workspace --target ${{ matrix.target }} --no-fail-fast
       - name: Full native tests including GPU rendering
-        run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }}
+        id: full_tests
+        if: ${{ !cancelled() && steps.default_tests.outcome != 'skipped' }}
+        run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }} --no-fail-fast
       - name: Portable packaging helpers
         run: python -m unittest discover -s scripts/portable -p 'test_*.py'
       - name: Native optimized application archive
