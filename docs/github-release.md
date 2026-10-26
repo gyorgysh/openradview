@@ -15,8 +15,10 @@ builds. The setup helper verifies the actual policy and selects the readiness mo
 
 There is one runner, a 55-minute limit and no ordinary branch/PR or parallel-platform
 release builds. It restores the cache shared with manual checks without saving
-per-tag caches. A failed job retains only small nonsecret notary records for seven
-days. Review GitHub usage before starting a run.
+per-tag caches. A failed job retains small nonsecret notary records for seven
+days. Completed public-format release files from a failed signing step are retained
+for one day so they can be inspected locally without repeating Apple submissions.
+Review GitHub usage before starting a run.
 
 Store the following only in
 [Settings → Environments → release](https://github.com/gyorgysh/openradview/settings/environments),

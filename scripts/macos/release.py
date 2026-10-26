@@ -50,9 +50,10 @@ def verify_edition(folder, stem, *, require_notarized):
     with tempfile.TemporaryDirectory(prefix=".orv-release-verify-", dir=DIST) as temporary:
         run(["ditto", "-x", "-k", str(local_file(folder, z["archive"])), temporary])
         app = Path(temporary) / "OpenRadView.app"
-        if verify(app, distribution=True, notarized=require_notarized) != build or inventory(app) != z["bundle_files"]:
+        # Staging can precede notarization; already stapled inputs still need ticket validation.
+        if verify(app, distribution=True, notarized=z.get("notarized") is True) != build or inventory(app) != z["bundle_files"]:
             raise ValueError("ZIP contents differ from the sealed app record")
-    audit(local_file(folder, d["dmg"]), build, z["bundle_files"], notarized=require_notarized,
+    audit(local_file(folder, d["dmg"]), build, z["bundle_files"], notarized=d.get("notarized") is True,
           app_notarized=d.get("app_notarized", False), signing="Developer ID", development=False)
     if z["archive"] != stem + ".zip" or d["dmg"] != stem + ".dmg" or build["version"] not in stem:
         raise ValueError("Release record filenames differ from the versioned stem")

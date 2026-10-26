@@ -98,7 +98,11 @@ def main():
             try: run('node','scripts/ci/sign-manifest.mjs',str(common.DIST/f'update-{target}.raw.json'),str(signature),env=signing_env)
             finally: signing_env.pop('UPDATER_ED25519_PRIVATE_KEY',None)
             run(sys.executable,'scripts/update_protocol.py',str(archive),'--version',build['version'],'--target',target,'--signature-file',str(signature))
-            candidate, _ = release.prepare('arm64')
+            try:
+                candidate, _ = release.prepare('arm64')
+            except (ValueError, OSError, subprocess.CalledProcessError) as error:
+                print('Release payload verification failed: ' + str(error), file=sys.stderr)
+                raise
             os.environ['GH_TOKEN'] = github_token
             run('gh','auth','setup-git','--hostname','github.com')
             notes = common.DIST/'release-notes.md'

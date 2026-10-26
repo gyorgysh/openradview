@@ -75,6 +75,7 @@ jobs:
           python3 -m venv target/dmgbuild-venv
           target/dmgbuild-venv/bin/pip install --disable-pip-version-check --require-hashes -r packaging/macos/installer/requirements.txt
       - name: Sign, notarize and create a private draft
+        id: release_candidate
         env:
           GH_TOKEN: ${{ github.token }}
           DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
@@ -98,3 +99,20 @@ jobs:
             dist/dmg-notarization-log.json
           if-no-files-found: ignore
           retention-days: 7
+      - name: Preserve completed release files for local recovery
+        if: failure() && steps.release_candidate.outcome == 'failure'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-recovery-${{ github.run_id }}
+          path: |
+            dist/OpenRadView-*-macos-*-standard.zip
+            dist/OpenRadView-*-macos-*-standard.json
+            dist/OpenRadView-*-macos-*-standard.sha256
+            dist/OpenRadView-*-macos-*-standard.dmg
+            dist/OpenRadView-*-macos-*-standard.dmg.json
+            dist/OpenRadView-*-macos-*-standard.dmg.sha256
+            dist/OpenRadView-*-source-*.tar.gz
+            dist/update-aarch64-apple-darwin.json
+          compression-level: 0
+          if-no-files-found: ignore
+          retention-days: 1

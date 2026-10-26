@@ -120,6 +120,54 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.check_remote_assets(changed, [asset])
 
+    def test_staging_validates_existing_notary_tickets_before_publication_is_required(self):
+        for archive_notarized, image_notarized in ((False, False), (True, False), (True, True)):
+            with self.subTest(archive=archive_notarized, image=image_notarized), tempfile.TemporaryDirectory() as temporary:
+                folder = Path(temporary)
+                stem = "OpenRadView-1.0.0-macos-arm64-standard"
+                build = {"profile": "release", "source_dirty": False, "signing": "Developer ID",
+                         "features": ["mcp", "updates"], "edition": "standard", "version": "1.0.0",
+                         "source_revision": "a" * 40}
+                source_name = "OpenRadView-1.0.0-source-" + "a" * 12 + ".tar.gz"
+                for name in (stem + ".zip", stem + ".dmg", source_name):
+                    (folder / name).write_bytes(b"synthetic sealed payload")
+                files = {"Contents/MacOS/OpenRadView": "a" * 64}
+                if archive_notarized:
+                    files["Contents/CodeResources"] = "b" * 64
+                archive = {"build": build, "notarized": archive_notarized, "archive_verified": True,
+                           "archive": stem + ".zip", "archive_sha256": common.sha256(folder / (stem + ".zip")),
+                           "source_archive": source_name, "source_archive_sha256": common.sha256(folder / source_name),
+                           "bundle_files": files}
+                image = {"build": build, "notarized": image_notarized, "app_notarized": archive_notarized,
+                         "development": False, "signing": "Developer ID", "verified": {"app_files": files},
+                         "dmg": stem + ".dmg", "dmg_sha256": common.sha256(folder / (stem + ".dmg"))}
+                common.write_json(folder / (stem + ".json"), archive)
+                common.write_json(folder / (stem + ".dmg.json"), image)
+                for name, digest in ((stem + ".zip", archive["archive_sha256"]), (stem + ".dmg", image["dmg_sha256"])):
+                    sidecar = name[:-4] + ".sha256" if name.endswith(".zip") else name + ".sha256"
+                    (folder / sidecar).write_text(digest + "  " + name + "\n")
+
+                def command(arguments):
+                    if arguments[:2] == ["git", "archive"]:
+                        output = next(arg.removeprefix("--output=") for arg in arguments if arg.startswith("--output="))
+                        Path(output).write_bytes((folder / source_name).read_bytes())
+
+                with patch.object(release, "DIST", folder), patch.object(release, "run", side_effect=command), \
+                        patch.object(release, "verify", return_value=build) as verify_app, \
+                        patch.object(release, "inventory", return_value=files), patch.object(dmg, "tooling"), \
+                        patch.object(dmg, "audit") as audit_image:
+                    result, _, notarized = release.verify_edition(folder, stem, require_notarized=False)
+                    self.assertEqual(result, build)
+                    self.assertEqual(notarized, archive_notarized and image_notarized)
+                    self.assertEqual(verify_app.call_args.kwargs, {"distribution": True, "notarized": archive_notarized})
+                    self.assertEqual(audit_image.call_args.kwargs["notarized"], image_notarized)
+                    self.assertEqual(audit_image.call_args.kwargs["app_notarized"], archive_notarized)
+                    if not notarized:
+                        verify_app.reset_mock()
+                        with self.assertRaisesRegex(ValueError, "Publication requires notarized"):
+                            release.verify_edition(folder, stem, require_notarized=True)
+                        verify_app.assert_not_called()
+
     def test_portable_payload_is_exact_and_native_acceptance_blocks_before_github(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
