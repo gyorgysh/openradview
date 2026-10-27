@@ -45,7 +45,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config binutils dpkg-dev desktop-file-utils libxkbcommon-dev libwayland-dev libvulkan1 libegl1 mesa-vulkan-drivers xdg-desktop-portal xdg-desktop-portal-gtk
+          sudo apt-get install -y build-essential cmake pkg-config binutils dpkg-dev desktop-file-utils libxkbcommon-dev libwayland-dev libvulkan1 libegl1 mesa-vulkan-drivers libegl-mesa0 libgl1-mesa-dri xvfb xauth xdg-desktop-portal xdg-desktop-portal-gtk
       - name: Pinned Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -70,6 +70,12 @@ jobs:
         id: full_tests
         if: ${{ !cancelled() && steps.default_tests.outcome != 'skipped' }}
         run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }} --profile native-full
+      - name: Linux software OpenGL rendering and native idle smoke
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a env WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 cargo nextest run --locked --target ${{ matrix.target }} -p orv-render --features gpu-tests --test gpu_golden --test volume_gpu -E 'binary(gpu_golden) or test(snapshot::slab_gpu_snapshot) or test(limits::a_display_only_device)'
+          cargo build --locked --target ${{ matrix.target }} -p orv-app --features qa
+          xvfb-run -a env WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 ORV_QA_NATIVE_SMOKE=1 python scripts/ci/native_gl.py target/${{ matrix.target }}/debug/openradview
       - name: Portable packaging helpers
         run: python -m unittest discover -s scripts/portable -p 'test_*.py'
       - name: Native optimized application archive

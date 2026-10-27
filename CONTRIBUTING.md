@@ -22,6 +22,11 @@ cargo build --locked --workspace
 
 Use cargo-nextest 0.9.149. The full suite requires a working GPU: a skipped render
 test does not validate rendering. Check native UI changes on the affected OS.
+The manual Linux package job also runs OpenGL rendering under Mesa/Xvfb and a
+QA-only native startup/idle check. This opens no study, disables input controls
+and closes after four seconds. Its temporary aggregate contains timing/count
+results; normal bundles exclude QA. These checks do not cover file dialogs or
+consumer GPU performance.
 [Platform requirements](docs/platforms.md) describe Linux and Windows tooling.
 
 Generate fresh local input without using patient files:

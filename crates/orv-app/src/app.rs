@@ -55,6 +55,7 @@ impl OpenRadView {
 
     #[cfg(feature = "qa")]
     pub fn with_diagnostics(mut self, recorder: crate::qa::Recorder) -> Self {
+        self.reduce_motion |= recorder.native_smoke_enabled();
         self.diagnostics = Some(recorder);
         self
     }
@@ -177,6 +178,14 @@ impl eframe::App for OpenRadView {
             .fill(theme::INK)
             .inner_margin(16.0)
             .show(ui, |ui| {
+                #[cfg(feature = "qa")]
+                if self
+                    .diagnostics
+                    .as_ref()
+                    .is_some_and(|recorder| recorder.native_smoke_enabled())
+                {
+                    ui.disable();
+                }
                 #[cfg(target_os = "macos")]
                 {
                     // Real native traffic lights live above the content. The
@@ -314,6 +323,7 @@ impl eframe::App for OpenRadView {
         #[cfg(feature = "qa")]
         if let Some(diagnostics) = &mut self.diagnostics {
             diagnostics.frame(measured_start.elapsed(), frame.info().cpu_usage);
+            diagnostics.native_smoke_tick(&ctx);
         }
     }
 
