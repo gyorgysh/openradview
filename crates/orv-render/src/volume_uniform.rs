@@ -11,7 +11,7 @@ pub(crate) fn parameters(
     state: &VolumeView,
     size: [u32; 2],
     region: [[u32; 2]; 2],
-) -> Result<[f32; 36], &'static str> {
+) -> Result<[f32; 60], &'static str> {
     state.validate()?;
     display.validate()?;
     if size.iter().any(|d| !(1..=1024).contains(d))
@@ -35,7 +35,7 @@ pub(crate) fn parameters(
     let down = volume.world_vector_to_voxel(rays.down_mm);
     let direction = volume.world_vector_to_voxel(rays.direction_unit);
     let invert = display.invert ^ volume.frames()[0].monochrome1;
-    let mut values = [0.; 36];
+    let mut values = [0.; 60];
     for (i, vector) in [origin, right, down, direction].into_iter().enumerate() {
         for axis in 0..3 {
             values[i * 4 + axis] = vector[axis] as f32;
@@ -78,6 +78,27 @@ pub(crate) fn parameters(
         &volume.frames()[0],
         display.window,
     )?);
+    if let Some(clip) = &state.clip {
+        if (0..3).any(|axis| clip.minimum_mm[axis] as f32 >= clip.maximum_mm[axis] as f32) {
+            return Err("Clipping bounds are too close for this GPU coordinate precision");
+        }
+        for (index, vector) in [
+            rays.origin_mm,
+            rays.right_mm,
+            rays.down_mm,
+            rays.direction_unit,
+            clip.minimum_mm,
+            clip.maximum_mm,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for axis in 0..3 {
+                values[36 + index * 4 + axis] = vector[axis] as f32;
+            }
+        }
+        values[55] = 1.;
+    }
     if values.iter().any(|v| !v.is_finite() || v.abs() > 1e20) || values[24] <= 0.0 {
         return Err("Physical volume exceeds GPU coordinate precision limits");
     }

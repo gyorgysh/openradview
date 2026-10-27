@@ -2,6 +2,9 @@
 
 ## 1.1.0 — Unreleased
 
+- Clip experimental 3D/MIP views with explicit physical LPS bounds. Clipping
+  participates in exact-view approval and picture metadata; source data stays intact.
+
 - Compare two source series locally with independent pane controls and optional
   physical slice linking for compatible geometry. Memory limits remain shared;
   picture export captures the active pane. Entering comparison ends sharing, and

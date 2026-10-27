@@ -169,7 +169,7 @@ fn explicit_scene_context_is_versioned_complete_and_hash_sensitive() {
     let mut transformed_projection = s.clone();
     transformed_projection.view.transform.rotate_clockwise();
     assert!(transformed_projection.validate().is_err());
-    for change in 0..5 {
+    for change in 0..6 {
         let mut changed = s.clone();
         let Some(Reconstruction::Volume(state)) = &mut changed.reconstruction else {
             unreachable!()
@@ -179,7 +179,13 @@ fn explicit_scene_context_is_versioned_complete_and_hash_sensitive() {
             1 => state.projection = orv_core::volume_view::Projection::Composite,
             2 => state.transfer.opacity_per_mm += 0.1,
             3 => state.quality = orv_core::volume_view::Quality::Interactive,
-            _ => state.camera.target_mm[1] += 0.25,
+            4 => state.camera.target_mm[1] += 0.25,
+            _ => {
+                state.clip = Some(orv_core::volume_view::PhysicalClip {
+                    minimum_mm: [10.; 3],
+                    maximum_mm: [50.; 3],
+                })
+            }
         }
         assert_ne!(changed.hash().unwrap(), hash);
     }

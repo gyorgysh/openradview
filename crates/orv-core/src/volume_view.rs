@@ -221,12 +221,60 @@ impl RayFrame {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+pub struct PhysicalClip {
+    pub minimum_mm: [f64; 3],
+    pub maximum_mm: [f64; 3],
+}
+impl PhysicalClip {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if (0..3).any(|axis| {
+            !self.minimum_mm[axis].is_finite()
+                || !self.maximum_mm[axis].is_finite()
+                || self.minimum_mm[axis].abs() > 1e7
+                || self.maximum_mm[axis].abs() > 1e7
+                || self.minimum_mm[axis] >= self.maximum_mm[axis]
+        }) {
+            return Err("Clipping needs finite ordered physical bounds within the supported range");
+        }
+        Ok(())
+    }
+    pub fn interval(&self, origin_mm: V3, direction_unit: V3) -> Option<[f64; 2]> {
+        self.validate().ok()?;
+        if !finite(origin_mm) || !finite(direction_unit) || (norm(direction_unit) - 1.).abs() > 1e-6
+        {
+            return None;
+        }
+        let mut near = f64::NEG_INFINITY;
+        let mut far = f64::INFINITY;
+        for axis in 0..3 {
+            if direction_unit[axis].abs() < 1e-12 {
+                if origin_mm[axis] < self.minimum_mm[axis]
+                    || origin_mm[axis] > self.maximum_mm[axis]
+                {
+                    return None;
+                }
+            } else {
+                let a = (self.minimum_mm[axis] - origin_mm[axis]) / direction_unit[axis];
+                let b = (self.maximum_mm[axis] - origin_mm[axis]) / direction_unit[axis];
+                near = near.max(a.min(b));
+                far = far.min(a.max(b));
+            }
+        }
+        (near.is_finite() && far.is_finite() && near <= far).then_some([near, far])
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
 pub struct VolumeView {
     pub schema_version: u32,
     pub camera: Camera,
     pub projection: Projection,
     pub transfer: TransferFunction,
     pub quality: Quality,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<PhysicalClip>,
 }
 impl VolumeView {
     pub fn fit(volume: &Volume) -> Self {
@@ -245,6 +293,7 @@ impl VolumeView {
                 TransferPreset::Bone.values().1
             },
             quality: Quality::Refined,
+            clip: None,
         }
     }
     pub fn validate(&self) -> Result<(), &'static str> {
@@ -252,11 +301,28 @@ impl VolumeView {
             return Err("Unsupported volume view schema");
         }
         self.camera.validate()?;
-        self.transfer.validate()
+        self.transfer.validate()?;
+        if let Some(clip) = &self.clip {
+            clip.validate()?;
+        }
+        Ok(())
     }
 }
 
 impl Volume {
+    pub fn clipped_ray_interval(
+        &self,
+        origin_mm: V3,
+        direction_unit: V3,
+        clip: Option<&PhysicalClip>,
+    ) -> Option<[f64; 2]> {
+        let mut range = self.ray_interval(origin_mm, direction_unit)?;
+        if let Some(clip) = clip {
+            let clipped = clip.interval(origin_mm, direction_unit)?;
+            range = [range[0].max(clipped[0]), range[1].min(clipped[1])];
+        }
+        (range[0] <= range[1]).then_some(range)
+    }
     /// Clip an infinite physical ray against the complete affine source domain.
     pub fn ray_interval(&self, origin_mm: V3, direction_unit: V3) -> Option<[f64; 2]> {
         if !finite(origin_mm) || !finite(direction_unit) || (norm(direction_unit) - 1.).abs() > 1e-6

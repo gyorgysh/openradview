@@ -123,6 +123,50 @@ fn orthographic_rays_use_physical_mm_and_clip_the_affine_domain() {
 }
 
 #[test]
+fn physical_clipping_intersects_ordered_lps_bounds_and_preserves_legacy_views() {
+    let volume = volume();
+    let origin = volume.center();
+    let clip = PhysicalClip {
+        minimum_mm: [origin[0] - 1., origin[1] - 0.25, origin[2] - 1.],
+        maximum_mm: [origin[0] + 1., origin[1] + 0.75, origin[2] + 1.],
+    };
+    assert_eq!(
+        volume.clipped_ray_interval(origin, [0., 1., 0.], Some(&clip)),
+        Some([-0.25, 0.75])
+    );
+    assert_eq!(clip.interval(origin, [0., -1., 0.]), Some([-0.75, 0.25]));
+    assert!(clip.interval([1000.; 3], [0., 1., 0.]).is_none());
+    assert!(clip.interval(origin, [0., 2., 0.]).is_none());
+    assert_eq!(
+        volume.clipped_ray_interval(origin, [0., 1., 0.], None),
+        volume.ray_interval(origin, [0., 1., 0.])
+    );
+    let legacy = VolumeView::fit(&volume);
+    let encoded = serde_json::to_string(&legacy).unwrap();
+    assert!(!encoded.contains("clip"));
+    assert_eq!(
+        serde_json::from_str::<VolumeView>(&encoded).unwrap(),
+        legacy
+    );
+    for bad in [
+        PhysicalClip {
+            minimum_mm: [0.; 3],
+            maximum_mm: [0.; 3],
+        },
+        PhysicalClip {
+            minimum_mm: [f64::NAN; 3],
+            maximum_mm: [1.; 3],
+        },
+        PhysicalClip {
+            minimum_mm: [-1e8; 3],
+            maximum_mm: [1.; 3],
+        },
+    ] {
+        assert!(bad.validate().is_err());
+    }
+}
+
+#[test]
 fn transfer_and_camera_state_roundtrip_and_reject_invalid_ranges() {
     let volume = volume();
     let mut view = VolumeView::fit(&volume);

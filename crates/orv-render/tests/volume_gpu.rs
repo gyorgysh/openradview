@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Actual native GPU checks. No adapter skip is considered success.
+#[path = "volume_gpu/clipping.rs"]
+mod clipping;
 #[path = "volume_gpu/color.rs"]
 mod color;
 #[path = "volume_gpu/limits.rs"]
@@ -147,7 +149,7 @@ fn rays(
         (f64::from(y) + 0.5) / f64::from(size[1]),
     ]);
     volume
-        .ray_interval(origin, direction)
+        .clipped_ray_interval(origin, direction, state.clip.as_ref())
         .map(|interval| (origin, direction, interval))
 }
 fn assert_gray(pixel: &[u8], expected: f64) {

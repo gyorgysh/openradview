@@ -246,47 +246,55 @@ impl Annotations {
     }
     pub fn controls(&mut self, ui: &mut egui::Ui) {
         self.poll();
-        ui.menu_button("Measurements…", |ui| {
-            ui.set_max_width(320.);
-            ui.weak(format!(
-                "Temporary · {} / {MAX_MARKS} in memory",
-                self.marks.len()
-            ));
-            ui.weak("Only this image / plane is listed. Nothing is saved.");
-            let mut selected = self.selected;
-            egui::ScrollArea::vertical()
-                .max_height(180.)
-                .show(ui, |ui| {
-                    for mark in self.visible_marks() {
-                        ui.selectable_value(
-                            &mut selected,
-                            Some(mark.id),
-                            format!("#{} · {}", mark.id.saturating_add(1), mark.label),
-                        );
-                    }
-                });
-            self.selected = selected;
-            if ui
-                .add_enabled(
-                    self.selected_mark().is_some(),
-                    egui::Button::new("Delete selected measurement"),
-                )
-                .clicked()
-            {
-                self.delete_selected();
-                ui.close();
-            }
-            if ui
-                .add_enabled(
-                    !self.marks.is_empty() || !self.pending.is_empty(),
-                    egui::Button::new("Clear all measurements"),
-                )
-                .clicked()
-            {
-                self.clear();
-                ui.close();
-            }
-        });
+        egui::containers::menu::MenuButton::new("Measurements…")
+            .config(
+                egui::containers::menu::MenuConfig::new()
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+            )
+            .ui(ui, |ui| {
+                ui.set_max_width(320.);
+                ui.weak(format!(
+                    "Temporary · {} / {MAX_MARKS} in memory",
+                    self.marks.len()
+                ));
+                ui.weak("Only this image / plane is listed. Nothing is saved.");
+                let mut selected = self.selected;
+                egui::ScrollArea::vertical()
+                    .max_height(180.)
+                    .show(ui, |ui| {
+                        for mark in self.visible_marks() {
+                            ui.selectable_value(
+                                &mut selected,
+                                Some(mark.id),
+                                format!("#{} · {}", mark.id.saturating_add(1), mark.label),
+                            );
+                        }
+                    });
+                if self.selected != selected {
+                    self.selected = selected;
+                    ui.ctx().request_repaint();
+                }
+                if ui
+                    .add_enabled(
+                        self.selected_mark().is_some(),
+                        egui::Button::new("Delete selected measurement"),
+                    )
+                    .clicked()
+                {
+                    self.delete_selected();
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(
+                        !self.marks.is_empty() || !self.pending.is_empty(),
+                        egui::Button::new("Clear all measurements"),
+                    )
+                    .clicked()
+                {
+                    self.clear();
+                    ui.close();
+                }
+            });
     }
     fn poll(&mut self) {
         if let Some(result) =

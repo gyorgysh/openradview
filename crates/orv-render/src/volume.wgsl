@@ -2,6 +2,8 @@
 struct Params {
     origin: vec4f, right: vec4f, down: vec4f, direction: vec4f,
     display: vec4f, transfer: vec4f, sampling: vec4f, region: vec4f, voi: vec4f,
+    world_origin: vec4f, world_right: vec4f, world_down: vec4f, world_direction: vec4f,
+    clip_minimum: vec4f, clip_maximum: vec4f,
 }
 @group(0) @binding(0) var source: texture_3d<f32>;
 @group(0) @binding(1) var<uniform> p: Params;
@@ -19,6 +21,22 @@ fn interval(origin:vec3f,direction:vec3f)->vec2f {
             let a=-origin[axis]/direction[axis];
             let b=(maximum[axis]-origin[axis])/direction[axis];
             near=max(near,min(a,b)); far=min(far,max(a,b));
+        }
+    }
+    return vec2f(near,far);
+}
+fn clipped_interval(uv:vec2f,ray:vec2f)->vec2f {
+    if p.clip_minimum.w<0.5 {return ray;}
+    let origin=p.world_origin.xyz+p.world_right.xyz*(uv.x-0.5)+p.world_down.xyz*(uv.y-0.5);
+    var near=ray.x;var far=ray.y;
+    for(var axis=0u;axis<3u;axis+=1u) {
+        let direction=p.world_direction[axis];
+        if abs(direction)<1.e-12 {
+            if origin[axis]<p.clip_minimum[axis] || origin[axis]>p.clip_maximum[axis] {return vec2f(1.,-1.);}
+        } else {
+            let a=(p.clip_minimum[axis]-origin[axis])/direction;
+            let b=(p.clip_maximum[axis]-origin[axis])/direction;
+            near=max(near,min(a,b));far=min(far,max(a,b));
         }
     }
     return vec2f(near,far);
@@ -118,7 +136,7 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
     if any(pixel>=size) { return; }
     let uv=(vec2f(pixel)+0.5)/vec2f(size);
     let origin=p.origin.xyz+p.right.xyz*(uv.x-0.5)+p.down.xyz*(uv.y-0.5);
-    let ray=interval(origin,p.direction.xyz);
+    let ray=clipped_interval(uv,interval(origin,p.direction.xyz));
     if p.sampling.z>0.5 {
         textureStore(output,vec2i(pixel),vec4f(color_ray(origin,ray),1.));return;
     }

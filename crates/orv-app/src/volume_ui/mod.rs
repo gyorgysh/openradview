@@ -166,6 +166,7 @@ impl VolumeSession {
                     .scalar
                     .as_ref()
                     .map(|data| &**data.choices()),
+                bounds: volume.bounds(),
             },
         ) {
             self.needs_fit = true;

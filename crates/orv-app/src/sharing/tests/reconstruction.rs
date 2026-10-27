@@ -58,6 +58,10 @@ async fn exact_oblique_and_volume_requests_survive_desktop_review_and_deliver_id
     let mut preview_state = volume_state.clone();
     preview_state.quality = Quality::Interactive;
     preview_state.projection = Projection::Maximum;
+    preview_state.clip = Some(orv_core::volume_view::PhysicalClip {
+        minimum_mm: [50., 60., 20.],
+        maximum_mm: [190., 210., 75.],
+    });
     drop(volume);
     open(&mut workspace, &ctx);
     approve(&mut workspace, &ctx);

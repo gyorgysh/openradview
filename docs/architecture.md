@@ -113,6 +113,9 @@ unchanged. The source-to-viewport map is shared by probes, measurements, label
 meshes/brush footprints and overlays; the slice shader applies its inverse.
 Transforms participate in scene serialization/hashes and exact-view consent.
 Volume projections use their camera orientation and reject 2D transforms.
+Optional physical LPS clipping intersects the original affine source ray domain
+before sampling. It changes neither source data nor opacity distance units; its
+validated bounds participate in scene hashes, exact approval and snapshots.
 
 The reviewed macOS windowing patch routes application termination through the
 same cancellable close requests as window closure. This lets the application

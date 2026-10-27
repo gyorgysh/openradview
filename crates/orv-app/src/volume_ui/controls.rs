@@ -2,7 +2,7 @@
 use eframe::egui;
 use orv_core::{
     ViewState,
-    volume_view::{Projection, TransferPreset, VolumeView},
+    volume_view::{PhysicalClip, Projection, TransferPreset, VolumeView},
 };
 
 pub(super) struct Context<'a> {
@@ -10,6 +10,7 @@ pub(super) struct Context<'a> {
     pub initial: &'a super::DisplayRange,
     pub color: bool,
     pub choices: Option<&'a orv_core::scalar::VoiChoices>,
+    pub bounds: [[f64; 3]; 2],
 }
 
 pub(super) fn show(
@@ -24,6 +25,7 @@ pub(super) fn show(
         initial,
         color,
         choices,
+        bounds,
     } = context;
     let mut fit = false;
     let narrow = ui.available_width() < 760.;
@@ -102,6 +104,7 @@ pub(super) fn show(
         if !narrow {
             quality(ui, state);
         }
+        clipping(ui, state, bounds);
     });
     crate::toolbar::row(ui, |ui| {
         if narrow {
@@ -249,6 +252,64 @@ pub(super) fn show(
     fit
 }
 
+fn clipping(ui: &mut egui::Ui, state: &mut VolumeView, bounds: [[f64; 3]; 2]) {
+    egui::containers::menu::MenuButton::new(if state.clip.is_some() {
+        "Clipping · on"
+    } else {
+        "Clipping…"
+    })
+    .config(
+        egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+    )
+    .ui(ui, |ui| {
+        ui.set_max_width(400.);
+        ui.weak("Clip the projected source in LPS millimetres. Source pixels stay unchanged.");
+        let mut enabled = state.clip.is_some();
+        if ui
+            .checkbox(&mut enabled, "Enable physical clipping")
+            .changed()
+        {
+            state.clip = enabled.then_some(PhysicalClip {
+                minimum_mm: bounds[0],
+                maximum_mm: bounds[1],
+            });
+        }
+        if let Some(clip) = &mut state.clip {
+            for (axis, label) in ["L", "P", "S"].into_iter().enumerate() {
+                ui.push_id(axis, |ui| {
+                    crate::toolbar::row(ui, |ui| {
+                        crate::toolbar::number(
+                            ui,
+                            &format!("{label} min"),
+                            egui::DragValue::new(&mut clip.minimum_mm[axis])
+                                .clamp_existing_to_range(false)
+                                .speed(0.25)
+                                .range(-1e7..=clip.maximum_mm[axis].next_down())
+                                .suffix(" mm"),
+                        );
+                        crate::toolbar::number(
+                            ui,
+                            &format!("{label} max"),
+                            egui::DragValue::new(&mut clip.maximum_mm[axis])
+                                .clamp_existing_to_range(false)
+                                .speed(0.25)
+                                .range(clip.minimum_mm[axis].next_up()..=1e7)
+                                .suffix(" mm"),
+                        );
+                    });
+                });
+            }
+            if ui.button("Restore full source bounds").clicked() {
+                *clip = PhysicalClip {
+                    minimum_mm: bounds[0],
+                    maximum_mm: bounds[1],
+                };
+            }
+        }
+    });
+}
+
 fn quality(ui: &mut egui::Ui, state: &mut VolumeView) {
     use orv_core::volume_view::Quality;
     egui::ComboBox::from_id_salt("volume-detail")
@@ -278,6 +339,63 @@ fn quality(ui: &mut egui::Ui, state: &mut VolumeView) {
 mod tests {
     use super::*;
     use orv_core::{WindowLevel, study::demo_study, volume::Volume};
+    #[test]
+    fn clipping_popup_accepts_numeric_input_without_closing_before_the_edit() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let volume = Volume::new(demo_study().series[0].frames.clone()).unwrap();
+        let bounds = [[0.; 3], [88.9, 66.5, 4.5]];
+        let mut state = VolumeView::fit(&volume);
+        state.clip = Some(PhysicalClip {
+            minimum_mm: bounds[0],
+            maximum_mm: bounds[1],
+        });
+        let mut time = 0.;
+        let mut draw = |events| {
+            time += 0.1;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    time: Some(time),
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900., 600.),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    clipping(ui, &mut state, bounds);
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let mut output = draw(vec![]);
+        for target in ["Clipping · on", "88.9"] {
+            let pos = crate::controls::tests::text_rect(&output, target).center();
+            let _ = draw(vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                let _ = draw(vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }]);
+            }
+            output = draw(vec![]);
+        }
+        assert!(crate::controls::tests::text_rect(&output, "L max").is_positive());
+        let _ = draw(vec![egui::Event::Text("44.45".into())]);
+        let output = draw(vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        assert!(crate::controls::tests::text_rect(&output, "L max").is_positive());
+        assert_eq!(state.clip.as_ref().unwrap().maximum_mm[0], 44.45);
+    }
     #[test]
     fn volume_controls_align_dropdowns_and_keep_labels_with_values() {
         let ctx = egui::Context::default();
@@ -311,6 +429,7 @@ mod tests {
                             initial: &initial,
                             color: false,
                             choices: None,
+                            bounds: volume.bounds(),
                         },
                     );
                 },
@@ -351,6 +470,10 @@ mod tests {
         state.transfer.opacity_per_mm = 2.125;
         state.transfer.low = -2_000_000.;
         state.transfer.high = 3_000_000.;
+        state.clip = Some(PhysicalClip {
+            minimum_mm: [10.12345, 20.12345, 30.12345],
+            maximum_mm: [130.12345, 160.12345, 75.12345],
+        });
         let mut display = ViewState {
             window: WindowLevel {
                 function: Default::default(),
@@ -374,7 +497,8 @@ mod tests {
                         source_range: None,
                         initial: &TransferPreset::Bone.values(),
                         color: false,
-                        choices: None
+                        choices: None,
+                        bounds: volume.bounds(),
                     }
                 ));
                 // The same shared window controls also receive source/MPR requests.

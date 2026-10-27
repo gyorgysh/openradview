@@ -31,7 +31,9 @@ sagittal planes through one linked point; choose Crosshair to move that point.
 **Oblique** adds explicit plane rotation and normal offset. **3D / MIP** projects
 the loaded volume; drag to orbit, and use the named transfer presets/controls.
 MPR and projections require consistent geometry and a volume within the budget.
-Their interpolated values can differ from source pixels.
+Their interpolated values can differ from source pixels. **Clipping…** in 3D/MIP
+limits the projection to explicit LPS minimum/maximum coordinates in millimeters.
+Restore full source bounds or disable clipping to see the full volume again.
 
 **Compare series** opens two source-image panes from the loaded study. Choose
 **Left pane** or **Right pane**, then select that pane's series in the sidebar.

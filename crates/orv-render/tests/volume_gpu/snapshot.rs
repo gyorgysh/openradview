@@ -12,6 +12,10 @@ fn production_volume_snapshot_matches_affine_rays_and_complete_provenance() {
     state.camera.yaw_degrees = 23.;
     state.camera.pitch_degrees = -18.;
     state.camera.roll_degrees = 11.;
+    state.clip = Some(PhysicalClip {
+        minimum_mm: [0.4, 0.8, 1.],
+        maximum_mm: [2.8, 3.6, 4.4],
+    });
     let scene = SceneState {
         schema_version: 2,
         source_sha256: "0".repeat(64),
