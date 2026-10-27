@@ -11,6 +11,7 @@ use crate::{
     WindowLevel,
     load::LoadError,
     nifti_view::{ComplexView, NiftiView},
+    scalar::{Rescale, ScalarData, ScalarInfo, Storage, Unit, VoiChoices},
 };
 use fields::Fields;
 use std::sync::OnceLock;
@@ -126,10 +127,7 @@ pub(super) fn read_headers(
         return Err(LoadError::Unsupported);
     }
     let window = (views.len() == 1 && f.f32(124) > f.f32(128))
-        .then(|| WindowLevel {
-            width: (f.f32(124) - f.f32(128) + 1.) as f32,
-            center: ((f.f32(124) + f.f32(128) + 1.) / 2.) as f32,
-        })
+        .then(|| WindowLevel::source_range(f.f32(128) as f32, f.f32(124) as f32))
         .filter(|w| w.is_valid());
     let (geometry, step) = geometry::geometry(&f, id).unwrap_or((None, [0.; 3]));
     let length = dims[0] * dims[1] * dims[2] * u64::from(bits / 8);
@@ -142,6 +140,26 @@ pub(super) fn read_headers(
             v as u32
         });
         for view in views {
+            let info = ScalarInfo {
+                value_type: crate::scalar::ValueType::F32,
+                storage: match datatype {
+                    2 | 512 | 768 | 1280 => Storage::UnsignedInteger,
+                    256 | 4 | 8 | 1024 => Storage::SignedInteger,
+                    16 | 64 => Storage::Float,
+                    _ => Storage::Complex,
+                },
+                stored_bits: bits,
+                unit: if *view == ComplexView::PhaseRadians {
+                    Unit::Radians
+                } else {
+                    Unit::Unknown
+                },
+                rescale: Some(Rescale { slope, intercept }),
+                resampled: false,
+            };
+            let choices = VoiChoices::new(window.into_iter().collect(), Vec::new())
+                .map_err(|_| LoadError::Unsupported)?;
+            let scalar = ScalarData::new(info, choices).map_err(|_| LoadError::Unsupported)?;
             headers.push(Header {
                 format: Format::Nifti(Nifti {
                     datatype,
@@ -170,6 +188,7 @@ pub(super) fn read_headers(
                 geometry: geometry.clone(),
                 frame_spatial: Vec::new(),
                 acquisition: None,
+                scalar: crate::dicom_voi::Presentations::single(scalar),
                 key: format!("nifti-{id}-{volume}-{view:?}"),
                 modality: "NIFTI",
                 series_number: (headers.len() + 1) as i32,

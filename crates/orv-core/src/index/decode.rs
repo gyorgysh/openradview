@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{WindowLevel, load::LoadError, study::Frame};
 use dicom_core::{DataElement, DicomValue, PrimitiveValue, Tag, VR};
-use dicom_pixeldata::{ConvertOptions, PixelDecoder, VoiLutOption};
+use dicom_pixeldata::PixelDecoder;
 use std::{io::Cursor, sync::Arc};
 
 pub(super) const MAX_ENCODED_OBJECT: u64 = 64 * 1024 * 1024;
@@ -135,6 +135,7 @@ pub(super) fn decode(
         let presentation =
             crate::dicom_color::present(&object, decoded.as_ref(), color, 0, padding, cancelled)?;
         return Ok(Arc::new(Frame {
+            scalar: None,
             validity: None,
             color: Some(presentation.source),
             nifti: None,
@@ -147,12 +148,18 @@ pub(super) fn decode(
             frame_index: frame,
             monochrome1: false,
             default_window: WindowLevel {
+                function: Default::default(),
                 width: 256.,
                 center: 128.,
             },
         }));
     }
-    let options = ConvertOptions::new().with_voi_lut(VoiLutOption::Identity);
+    let scalar = header
+        .scalar
+        .get(frame)
+        .cloned()
+        .ok_or(LoadError::Unsupported)?;
+    let options = crate::dicom_voi::conversion(&scalar);
     let decoded = decoded.ok_or(LoadError::Unsupported)?;
     let pixels: Vec<f32> = decoded
         .to_vec_with_options(&options)
@@ -166,15 +173,12 @@ pub(super) fn decode(
         .map(|p| p.mask(&decoded, 0, cancelled))
         .transpose()?
         .flatten();
-    let window = crate::load::number(&object, "WindowWidth")
-        .zip(crate::load::number(&object, "WindowCenter"))
-        .map(|(width, center)| WindowLevel {
-            width: width as f32,
-            center: center as f32,
-        })
-        .filter(|w| w.is_valid())
+    let window = scalar
+        .choices()
+        .original()
         .unwrap_or_else(|| crate::dicom_padding::automatic_window(&pixels, validity.as_deref()));
     Ok(Arc::new(Frame {
+        scalar: Some(scalar),
         validity,
         color: None,
         nifti: None,
@@ -195,26 +199,42 @@ fn frame_object(
     source: &dicom_object::DefaultDicomObject,
     frame: u32,
 ) -> Result<dicom_object::DefaultDicomObject, LoadError> {
-    // Only the selected functional group is cloned, not every frame's metadata.
+    // The decoder applies rescale only; immutable display tables live in Header.
+    // Avoid copying those tables or unselected functional groups for every slice.
     let mut object = dicom_object::InMemDicomObject::from_element_iter(
         source
             .iter()
-            .filter(|element| element.header().tag != Tag(0x5200, 0x9230))
+            .filter(|element| {
+                !matches!(
+                    element.header().tag,
+                    Tag(0x5200, 0x9229 | 0x9230) | Tag(0x0028, 0x3010)
+                )
+            })
             .cloned(),
     )
     .with_exact_meta(source.meta().clone());
     object.put_str(Tag(0x0028, 0x0008), VR::IS, "1");
     // Preserve the selected frame's enhanced rescale metadata. Geometry is
     // validated independently from the full shared/per-frame source metadata.
-    if let Ok(element) = source.element(Tag(0x5200, 0x9230)) {
+    for (tag, index) in [
+        (Tag(0x5200, 0x9229), 0),
+        (Tag(0x5200, 0x9230), frame as usize),
+    ] {
+        let Ok(element) = source.element(tag) else {
+            continue;
+        };
         let selected = element
-            .value()
             .items()
-            .and_then(|items| items.get(frame as usize))
-            .cloned()
+            .and_then(|items| items.get(index))
             .ok_or(LoadError::Unsupported)?;
+        let selected = dicom_object::InMemDicomObject::from_element_iter(
+            selected
+                .iter()
+                .filter(|element| element.header().tag != Tag(0x0028, 0x9132))
+                .cloned(),
+        );
         object.put(DataElement::new(
-            Tag(0x5200, 0x9230),
+            tag,
             VR::SQ,
             DicomValue::new_sequence(vec![selected], dicom_core::Length::UNDEFINED),
         ));

@@ -9,6 +9,7 @@ fn labels() -> Arc<Labels> {
     let frames = (0..3)
         .map(|z| {
             Arc::new(Frame {
+                scalar: None,
                 validity: None,
                 color: None,
                 nifti: None,
@@ -27,6 +28,7 @@ fn labels() -> Arc<Labels> {
                 frame_index: 0,
                 monochrome1: false,
                 default_window: WindowLevel {
+                    function: Default::default(),
                     width: 100.,
                     center: 50.,
                 },

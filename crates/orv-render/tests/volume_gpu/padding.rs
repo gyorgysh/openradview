@@ -51,6 +51,7 @@ fn scene(volume: &Volume, projection: Projection, quality: Quality, invert: bool
         series_index: 0,
         view: ViewState {
             window: WindowLevel {
+                function: Default::default(),
                 width: 256.,
                 center: 128.,
             },
@@ -92,7 +93,7 @@ fn scalar_padding_stays_out_of_mip_and_compositing_at_both_sampling_qualities() 
                     };
                     assert_gray(&pixel.0, expected);
                 }
-                assert_eq!(result.manifest.renderer_version, 5);
+                assert_eq!(result.manifest.renderer_version, 6);
             }
         }
     }

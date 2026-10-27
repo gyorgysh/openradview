@@ -2,6 +2,22 @@
 use super::*;
 use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
+#[test]
+fn contrast_drag_preserves_source_tables_and_fractional_analytic_widths() {
+    let mut table = orv_core::WindowLevel::lookup(15);
+    adjust_contrast(&mut table, Vec2::new(50., 25.));
+    assert_eq!(table, orv_core::WindowLevel::lookup(15));
+    let mut exact = orv_core::WindowLevel {
+        width: 0.25,
+        center: 0.5,
+        function: orv_core::VoiFunction::LinearExact,
+    };
+    adjust_contrast(&mut exact, Vec2::new(10., 20.));
+    assert!(exact.is_valid());
+    assert!(exact.width > 0.25 && exact.width < 1.);
+    assert!(exact.center < 0.5);
+}
+
 fn input_frame(ctx: &egui::Context, view: &mut ViewState, tool: Tool, events: Vec<Event>) {
     let mut output = ctx.run_ui(
         RawInput {

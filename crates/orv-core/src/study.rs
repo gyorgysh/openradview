@@ -49,6 +49,7 @@ impl Geometry {
 
 #[derive(Clone, Debug)]
 pub struct Frame {
+    pub scalar: Option<Arc<crate::scalar::ScalarData>>,
     /// Optional scalar source mask: 0 is DICOM padding, 1 is a sample. Derived
     /// scalar no-data uses NaN; color validity uses RGBA alpha. No mask means
     /// every finite scalar source value is present.
@@ -73,6 +74,22 @@ pub struct Frame {
 }
 
 impl Frame {
+    pub fn supports_window(&self, window: WindowLevel) -> bool {
+        window.is_valid()
+            && self.scalar.as_ref().map_or_else(
+                || !matches!(window.function, crate::VoiFunction::Lookup { .. }),
+                |scalar| scalar.supports(window),
+            )
+    }
+    pub fn normalize(&self, window: WindowLevel, value: f32) -> Option<f32> {
+        if self.rgba.is_some() || !value.is_finite() || !self.supports_window(window) {
+            return None;
+        }
+        self.scalar.as_ref().map_or_else(
+            || Some(window.normalize(value)),
+            |scalar| scalar.normalize(window, value),
+        )
+    }
     pub fn has_sample(&self, index: usize) -> bool {
         if self
             .validity
@@ -103,6 +120,7 @@ impl Frame {
         let count = u64::from(self.width) * u64::from(self.height);
         self.width > 0
             && self.height > 0
+            && (self.scalar.is_none() || self.rgba.is_none())
             && self.validity.as_ref().is_none_or(|mask| {
                 self.rgba.is_none()
                     && mask.len() as u64 == count
@@ -190,6 +208,16 @@ impl Series {
     }
     pub fn frame_count(&self) -> usize {
         self.source.as_ref().map_or(self.frames.len(), |s| s.len())
+    }
+    pub fn supports_window(&self, index: usize, window: WindowLevel) -> bool {
+        self.source.as_ref().map_or_else(
+            || {
+                self.frames
+                    .get(index)
+                    .is_some_and(|frame| frame.supports_window(window))
+            },
+            |source| source.supports_window(index, window),
+        )
     }
     pub fn read_frame(
         &self,
@@ -300,6 +328,7 @@ pub fn demo_study() -> Study {
             }
         }
         frames.push(Arc::new(Frame {
+            scalar: None,
             validity: None,
             color: None,
             nifti: None,

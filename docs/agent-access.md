@@ -53,7 +53,7 @@ are untrusted experimental AI commentary, not diagnosis or treatment.
 | `request_access` | Ask for desktop approval; call again after the user responds |
 | `open_study` | Approved series description and complete current scene; never opens a path |
 | `list_series` | The sole approved series, not the whole study |
-| `render_snapshot` | Image-only PNG with reproducible scene, geometry and hashes |
+| `render_snapshot` | Image-only PNG with reproducible scene, geometry, typed source intensity context and hashes |
 | `set_view` | Supported window/level, invert, pan/zoom, image, MPR, oblique or projection settings |
 | `get_tags` | Allowlisted geometry, not raw identifying tags |
 | `measure` / `roi_stats` | Research plane measurements/scalar statistics with valid geometry; no projection measurement |

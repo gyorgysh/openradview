@@ -215,7 +215,16 @@ impl MprSession {
         if color {
             controls::color_display(ui, &mut self.invert, snapshot.volume.color_info());
         } else {
-            controls::window(ui, &mut self.window, &mut self.invert, self.original_window);
+            controls::window(
+                ui,
+                &mut self.window,
+                &mut self.invert,
+                self.original_window,
+                snapshot.volume.frames()[0]
+                    .scalar
+                    .as_ref()
+                    .map(|data| &**data.choices()),
+            );
         }
         let pending = self.worker.generation() != snapshot.generation || snapshot.preview;
         let elapsed = self.last_input.elapsed();

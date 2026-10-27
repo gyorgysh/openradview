@@ -149,6 +149,10 @@ pub fn fingerprint_series(
             .read_frame(index, &cancelled)
             .map_err(|_| "Source unavailable, changed or cancelled")?;
         let mut pixels_hash = frame_sha256.as_ref().map(|_| Sha256::new());
+        hash_scalar(&frame, &mut hash);
+        if let Some(digest) = &mut pixels_hash {
+            hash_scalar(&frame, digest);
+        }
         if cancelled() {
             return Err("Cancelled");
         }
@@ -260,6 +264,7 @@ pub fn frame_pixel_hash(
     if !frame.valid_dimensions() {
         return Err("Invalid source dimensions");
     }
+    hash_scalar(frame, &mut digest);
     if let Some(rgba) = &frame.rgba {
         digest.update(b"OpenRadView RGBA8 sRGB v1\0");
         for chunk in rgba.chunks(16384) {
@@ -307,6 +312,13 @@ fn hash_validity(
     Ok(())
 }
 
+fn hash_scalar(frame: &Frame, digest: &mut Sha256) {
+    if let Some(scalar) = &frame.scalar {
+        digest.update(b"OpenRadView scalar presentation v1\0");
+        digest.update(scalar.digest());
+    }
+}
+
 /// Allowlist of spatial values only. Removing tags cannot remove burned-in text.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -322,6 +334,8 @@ pub struct ImageGeometry {
 #[serde(deny_unknown_fields)]
 pub struct ImageMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scalar: Option<crate::scalar::ScalarInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<crate::color::ColorInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nifti: Option<crate::nifti_view::NiftiView>,
@@ -335,6 +349,7 @@ pub struct ImageMetadata {
 impl ImageMetadata {
     pub fn from_frame(frame: &Frame) -> Self {
         Self {
+            scalar: frame.scalar.as_ref().map(|data| data.info()),
             color: frame.color.as_ref().map(|data| data.info.clone()),
             nifti: frame.nifti.clone(),
             dimensions: [frame.width, frame.height],
@@ -366,6 +381,8 @@ impl ImageMetadata {
 #[serde(deny_unknown_fields)]
 pub struct VolumeMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scalar: Option<crate::scalar::ScalarInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<crate::color::ColorInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_rendering: Option<String>,
@@ -383,6 +400,12 @@ impl VolumeMetadata {
     pub fn from_volume(volume: &Volume) -> Self {
         let origin_mm = volume.voxel_to_world([0.; 3]);
         Self {
+            scalar: volume.frames().first().and_then(|frame| frame.scalar.as_ref()).map(|data| {
+                let mut info = data.info();
+                info.rescale = None;
+                info.resampled = true;
+                info
+            }),
             color: volume.color_info().cloned(),
             color_rendering: volume.is_color().then(|| "Linear-light sRGB; MIP takes independent RGB channel maxima; opacity uses linear-light brightness 0..255; display calibration unverified".into()),
             nifti: volume.frames().first().and_then(|f| f.nifti.clone()),

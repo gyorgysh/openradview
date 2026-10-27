@@ -5,7 +5,7 @@ use crate::{
     study::{Frame, Series, Study},
 };
 use dicom_object::DefaultDicomObject;
-use dicom_pixeldata::{ConvertOptions, PixelDecoder, VoiLutOption};
+use dicom_pixeldata::PixelDecoder;
 use std::{
     fs,
     io::{Cursor, Read, Seek},
@@ -122,6 +122,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
         return Err(LoadError::Unsupported);
     }
     crate::dicom_codec::validate(&obj)?;
+    let grayscale = crate::dicom_voi::read(&obj, count as u32, &|| false)?;
     let decoded = if color == Some(crate::dicom_color::Color::PackedYbr) {
         None
     } else {
@@ -135,21 +136,6 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
             || decoded.columns() as u64 != width
             || decoded.number_of_frames() as u64 != count
     }) {
-        return Err(LoadError::Unsupported);
-    }
-    let options = ConvertOptions::new().with_voi_lut(VoiLutOption::Identity);
-    // Conversion applies signedness + rescale exactly once. Photometric inversion is a display operation.
-    let values: Vec<f32> = if color.is_none() {
-        decoded
-            .as_ref()
-            .ok_or(LoadError::Unsupported)?
-            .to_vec_with_options(&options)
-            .map_err(|_| LoadError::Unsupported)?
-    } else {
-        Vec::new()
-    };
-    if color.is_none() && (values.len() as u64 != samples || values.iter().any(|v| !v.is_finite()))
-    {
         return Err(LoadError::Unsupported);
     }
     let series_uid = identifier(&obj, "SeriesInstanceUID")?.ok_or(LoadError::Unsupported)?;
@@ -178,20 +164,27 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
     let key = acquisition.map_or(key.clone(), |hash| {
         format!("{key}|{}", crate::scene::hex(&hash))
     });
-    let window = number(&obj, "WindowWidth")
-        .zip(number(&obj, "WindowCenter"))
-        .map(|(w, c)| WindowLevel {
-            width: w as f32,
-            center: c as f32,
-        })
-        .filter(|w| w.is_valid());
     let mut frames = Vec::with_capacity(count as usize);
     for frame_index in 0..count as usize {
         let size = (width * height) as usize;
-        let pixels = if color.is_none() {
-            &values[frame_index * size..(frame_index + 1) * size]
+        let pixels: Vec<f32> = if color.is_none() {
+            let scalar = grayscale
+                .get(frame_index as u32)
+                .ok_or(LoadError::Unsupported)?;
+            let pixels = decoded
+                .as_ref()
+                .ok_or(LoadError::Unsupported)?
+                .to_vec_frame_with_options(
+                    frame_index as u32,
+                    &crate::dicom_voi::conversion(scalar),
+                )
+                .map_err(|_| LoadError::Unsupported)?;
+            if pixels.len() != size || pixels.iter().any(|v: &f32| !v.is_finite()) {
+                return Err(LoadError::Unsupported);
+            }
+            pixels
         } else {
-            &[]
+            Vec::new()
         };
         let validity = if color.is_none() {
             padding
@@ -219,7 +212,22 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
                 )
             })
             .transpose()?;
+        let default_window = if color.is_some() {
+            WindowLevel {
+                function: Default::default(),
+                width: 256.,
+                center: 128.,
+            }
+        } else {
+            grayscale
+                .get(frame_index as u32)
+                .and_then(|data| data.choices().original())
+                .unwrap_or_else(|| {
+                    crate::dicom_padding::automatic_window(&pixels, validity.as_deref())
+                })
+        };
         frames.push(Arc::new(Frame {
+            scalar: grayscale.get(frame_index as u32).cloned(),
             validity: validity.clone(),
             color: presentation.as_ref().map(|p| p.source.clone()),
             nifti: None,
@@ -233,16 +241,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
             instance,
             frame_index: frame_index as u32,
             monochrome1: photometric == "MONOCHROME1",
-            default_window: if color.is_some() {
-                WindowLevel {
-                    width: 256.,
-                    center: 128.,
-                }
-            } else {
-                window.unwrap_or_else(|| {
-                    crate::dicom_padding::automatic_window(pixels, validity.as_deref())
-                })
-            },
+            default_window,
         }));
     }
     Ok(Series {

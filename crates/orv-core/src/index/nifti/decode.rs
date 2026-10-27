@@ -79,10 +79,9 @@ impl Nifti {
         }
         let min = pixels.iter().copied().fold(f32::INFINITY, f32::min);
         let max = pixels.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let window = self.window.unwrap_or(WindowLevel {
-            width: (max - min + 1.).max(1.),
-            center: min / 2. + max / 2.,
-        });
+        let window = self
+            .window
+            .unwrap_or_else(|| WindowLevel::source_range(min, max));
         if !window.is_valid() {
             return Err(LoadError::Unsupported);
         }
@@ -93,6 +92,7 @@ impl Nifti {
             g
         });
         Ok(Arc::new(Frame {
+            scalar: header.scalar.get(frame).cloned(),
             validity: None,
             color: None,
             nifti: Some(self.view.clone()),

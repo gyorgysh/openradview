@@ -163,15 +163,27 @@ pub fn interact(
         } else if tool == Tool::Zoom {
             view.zoom = (view.zoom * (-delta.y * 0.012).exp()).clamp(0.05, 50.0);
         } else if tool == Tool::Window {
-            view.window.width = (view.window.width * (delta.x * 0.007).exp()).clamp(1.0, 100_000.0);
-            view.window.center = (view.window.center - delta.y * view.window.width * 0.003)
-                .clamp(-1_000_000.0, 1_000_000.0);
+            adjust_contrast(&mut view.window, delta);
         }
     }
     if response.double_clicked() {
         view.zoom = 1.0;
         view.pan = [0.0, 0.0];
     }
+}
+
+fn adjust_contrast(window: &mut orv_core::WindowLevel, delta: egui::Vec2) {
+    use orv_core::VoiFunction;
+    if matches!(window.function, VoiFunction::Lookup { .. }) {
+        return;
+    }
+    let minimum = if window.function == VoiFunction::Linear {
+        1.
+    } else {
+        f32::MIN_POSITIVE
+    };
+    window.width = (window.width * (delta.x * 0.007).exp()).clamp(minimum, 100_000.);
+    window.center = (window.center - delta.y * window.width * 0.003).clamp(-1_000_000., 1_000_000.);
 }
 
 pub fn navigation_override(ui: &egui::Ui, response: &egui::Response) -> bool {

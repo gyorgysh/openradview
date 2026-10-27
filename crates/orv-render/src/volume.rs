@@ -3,7 +3,7 @@
 use orv_core::{ViewState, volume::Volume, volume_view::VolumeView};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
-mod allocation;
+pub(crate) mod allocation;
 #[cfg(all(test, feature = "gpu-tests"))]
 #[path = "volume/display_tests.rs"]
 mod display_tests;
@@ -42,6 +42,7 @@ pub struct VolumeRenderer {
     volume: Arc<Volume>,
     source: wgpu::TextureView,
     validity: wgpu::TextureView,
+    voi: wgpu::TextureView,
     compute: wgpu::ComputePipeline,
     compute_layout: wgpu::BindGroupLayout,
     display: wgpu::RenderPipeline,
@@ -50,7 +51,7 @@ pub struct VolumeRenderer {
     color_space: wgpu::Buffer,
     manual_srgb: bool,
     outputs: [Option<Output>; 2],
-    _reservation: orv_core::resources::Reservation,
+    _reservation: allocation::GpuReservation,
 }
 impl VolumeRenderer {
     /// Upload one sorted slice at a time. No second full CPU volume allocation.
@@ -95,7 +96,8 @@ impl VolumeRenderer {
         if cancelled() {
             return Err("Cancelled");
         }
-        let reservation = allocation::reserve(dimensions, volume.has_missing_scalar(), device)?;
+        let reservation =
+            allocation::reserve(dimensions, volume.has_missing_scalar(), device, queue)?;
         let texture = allocation::texture(
             device,
             &wgpu::TextureDescriptor {
@@ -162,6 +164,12 @@ impl VolumeRenderer {
         }
         let source = texture.create_view(&Default::default());
         let validity = validity::upload(device, queue, &volume, &cancelled)?;
+        let voi = crate::voi::upload(
+            device,
+            queue,
+            volume.frames()[0].scalar.as_deref(),
+            &cancelled,
+        )?;
         let compute_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("volume compute bindings"),
             entries: &[
@@ -191,7 +199,7 @@ impl VolumeRenderer {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(128),
+                        min_binding_size: wgpu::BufferSize::new(144),
                     },
                     count: None,
                 },
@@ -205,6 +213,7 @@ impl VolumeRenderer {
                     },
                     count: None,
                 },
+                crate::voi::layout(4, wgpu::ShaderStages::COMPUTE),
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -214,7 +223,14 @@ impl VolumeRenderer {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("physical volume rays"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("volume.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!(
+                    "{}\n{}",
+                    include_str!("voi.wgsl"),
+                    include_str!("volume.wgsl")
+                )
+                .into(),
+            ),
         });
         let compute = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("physical ray marcher"),
@@ -312,6 +328,7 @@ impl VolumeRenderer {
             volume,
             source,
             validity,
+            voi,
             compute,
             compute_layout,
             display,
@@ -400,6 +417,10 @@ impl VolumeRenderer {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&output.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&self.voi),
                 },
             ],
         });

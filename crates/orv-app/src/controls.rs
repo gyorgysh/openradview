@@ -74,12 +74,40 @@ pub fn window(
     window: &mut WindowLevel,
     invert: &mut bool,
     original: WindowLevel,
+    choices: Option<&orv_core::scalar::VoiChoices>,
 ) {
     crate::toolbar::row(ui, |ui| {
         egui::ComboBox::from_id_salt("preset")
             .wrap_mode(egui::TextWrapMode::Extend)
-            .selected_text(preset_name(*window, original))
+            .selected_text(match window.function {
+                orv_core::VoiFunction::Lookup { index } => format!("Source LUT {}", index + 1),
+                _ => preset_name(*window, original).to_owned(),
+            })
             .show_ui(ui, |ui| {
+                if let Some(choices) = choices {
+                    for (index, value) in choices.windows().iter().copied().enumerate() {
+                        if ui
+                            .selectable_label(
+                                *window == value,
+                                format!("Source window {}", index + 1),
+                            )
+                            .clicked()
+                        {
+                            *window = value;
+                            ui.close();
+                        }
+                    }
+                    for (index, _) in choices.luts().iter().enumerate() {
+                        let value = WindowLevel::lookup(index as u8);
+                        if ui
+                            .selectable_label(*window == value, format!("Source LUT {}", index + 1))
+                            .clicked()
+                        {
+                            *window = value;
+                            ui.close();
+                        }
+                    }
+                }
                 for (label, value) in [
                     ("Original image", original),
                     ("Soft tissue", WindowLevel::SOFT_TISSUE),
@@ -93,24 +121,34 @@ pub fn window(
                     }
                 }
             });
-        crate::toolbar::number(
-            ui,
-            "Width",
-            egui::DragValue::new(&mut window.width)
-                .clamp_existing_to_range(false)
-                .range(1.0..=100_000.0)
-                .speed(2.0),
-        )
-        .on_hover_text("Contrast range (window width)");
-        crate::toolbar::number(
-            ui,
-            "Level",
-            egui::DragValue::new(&mut window.center)
-                .clamp_existing_to_range(false)
-                .range(-1_000_000.0..=1_000_000.0)
-                .speed(1.0),
-        )
-        .on_hover_text("Brightness centre (window level)");
+        window_function(ui, window);
+        let lookup = matches!(window.function, orv_core::VoiFunction::Lookup { .. });
+        let minimum = if window.function == orv_core::VoiFunction::Linear {
+            1.
+        } else {
+            0.000001
+        };
+        if !lookup {
+            crate::toolbar::number(
+                ui,
+                "Width",
+                egui::DragValue::new(&mut window.width)
+                    .clamp_existing_to_range(false)
+                    .range(minimum..=100_000.0)
+                    .speed(2.0),
+            )
+            .on_hover_text("Contrast range (window width)");
+            crate::toolbar::number(
+                ui,
+                "Level",
+                egui::DragValue::new(&mut window.center)
+                    .clamp_existing_to_range(false)
+                    .range(-1_000_000.0..=1_000_000.0)
+                    .speed(1.0),
+            )
+            .on_hover_text("Brightness centre (window level)");
+        }
+
         ui.checkbox(invert, "Invert [I]");
         if ui.button("Reset display").on_hover_text("Restore the original image's window/level and turn inversion off. Fit resets pan/zoom separately.").clicked() {
             *window = original;
@@ -118,6 +156,39 @@ pub fn window(
         }
     });
 }
+pub fn window_function(ui: &mut egui::Ui, window: &mut WindowLevel) {
+    use orv_core::VoiFunction;
+    let lookup = matches!(window.function, VoiFunction::Lookup { .. });
+    if lookup {
+        return;
+    }
+    egui::ComboBox::from_id_salt("window function")
+        .selected_text(match window.function {
+            VoiFunction::Linear => "DICOM linear",
+            VoiFunction::LinearExact => "Exact linear",
+            VoiFunction::Sigmoid => "Sigmoid",
+            VoiFunction::Lookup { .. } => "Source table",
+        })
+        .show_ui(ui, |ui| {
+            for (label, function) in [
+                ("DICOM linear", VoiFunction::Linear),
+                ("Exact linear", VoiFunction::LinearExact),
+                ("Sigmoid", VoiFunction::Sigmoid),
+            ] {
+                if ui
+                    .selectable_label(window.function == function, label)
+                    .clicked()
+                {
+                    window.function = function;
+                    if function == VoiFunction::Linear {
+                        window.width = window.width.max(1.);
+                    }
+                    ui.close();
+                }
+            }
+        });
+}
+
 pub fn color_display(
     ui: &mut egui::Ui,
     invert: &mut bool,

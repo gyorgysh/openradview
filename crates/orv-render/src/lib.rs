@@ -3,6 +3,7 @@
 mod backend;
 pub mod slice;
 pub mod snapshot;
+mod voi;
 pub mod volume;
 mod volume_uniform;
 pub use backend::{configured_backends, device_descriptor};

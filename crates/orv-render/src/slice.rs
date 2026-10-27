@@ -12,6 +12,9 @@ pub struct SliceRenderer {
     size: [u32; 2],
     srgb: bool,
     color: bool,
+    voi: Option<wgpu::TextureView>,
+    voi_signature: Vec<[u8; 32]>,
+    _reservation: Option<crate::volume::allocation::GpuReservation>,
 }
 
 impl SliceRenderer {
@@ -35,7 +38,7 @@ impl SliceRenderer {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(48),
+                        min_binding_size: wgpu::BufferSize::new(64),
                     },
                     count: None,
                 },
@@ -49,6 +52,7 @@ impl SliceRenderer {
                     },
                     count: None,
                 },
+                crate::voi::layout(3, wgpu::ShaderStages::FRAGMENT),
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -58,7 +62,14 @@ impl SliceRenderer {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("scalar DICOM display"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("slice.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!(
+                    "{}\n{}",
+                    include_str!("voi.wgsl"),
+                    include_str!("slice.wgsl")
+                )
+                .into(),
+            ),
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("scalar slice"),
@@ -87,7 +98,7 @@ impl SliceRenderer {
         });
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("slice params"),
-            contents: &[0u8; 48],
+            contents: &[0u8; 64],
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         Self {
@@ -100,6 +111,9 @@ impl SliceRenderer {
             size: [0, 0],
             srgb: format.is_srgb(),
             color: false,
+            voi: None,
+            voi_signature: Vec::new(),
+            _reservation: None,
         }
     }
 
@@ -119,40 +133,57 @@ impl SliceRenderer {
             return Err("Image dimensions exceed GPU limits");
         }
         let color = frame.rgba.is_some();
-        if self.size != [frame.width, frame.height] || self.color != color {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("modality pixels"),
-                size: wgpu::Extent3d {
-                    width: frame.width,
-                    height: frame.height,
-                    depth_or_array_layers: 1,
+        let signature = crate::voi::signature(frame.scalar.as_deref());
+        if self.size != [frame.width, frame.height]
+            || self.color != color
+            || self.voi_signature != signature
+        {
+            // Source plus two in-flight uploads, under the native frame latency bound.
+            let bytes = u64::from(frame.width) * u64::from(frame.height) * 5 * 3
+                + 8 * 1024 * 1024
+                + 2 * crate::voi::ATLAS_BYTES
+                + 65536;
+            let reservation = crate::volume::allocation::reserve_bytes(bytes, device, queue)?;
+            let voi = crate::voi::upload(device, queue, frame.scalar.as_deref(), &|| false)?;
+            let texture = crate::volume::allocation::texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some("modality pixels"),
+                    size: wgpu::Extent3d {
+                        width: frame.width,
+                        height: frame.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: if color {
+                        wgpu::TextureFormat::Rgba8UnormSrgb
+                    } else {
+                        wgpu::TextureFormat::R32Float
+                    },
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
                 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: if color {
-                    wgpu::TextureFormat::Rgba8UnormSrgb
-                } else {
-                    wgpu::TextureFormat::R32Float
-                },
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
+            )?;
             let view = texture.create_view(&Default::default());
-            let validity = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("scalar validity mask"),
-                size: wgpu::Extent3d {
-                    width: frame.width,
-                    height: frame.height,
-                    depth_or_array_layers: 1,
+            let validity = crate::volume::allocation::texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some("scalar validity mask"),
+                    size: wgpu::Extent3d {
+                        width: frame.width,
+                        height: frame.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::R8Uint,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
                 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Uint,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
+            )?;
             let mask_view = validity.create_view(&Default::default());
             self.bindings = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("slice image"),
@@ -170,12 +201,19 @@ impl SliceRenderer {
                         binding: 2,
                         resource: wgpu::BindingResource::TextureView(&mask_view),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&voi),
+                    },
                 ],
             }));
             self.texture = Some(texture);
             self.validity = Some(validity);
             self.size = [frame.width, frame.height];
             self.color = color;
+            self.voi = Some(voi);
+            self.voi_signature = signature;
+            self._reservation = Some(reservation);
         }
         if let Some(texture) = &self.texture {
             queue.write_texture(
@@ -253,6 +291,9 @@ impl SliceRenderer {
         viewport_aspect: f32,
     ) -> Result<(), &'static str> {
         view.validate()?;
+        if crate::voi::signature(frame.scalar.as_deref()) != self.voi_signature {
+            return Err("Source presentation changed; upload the image before drawing");
+        }
         if !viewport_aspect.is_finite()
             || viewport_aspect <= 0.0
             || !frame.aspect_ratio().is_finite()
@@ -260,6 +301,7 @@ impl SliceRenderer {
         {
             return Err("Invalid image or viewport aspect ratio");
         }
+        let voi = crate::voi::parameters(frame, view.window)?;
         let invert = view.invert ^ frame.monochrome1;
         let params = [
             view.window.width,
@@ -274,6 +316,10 @@ impl SliceRenderer {
             u8::from(frame.rgba.is_some()) as f32,
             0.0,
             0.0,
+            voi[0],
+            voi[1],
+            voi[2],
+            voi[3],
         ];
         queue.write_buffer(&self.uniform, 0, bytemuck::cast_slice(&params));
         Ok(())

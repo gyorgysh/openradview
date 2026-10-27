@@ -104,6 +104,7 @@ impl Volume {
             })
         });
         Ok(Arc::new(Frame {
+            scalar: None,
             validity: None,
             color,
             nifti: self.frames[0].nifti.clone(),
@@ -155,6 +156,7 @@ mod tests {
             (0..2)
                 .map(|z| {
                     Arc::new(Frame {
+                        scalar: None,
                         validity: None,
                         color: Some(Arc::new(ColorData {
                             info: ColorInfo {
@@ -192,6 +194,7 @@ mod tests {
                         frame_index: z as u32,
                         monochrome1: false,
                         default_window: WindowLevel {
+                            function: Default::default(),
                             width: 256.,
                             center: 128.,
                         },

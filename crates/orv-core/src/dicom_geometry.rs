@@ -73,7 +73,7 @@ fn numbers<const N: usize>(object: &Object, tag: Tag) -> Option<[f64; N]> {
         .all(|value| value.is_finite())
         .then_some(values)
 }
-fn item(object: &Object, tag: Tag) -> Result<Option<&Object>, LoadError> {
+pub(crate) fn item(object: &Object, tag: Tag) -> Result<Option<&Object>, LoadError> {
     let Ok(element) = object.element(tag) else {
         return Ok(None);
     };
@@ -83,7 +83,7 @@ fn item(object: &Object, tag: Tag) -> Result<Option<&Object>, LoadError> {
     }
     Ok(items.first())
 }
-fn group<'a>(
+pub(crate) fn group<'a>(
     shared: Option<&'a Object>,
     frame: Option<&'a Object>,
     tag: Tag,

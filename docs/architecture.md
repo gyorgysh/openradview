@@ -39,9 +39,19 @@ sources reserve their conservative decoded size before materialization; weak
 per-source caches share a live immutable volume without keeping closed data alive.
 Resident sources check exact immutable frame identity before reuse. Original frame
 order remains available for approval checks even when spatial sorting differs.
-GPU views reserve source/mask data and two bounded outputs against a separate
-shared pool, check device limits and handle texture-allocation errors. Uploads
-flush in bounded batches. Neither pool is a hard OS/driver memory sandbox.
+GPU views reserve source/mask data, bounded outputs, retired outputs and upload
+staging against a separate shared pool, check device limits and handle texture
+allocation errors. Reservations remain charged until submitted GPU work finishes.
+Uploads flush in bounded batches. Neither pool is a hard OS/driver memory sandbox.
+
+Scalar source context and grayscale choices are immutable and prehashed. Import
+workers validate/intern windows and lookup tables under metadata bounds; identical
+tables share allocations. Native/snapshot shaders apply one explicit mapping after
+rescale/interpolation and before inversion. Conversion explicitly selects the
+validated frame transform, independent of decoder metadata precedence. Source/per-frame identity includes
+storage, scaling, declared units and table definitions without raw tag text.
+Reformats retain typed source context and mark resampled values; mixed units or
+lookup tables cannot silently become one spatial presentation.
 
 Scalar values retain an independent validity mask when needed. DICOM padding is
 identified in stored codes before rescale; statistics, hashes, labels, CPU/GPU

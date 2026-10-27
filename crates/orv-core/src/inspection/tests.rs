@@ -5,6 +5,7 @@ use std::{cell::Cell, sync::Arc};
 
 fn image(width: u32, values: &[f32]) -> Frame {
     Frame {
+        scalar: None,
         validity: None,
         width,
         height: 1,

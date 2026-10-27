@@ -115,7 +115,18 @@ impl Workspace {
                 }
             });
         } else {
-            controls::window(ui, &mut self.view.window, &mut self.view.invert, original);
+            let current = self.current_image().map(|(_, frame)| frame);
+            let choices = current
+                .as_ref()
+                .and_then(|frame| frame.scalar.as_ref())
+                .map(|data| &**data.choices());
+            controls::window(
+                ui,
+                &mut self.view.window,
+                &mut self.view.invert,
+                original,
+                choices,
+            );
         }
         if self.view.window != before {
             self.initialize_window = false;

@@ -75,7 +75,7 @@ fn window_labels_stay_with_equal_width_values_when_wrapping() {
             },
             |ui| {
                 let mut w = WindowLevel::LUNG;
-                window(ui, &mut w, &mut false, WindowLevel::LUNG);
+                window(ui, &mut w, &mut false, WindowLevel::LUNG, None);
                 crate::toolbar::row(ui, |ui| {
                     for (label, mut v) in [("First", 1.), ("Second", 100.)] {
                         values.push(

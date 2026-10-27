@@ -7,6 +7,7 @@ fn source() -> Arc<Volume> {
             (0..3)
                 .map(|z| {
                     Arc::new(Frame {
+                        scalar: None,
                         validity: None,
                         color: None,
                         nifti: None,
@@ -28,6 +29,7 @@ fn source() -> Arc<Volume> {
                         frame_index: 0,
                         monochrome1: false,
                         default_window: WindowLevel {
+                            function: Default::default(),
                             width: 256.,
                             center: 128.,
                         },

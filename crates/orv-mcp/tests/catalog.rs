@@ -122,10 +122,12 @@ async fn color_series_keeps_consent_scope_and_refuses_scalar_operations() {
     use std::sync::Arc;
     let mut series = demo_study().series.remove(0);
     let window = WindowLevel {
+        function: Default::default(),
         width: 256.,
         center: 128.,
     };
     series.frames = vec![Arc::new(Frame {
+        scalar: None,
         validity: None,
         color: None,
         nifti: None,

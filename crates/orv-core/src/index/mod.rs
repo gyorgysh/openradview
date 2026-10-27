@@ -150,24 +150,30 @@ impl IndexedSeries {
         self.frames.is_empty()
     }
     pub fn original_window(&self, index: usize) -> Option<crate::WindowLevel> {
-        let header = &self.frames.get(index)?.header;
+        let entry = self.frames.get(index)?;
+        let header = &entry.header;
         if let header::Format::Nifti(nifti) = &header.format {
             return nifti.window;
         }
         let object = header.dicom().ok()?;
         if crate::dicom_color::layout(object).ok()?.is_some() {
             return Some(crate::WindowLevel {
+                function: Default::default(),
                 width: 256.,
                 center: 128.,
             });
         }
-        crate::load::number(object, "WindowWidth")
-            .zip(crate::load::number(object, "WindowCenter"))
-            .map(|(width, center)| crate::WindowLevel {
-                width: width as f32,
-                center: center as f32,
-            })
-            .filter(|w| w.is_valid())
+        header.scalar.get(entry.frame)?.choices().original()
+    }
+    pub fn supports_window(&self, index: usize, window: crate::WindowLevel) -> bool {
+        let Some(entry) = self.frames.get(index) else {
+            return false;
+        };
+        window.is_valid()
+            && entry.header.scalar.get(entry.frame).map_or_else(
+                || !matches!(window.function, crate::VoiFunction::Lookup { .. }),
+                |data| data.supports(window),
+            )
     }
     /// Conservative retained-pixel estimate before decoding. Declared scalar
     /// padding reserves a byte per sample even if no matching code is found.

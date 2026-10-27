@@ -355,3 +355,29 @@ fn quaternion_rotation_keeps_the_physical_axes() {
         assert!((actual - expected).abs() < 1e-6);
     }
 }
+
+#[test]
+fn fractional_nifti_ranges_use_the_full_display_range_without_a_half_sample_offset() {
+    let temp = Temp::new();
+    let path = temp.0.join("fractional.nii");
+    let mut bytes = image(false);
+    bytes[112..116].copy_from_slice(&0.25f32.to_le_bytes());
+    bytes[116..120].copy_from_slice(&0.25f32.to_le_bytes());
+    fs::write(&path, &bytes).unwrap();
+    let study = index_paths(std::slice::from_ref(&path), || false, |_| {}).unwrap();
+    let frame = study.series[0].read_frame(0, || false).unwrap();
+    assert_eq!(&*frame.pixels, &[0., 0.25, 0.5, 0.75]);
+    for (&value, expected) in frame.pixels.iter().zip([0., 1. / 3., 2. / 3., 1.]) {
+        assert!(
+            (frame.normalize(frame.default_window, value).unwrap() - expected).abs() < 0.000001
+        );
+    }
+    bytes[124..128].copy_from_slice(&1f32.to_le_bytes());
+    bytes[128..132].copy_from_slice(&0f32.to_le_bytes());
+    fs::write(&path, &bytes).unwrap();
+    let study = index_paths(&[path], || false, |_| {}).unwrap();
+    let frame = study.series[0].read_frame(0, || false).unwrap();
+    for (&value, expected) in frame.pixels.iter().zip([0., 0.25, 0.5, 0.75]) {
+        assert_eq!(frame.normalize(frame.default_window, value), Some(expected));
+    }
+}

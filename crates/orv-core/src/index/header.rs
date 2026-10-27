@@ -31,6 +31,7 @@ pub(super) struct Header {
     pub geometry: Option<Geometry>,
     pub frame_spatial: Vec<crate::dicom_geometry::FrameSpatial>,
     pub acquisition: Option<[u8; 32]>,
+    pub scalar: crate::dicom_voi::Presentations,
     pub key: String,
     pub modality: &'static str,
     pub series_number: i32,
@@ -57,17 +58,19 @@ impl Header {
         }
     }
     pub fn spatial_bytes(&self) -> u64 {
-        self.frame_spatial
-            .iter()
-            .map(|frame| {
-                std::mem::size_of::<crate::dicom_geometry::FrameSpatial>() as u64
-                    + frame
-                        .geometry
-                        .as_ref()
-                        .and_then(|geometry| geometry.frame_of_reference.as_ref())
-                        .map_or(0, |value| value.len() as u64)
-            })
-            .sum()
+        self.scalar.metadata_bytes
+            + self
+                .frame_spatial
+                .iter()
+                .map(|frame| {
+                    std::mem::size_of::<crate::dicom_geometry::FrameSpatial>() as u64
+                        + frame
+                            .geometry
+                            .as_ref()
+                            .and_then(|geometry| geometry.frame_of_reference.as_ref())
+                            .map_or(0, |value| value.len() as u64)
+                })
+                .sum::<u64>()
     }
     pub fn dicom(&self) -> Result<&DefaultDicomObject, LoadError> {
         match &self.format {
@@ -271,6 +274,7 @@ pub(super) fn read_header(
     let uid =
         crate::load::identifier(&object, "SeriesInstanceUID")?.ok_or(LoadError::Unsupported)?;
     let spatial = crate::dicom_geometry::read(&object, frames as u32, &cancelled)?;
+    let scalar = crate::dicom_voi::read(&object, frames as u32, &cancelled)?;
     let modality = match crate::load::text(&object, "Modality").as_deref() {
         Some("CT") => "CT",
         Some("MR") => "MR",
@@ -307,6 +311,7 @@ pub(super) fn read_header(
         geometry: spatial.geometry,
         frame_spatial: spatial.frames,
         acquisition: spatial.acquisition,
+        scalar,
         key,
         modality,
         series_number: crate::load::number(&object, "SeriesNumber").unwrap_or(1.) as i32,

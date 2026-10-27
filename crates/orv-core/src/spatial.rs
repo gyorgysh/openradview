@@ -31,7 +31,7 @@ impl std::fmt::Display for GeometryError {
             Self::Dimensions => "The image dimensions do not form a consistent volume.",
             Self::Irregular => "Slices overlap, have gaps or do not form a regular spatial volume.",
             Self::TooFew => "MPR needs at least two spatially distinct images.",
-            Self::Pixels => "MPR and 3D need valid samples and one consistent scalar or RGB representation.",
+            Self::Pixels => "MPR and 3D need valid samples, consistent intensity units/precision and matching scalar tables or RGB context.",
             Self::Limit => "The requested volume or reformat exceeds the supported size limit.",
             Self::Cancelled => "View update cancelled.",
         })

@@ -3,14 +3,37 @@
 use orv_core::resources::{MemoryBudget, Reservation};
 mod hardware;
 
+pub(crate) struct GpuReservation {
+    memory: Option<Reservation>,
+    queue: wgpu::Queue,
+}
+impl Drop for GpuReservation {
+    fn drop(&mut self) {
+        if let Some(memory) = self.memory.take() {
+            // Flush pending uploads without waiting on the UI. Submitted GPU work
+            // can retain resources after the app drops its renderer.
+            self.queue.submit([]);
+            self.queue.on_submitted_work_done(move || drop(memory));
+        }
+    }
+}
+
 pub(super) fn reserve(
     dimensions: [usize; 3],
     masked: bool,
     device: &wgpu::Device,
-) -> Result<Reservation, &'static str> {
+    queue: &wgpu::Queue,
+) -> Result<GpuReservation, &'static str> {
+    reserve_bytes(allocation_bytes(dimensions, masked)?, device, queue)
+}
+pub(crate) fn reserve_bytes(
+    total: u64,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> Result<GpuReservation, &'static str> {
+    let _ = device.poll(wgpu::PollType::Poll);
     let limits = device.limits();
     let budget = MemoryBudget::gpu();
-    let total = allocation_bytes(dimensions, masked)?;
     let device_budget = if limits.max_texture_dimension_3d < 1024 {
         512 * 1024 * 1024
     } else {
@@ -18,11 +41,17 @@ pub(super) fn reserve(
     }
     .min(budget.limit());
     if total > device_budget {
-        return Err("Volume and output buffers exceed this device's GPU budget; use 2D/MPR");
+        return Err(
+            "Rendering buffers exceed this device's GPU budget; close another view or open a smaller source",
+        );
     }
-    budget
+    let memory = budget
         .reserve_with_limit(total, device_budget)
-        .ok_or("Active volume views exceed the shared GPU budget; close a 3D view or use 2D/MPR")
+        .ok_or("Active views exceed the shared GPU budget; close another view or use 2D/MPR")?;
+    Ok(GpuReservation {
+        memory: Some(memory),
+        queue: queue.clone(),
+    })
 }
 
 fn allocation_bytes(dimensions: [usize; 3], masked: bool) -> Result<u64, &'static str> {
@@ -32,13 +61,27 @@ fn allocation_bytes(dimensions: [usize; 3], masked: bool) -> Result<u64, &'stati
             bytes.checked_mul(side as u64)
         })
         .ok_or("Volume allocation size overflow; use 2D/MPR")?;
-    // Reserve both maximum outputs and bounded dispatch metadata before any GPU allocation.
+    // Include retired outputs, one upload chunk plus its last source plane, and
+    // table staging. Driver allocation overhead is outside this admission policy.
+    let plane = (dimensions[0] as u64)
+        .checked_mul(dimensions[1] as u64)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or("Volume staging size overflow")?;
     source
-        .checked_add(2 * 1024 * 1024 * 4 + 65536 + 1)
+        .checked_add(plane)
+        .and_then(|bytes| {
+            bytes.checked_add(
+                3 * 2 * 1024 * 1024 * 4
+                    + 16 * 1024 * 1024
+                    + 2 * crate::voi::ATLAS_BYTES
+                    + 65536
+                    + 1,
+            )
+        })
         .ok_or("Volume allocation size overflow")
 }
 
-pub(super) fn texture(
+pub(crate) fn texture(
     device: &wgpu::Device,
     descriptor: &wgpu::TextureDescriptor<'_>,
 ) -> Result<wgpu::Texture, &'static str> {
@@ -66,7 +109,7 @@ mod tests {
         });
         let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
             .expect("Real GPU required");
-        let (device, _) =
+        let (device, queue) =
             pollster::block_on(adapter.request_device(&crate::device_descriptor(&adapter)))
                 .unwrap();
         let mut descriptor = wgpu::TextureDescriptor {
@@ -86,6 +129,21 @@ mod tests {
         assert!(texture(&device, &descriptor).is_err());
         descriptor.size.width = 1;
         assert!(texture(&device, &descriptor).is_ok());
+        let budget = MemoryBudget::new(100);
+        let memory = budget.reserve(60).unwrap();
+        let retained = GpuReservation {
+            memory: Some(memory),
+            queue: queue.clone(),
+        };
+        assert_eq!(budget.used(), 60);
+        drop(retained);
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(30)),
+            })
+            .unwrap();
+        assert_eq!(budget.used(), 0);
     }
     #[test]
     fn gpu_admission_counts_masks_outputs_and_constrained_devices() {

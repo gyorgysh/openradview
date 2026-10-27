@@ -14,7 +14,25 @@ that an image, orientation, reconstruction or measurement is correct for care.
 | Local sources | Files, folders, ZIP and ZIP64 with stored/deflated members; supported NIfTI including gzip and same-directory pairs can be inside ZIP | No extraction, uploads or pixel disk cache. ZIP/gzip integrity and expanded length are checked on a cancellable background worker. Selected files must remain available. |
 
 DICOM modality rescale and signedness are applied before grayscale display;
-MONOCHROME1 inversion remains a display operation. Color never substitutes luma
+MONOCHROME1 inversion remains a display operation. Source LINEAR, LINEAR_EXACT
+and SIGMOID functions are explicit, with up to 16 alternative window pairs and
+16 VOI lookup tables. Unknown functions and malformed pairs/tables are refused.
+Lookup descriptors support 8/16-bit outputs, up to 65,536 entries, signed/unsigned
+first inputs, endpoint clipping and packed/word-padded 8-bit data. The supported
+source subset requires at most 16 stored bits and integral rescale whose possible
+outputs fit exact f32 integers (±2²⁴); fractional/inexact source LUT mappings are
+refused. Fractional resampled LUT indices round down after scalar interpolation.
+A table and a window function are alternatives; they are never applied together.
+GPU display widths below 10⁻²⁰ are refused because subnormal arithmetic may be
+flushed to zero; choose a wider contrast range.
+Spatial volumes require matching lookup tables across frames; differing tables
+remain available in source 2D.
+
+Scalar context records source storage/precision, the conversion to f32, numeric
+scaling and recognized declared units. Unknown units remain unknown; a CT/PET
+modality name does not establish HU/SUV. Integer/f64 source precision can be lost
+when values become f32. Windowing and lookup tables do not change histogram/probe/
+ROI sample values. Native views and snapshots share the same grayscale mapping. Color never substitutes luma
 for scalar values. Pre-ICC RGB code values retain 8/16-bit precision separately from
 8-bit RGBA presentation, and both participate in source fingerprints. Each color
 pixel occupies 10 decoded-cache bytes. Palette/YBR code statistics refer to the
@@ -80,7 +98,8 @@ memory/session log. Preparation scratch, displayed slices, labels and driver mem
 remain separate; these allowances are not a total process-memory guarantee.
 Maximum32million samples per frame
 counts all three color channels; maximum dimension8192, compressed frame payload64MiB,
-metadata8MiB/object and128MiB/study,200,000 entries and one million images apply.
+encoded metadata8MiB/object, parsed grayscale choices8MiB/object and total
+metadata128MiB/study,200,000 entries and one million images apply.
 Compressed-input expansion is cumulatively capped at64GiB (nested layers also count).
 A multi-GB file therefore does not imply a multi-GB resident pixel buffer. The
 NIfTI parser additionally requires a bounded integral voxel offset (at least 352/544 bytes for single-file v1/v2; zero is permitted for pairs) and
@@ -103,7 +122,11 @@ reformatted pixels remain missing and are excluded from statistics. RGB maximum
 projection takes a separate maximum per channel, potentially from different
 depths. Color opacity uses linear-light brightness on a0–255 scale, without CT
 presets. Presentation uses RGBA8 even when source codes have16-bit precision.
-Scalar and color snapshots identify renderer version 5.
+Scalar and color snapshots identify renderer version 6. Scalar manifests include
+typed source precision/units/scaling; resampled outputs do not claim the first
+source frame's linear transform as their own. Source choices participate in both
+whole-source fingerprints and per-frame verification. The geometry-only agent
+query keeps its existing scope.
 The final native display preserves RGB and interpolates the sRGB view in linear
 light. Rectangle statistics run on cancellable workers; clearing/changing the
 image or closing the study discards pending results.

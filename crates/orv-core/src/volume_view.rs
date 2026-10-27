@@ -54,7 +54,7 @@ impl TransferFunction {
             || !self.high.is_finite()
             || self.low.abs() > 1e9
             || self.high.abs() > 1e9
-            || self.high - self.low < 1.0
+            || self.high - self.low < 1e-20
             || !self.opacity_per_mm.is_finite()
             || !(0.0..=10.0).contains(&self.opacity_per_mm)
         {

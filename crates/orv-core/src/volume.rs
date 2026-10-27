@@ -104,6 +104,11 @@ impl Volume {
                 || frame.color.as_ref().map(|d| &d.info) != first.color.as_ref().map(|d| &d.info)
                 || frame.nifti != first.nifti
                 || frame.monochrome1 != first.monochrome1
+                || !match (&first.scalar, &frame.scalar) {
+                    (Some(a), Some(b)) => a.compatible(b),
+                    (None, None) => true,
+                    _ => false,
+                }
             {
                 return Err(GeometryError::Pixels);
             }
@@ -421,6 +426,7 @@ impl Volume {
             }
         }
         Ok(Arc::new(Frame {
+            scalar: self.frames[0].scalar.as_ref().map(|data| data.resampled()),
             validity: None,
             color: None,
             nifti: self.frames.first().and_then(|frame| frame.nifti.clone()),

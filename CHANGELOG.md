@@ -2,6 +2,10 @@
 
 ## 1.1.0 — Unreleased
 
+- Honor source grayscale window functions and bounded VOI tables, including
+  alternative source windows. Keep scaling, display mapping and inversion
+  separate. Show declared intensity units/source precision, and bind presentation
+  into snapshots and source verification. Correct automatic float-image contrast.
 - Support explicit enhanced CT/MR/PET frame geometry within a bounded subset.
   Separate time, echo, diffusion and component acquisitions before reconstruction;
   incomplete geometry stays in 2D. Refuse conflicting functional groups and

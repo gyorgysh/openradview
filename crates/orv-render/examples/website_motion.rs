@@ -140,6 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 view: ViewState {
                     plane,
                     window: WindowLevel {
+                        function: Default::default(),
                         width: 1600.,
                         center: -400.,
                     },
@@ -211,6 +212,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             series_index: 0,
             view: ViewState {
                 window: WindowLevel {
+                    function: Default::default(),
                     width: 1400.,
                     center: 900.,
                 },

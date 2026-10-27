@@ -12,6 +12,7 @@ fn stack() -> Vec<Arc<Frame>> {
                 .flat_map(|y| (0..4).map(move |x| (x + 10 * y + 100 * z) as f32))
                 .collect::<Vec<_>>();
             Arc::new(Frame {
+                scalar: None,
                 validity: None,
                 color: None,
                 nifti: None,
@@ -30,6 +31,7 @@ fn stack() -> Vec<Arc<Frame>> {
                 frame_index: 0,
                 monochrome1: false,
                 default_window: WindowLevel {
+                    function: Default::default(),
                     width: 256.0,
                     center: 128.0,
                 },

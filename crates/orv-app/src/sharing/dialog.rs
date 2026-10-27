@@ -243,8 +243,8 @@ impl Draft {
                         ui.image((preview.texture.id(), preview.texture.size_vec2()));
                     });
                 }
-                ui.label("Fields: source fingerprint, series index/count/modality, complete scene/display state, output size, geometry and image/view hashes; projections include camera, transfer function and sampling budgets. No names, dates, original UIDs, descriptions or file paths are copied. Resampling approximates the source.");
-                egui::CollapsingHeader::new("Exact scene and geometry (JSON)").show(ui, |ui| {
+                ui.label("Fields: source fingerprint, series index/count/modality, complete scene/display state, output size, geometry, numeric source format/scaling, declared intensity units and image/view hashes; projections include camera, transfer function and sampling budgets. No names, dates, original UIDs, descriptions or file paths are copied. Resampling approximates the source.");
+                egui::CollapsingHeader::new("Exact view and image details (JSON)").show(ui, |ui| {
                     ui.add(egui::Label::new(RichText::new(&preview.json).monospace().small()).wrap());
                 });
             }

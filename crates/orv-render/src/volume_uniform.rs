@@ -11,7 +11,7 @@ pub(crate) fn parameters(
     state: &VolumeView,
     size: [u32; 2],
     region: [[u32; 2]; 2],
-) -> Result<[f32; 32], &'static str> {
+) -> Result<[f32; 36], &'static str> {
     state.validate()?;
     display.validate()?;
     if size.iter().any(|d| !(1..=1024).contains(d))
@@ -35,7 +35,7 @@ pub(crate) fn parameters(
     let down = volume.world_vector_to_voxel(rays.down_mm);
     let direction = volume.world_vector_to_voxel(rays.direction_unit);
     let invert = display.invert ^ volume.frames()[0].monochrome1;
-    let mut values = [0.; 32];
+    let mut values = [0.; 36];
     for (i, vector) in [origin, right, down, direction].into_iter().enumerate() {
         for axis in 0..3 {
             values[i * 4 + axis] = vector[axis] as f32;
@@ -74,6 +74,10 @@ pub(crate) fn parameters(
         region[1][0] as f32,
         region[1][1] as f32,
     ]);
+    values[32..36].copy_from_slice(&crate::voi::parameters(
+        &volume.frames()[0],
+        display.window,
+    )?);
     if values.iter().any(|v| !v.is_finite() || v.abs() > 1e20) || values[24] <= 0.0 {
         return Err("Physical volume exceeds GPU coordinate precision limits");
     }

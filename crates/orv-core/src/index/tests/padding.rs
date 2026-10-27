@@ -40,7 +40,8 @@ fn stored_padding_is_not_a_sample_or_part_of_automatic_window_histogram_or_roi()
         assert_eq!(
             image.default_window,
             crate::WindowLevel {
-                width: 201.,
+                function: crate::VoiFunction::LinearExact,
+                width: 200.,
                 center: 0.
             }
         );
@@ -114,10 +115,13 @@ fn padding_ranges_are_inclusive_signed_and_independent_of_inversion_or_rescale()
             assert_eq!(
                 image.default_window,
                 crate::WindowLevel {
-                    width: 11.,
+                    function: crate::VoiFunction::LinearExact,
+                    width: 10.,
                     center: 5.
                 }
             );
+            assert_eq!(image.default_window.normalize(0.), 0.);
+            assert_eq!(image.default_window.normalize(10.), 1.);
             assert_eq!(image.byte_len(), 20);
         }
     }
@@ -326,6 +330,7 @@ fn invalid_padding_metadata_is_refused_and_all_padding_is_a_valid_empty_image() 
     assert_eq!(
         image.default_window,
         crate::WindowLevel {
+            function: crate::VoiFunction::LinearExact,
             width: 1.,
             center: 0.
         }

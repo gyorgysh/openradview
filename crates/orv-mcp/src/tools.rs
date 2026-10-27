@@ -171,13 +171,25 @@ impl ViewerTools {
         description = "Get allowlisted dimensions/photometric/plane geometry or full affine volume geometry for the consented view. Raw DICOM tags and identifiers are never returned."
     )]
     pub async fn get_tags(&self, Parameters(request): Parameters<SceneRequest>) -> CallToolResult {
-        self.compute(request.scene, Operation::Metadata, |resolved, scene, _, _| {
-            let metadata=match resolved {
-                Resolved::Image(frame)=>json!({"scene_sha256":scene.hash()?,"image":ImageMetadata::from_frame(frame)}),
-                Resolved::Volume(volume)=>json!({"scene_sha256":scene.hash()?,"volume":VolumeMetadata::from_volume(volume)}),
-            };
-            Ok(CallToolResult::structured(metadata))
-        })
+        self.compute(
+            request.scene,
+            Operation::Metadata,
+            |resolved, scene, _, _| {
+                let metadata = match resolved {
+                    Resolved::Image(frame) => {
+                        let mut image = ImageMetadata::from_frame(frame);
+                        image.scalar = None;
+                        json!({"scene_sha256":scene.hash()?,"image":image})
+                    }
+                    Resolved::Volume(volume) => {
+                        let mut source = VolumeMetadata::from_volume(volume);
+                        source.scalar = None;
+                        json!({"scene_sha256":scene.hash()?,"volume":source})
+                    }
+                };
+                Ok(CallToolResult::structured(metadata))
+            },
+        )
         .await
     }
 
@@ -298,6 +310,64 @@ mod tests {
         consent::{Consent, DataScope, ToolScopes},
     };
     use orv_core::{ViewState, study::demo_study};
+
+    #[tokio::test]
+    async fn geometry_permission_does_not_add_source_intensity_metadata() {
+        use orv_core::scalar::{ScalarData, ScalarInfo, Storage, Unit, ValueType, VoiChoices};
+        let mut series = demo_study().series.remove(0);
+        series.frames.truncate(1);
+        Arc::make_mut(&mut series.frames[0]).scalar = Some(
+            ScalarData::new(
+                ScalarInfo {
+                    value_type: ValueType::F32,
+                    storage: Storage::SignedInteger,
+                    stored_bits: 16,
+                    unit: Unit::Hounsfield,
+                    rescale: None,
+                    resampled: false,
+                },
+                VoiChoices::new(Vec::new(), Vec::new()).unwrap(),
+            )
+            .unwrap(),
+        );
+        let source = Arc::new(PreparedSeries::new(0, Arc::new(series), || false).unwrap());
+        let scene = SceneState {
+            schema_version: 1,
+            source_sha256: source.description().source_sha256.clone(),
+            series_index: 0,
+            view: ViewState::default(),
+            reconstruction: None,
+            crosshair_mm: None,
+            reformat_side: 64,
+            output_size: [64, 64],
+        };
+        let mut invalid = scene.clone();
+        invalid.view.window = orv_core::WindowLevel::lookup(0);
+        assert!(source.check_scene(&invalid).is_err());
+        let consent = Consent {
+            recipient: "Generated scope test".into(),
+            data: DataScope::ReviewedScenes,
+            tools: ToolScopes {
+                view_control: false,
+                snapshots: false,
+                metadata: true,
+                measurements: false,
+            },
+            preview_reviewed: true,
+            burned_in_risk_accepted: true,
+        };
+        let session = Session::grant(source, consent, scene).unwrap();
+        let tools = ViewerTools::new(session, Arc::new(|| {}));
+        let response = tools
+            .get_tags(Parameters(SceneRequest { scene: None }))
+            .await;
+        assert_ne!(response.is_error, Some(true));
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("dimensions"));
+        for field in ["scalar", "stored_bits", "hounsfield", "value_type"] {
+            assert!(!json.contains(field));
+        }
+    }
 
     #[tokio::test]
     async fn revocation_discards_in_flight_data_and_cancels_the_worker() {

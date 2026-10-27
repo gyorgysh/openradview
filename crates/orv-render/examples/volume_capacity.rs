@@ -27,6 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         values.try_reserve_exact(1024 * 768)?;
         values.extend((0..1024 * 768).map(|index| z as f32 + (index % 1024) as f32 * 0.001));
         frames.push(Arc::new(Frame {
+            scalar: None,
             width: 1024,
             height: 768,
             pixels: values.into(),

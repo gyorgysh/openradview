@@ -6,6 +6,8 @@ mod color;
 mod limits;
 #[path = "volume_gpu/padding.rs"]
 mod padding;
+#[path = "volume_gpu/presentation.rs"]
+mod presentation;
 #[path = "volume_gpu/snapshot.rs"]
 mod snapshot;
 use orv_core::{
@@ -26,6 +28,7 @@ fn volume(constant: Option<f32>, monochrome1: bool) -> Arc<Volume> {
             (0..4)
                 .map(|z| {
                     Arc::new(Frame {
+                        scalar: None,
                         validity: None,
                         color: None,
                         nifti: None,
@@ -50,6 +53,7 @@ fn volume(constant: Option<f32>, monochrome1: bool) -> Arc<Volume> {
                         frame_index: 0,
                         monochrome1,
                         default_window: WindowLevel {
+                            function: Default::default(),
                             width: 512.,
                             center: 256.,
                         },
@@ -172,6 +176,7 @@ fn mip_matches_affine_analytic_endpoints_and_display_gamma() {
         .unwrap();
         let mut display = ViewState {
             window: WindowLevel {
+                function: Default::default(),
                 width: 512.,
                 center: 256.,
             },
@@ -272,6 +277,7 @@ fn composite_opacity_is_physical_and_independent_of_sampling_quality() {
     .unwrap();
     let display = ViewState {
         window: WindowLevel {
+            function: Default::default(),
             width: 256.,
             center: 128.,
         },
@@ -359,6 +365,7 @@ fn tiled_dispatches_keep_immutable_parameters_and_obey_bounds_and_cancel() {
     .unwrap();
     let mut display = ViewState {
         window: WindowLevel {
+            function: Default::default(),
             width: 256.,
             center: 128.,
         },
@@ -426,6 +433,7 @@ fn refined_steps_follow_voxel_speed_in_a_strongly_sheared_volume() {
     let frames = (0..4)
         .map(|z| {
             Arc::new(Frame {
+                scalar: None,
                 validity: None,
                 color: None,
                 nifti: None,
@@ -447,6 +455,7 @@ fn refined_steps_follow_voxel_speed_in_a_strongly_sheared_volume() {
                 frame_index: 0,
                 monochrome1: false,
                 default_window: WindowLevel {
+                    function: Default::default(),
                     width: 256.,
                     center: 128.,
                 },
@@ -456,6 +465,7 @@ fn refined_steps_follow_voxel_speed_in_a_strongly_sheared_volume() {
     let volume = Arc::new(Volume::new(frames).unwrap());
     let display = ViewState {
         window: WindowLevel {
+            function: Default::default(),
             width: 256.,
             center: 128.,
         },

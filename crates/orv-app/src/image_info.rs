@@ -81,6 +81,18 @@ impl ImageInfo {
             .size(16.),
         );
         ui.weak("Local pixel values. Nothing in this window is sent or saved.");
+        if let Some(scalar) = &image.scalar {
+            let info = scalar.info();
+            ui.small(format!(
+                "Source: {}-bit {} · values converted to 32-bit float",
+                info.stored_bits,
+                info.storage.label()
+            ));
+            ui.small(info.unit.label());
+            if info.resampled {
+                ui.small("Resampled values · source spacing and interpolation apply");
+            }
+        }
         if let Some(g) = image.geometry.as_ref().filter(|g| g.validate().is_ok()) {
             ui.small(format!(
                 "{} · spacing {} × {} mm (columns × rows)",

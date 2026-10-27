@@ -40,6 +40,7 @@ fn snapshot() -> Arc<ReviewedSnapshot> {
             png_sha256: hex(&Sha256::digest(&png)),
             scene,
             image: Some(ImageMetadata {
+                scalar: None,
                 color: None,
                 nifti: None,
                 color_space: None,

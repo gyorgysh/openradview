@@ -77,6 +77,14 @@ impl PreparedSeries {
         {
             return Err("The image index is outside the approved series");
         }
+        let index = if scene.reconstruction.is_none() && scene.view.plane == Plane::Acquired {
+            scene.view.slice as usize
+        } else {
+            0
+        };
+        if !self.source.supports_window(index, scene.view.window) {
+            return Err("The selected display mapping is unavailable for this source");
+        }
         Ok(())
     }
 

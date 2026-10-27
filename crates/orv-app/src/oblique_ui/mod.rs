@@ -147,6 +147,10 @@ impl ObliqueSession {
                 &mut self.view.window,
                 &mut self.view.invert,
                 self.original_window,
+                snapshot.volume.frames()[0]
+                    .scalar
+                    .as_ref()
+                    .map(|data| &**data.choices()),
             );
         }
         let controls = egui::CollapsingHeader::new("Plane controls")

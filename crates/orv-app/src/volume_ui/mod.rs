@@ -158,9 +158,15 @@ impl VolumeSession {
             state,
             &mut self.display,
             &mut self.preset,
-            self.source_range.as_ref(),
-            &self.initial_display,
-            volume.is_color(),
+            controls::Context {
+                source_range: self.source_range.as_ref(),
+                initial: &self.initial_display,
+                color: volume.is_color(),
+                choices: volume.frames()[0]
+                    .scalar
+                    .as_ref()
+                    .map(|data| &**data.choices()),
+            },
         ) {
             self.needs_fit = true;
         }

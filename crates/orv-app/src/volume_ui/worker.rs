@@ -79,6 +79,7 @@ fn source_range(
     if volume.is_color() {
         return Ok(Some((
             WindowLevel {
+                function: Default::default(),
                 width: 256.,
                 center: 128.,
             },
@@ -108,14 +109,14 @@ fn source_range(
     if !min.is_finite() || !max.is_finite() {
         return Ok(None);
     }
-    let span = (max - min).max(1.).max(min.abs() * f32::EPSILON * 4.);
-    let window = WindowLevel {
-        width: span + 1.,
-        center: min + span * 0.5 + 0.5,
-    };
+    let window = WindowLevel::source_range(min, max);
     let transfer = TransferFunction {
         low: min,
-        high: min + span,
+        high: if max > min {
+            max
+        } else {
+            min + 1f32.max(min.abs() * f32::EPSILON * 4.)
+        },
         opacity_per_mm: 0.05,
         shape: TransferShape::Ramp,
     };
@@ -131,17 +132,18 @@ mod range_tests {
     };
     #[test]
     fn automatic_3d_source_range_ignores_declared_padding() {
-        for padding in [-32768., 32767.] {
+        for (padding, scale) in [(-32768., 1.), (32767., 1.), (-32768., 0.025)] {
             let frames = (0..2)
                 .map(|z| {
                     Arc::new(Frame {
+                        scalar: None,
                         validity: Some([0, 1, 1, 1].into()),
                         color: None,
                         nifti: None,
                         rgba: None,
                         width: 2,
                         height: 2,
-                        pixels: vec![padding, 10., 20., 30.].into(),
+                        pixels: vec![padding, 10. * scale, 20. * scale, 30. * scale].into(),
                         geometry: Some(Geometry {
                             nifti_transform: None,
                             frame_of_reference: Some("synthetic-range".into()),
@@ -158,8 +160,12 @@ mod range_tests {
                 .collect();
             let volume = Volume::new(frames).unwrap();
             let (window, transfer) = source_range(&volume, || false).unwrap().unwrap();
-            assert_eq!((window.width, window.center), (21., 20.5));
-            assert_eq!((transfer.low, transfer.high), (10., 30.));
+            assert_eq!((window.width, window.center), (20. * scale, 20. * scale));
+            assert_eq!((transfer.low, transfer.high), (10. * scale, 30. * scale));
+            for (value, expected) in [(10., 0.), (20., 0.5), (30., 1.)] {
+                assert_eq!(window.normalize(value * scale), expected);
+                assert_eq!(transfer.weight(value * scale), expected);
+            }
         }
     }
 }

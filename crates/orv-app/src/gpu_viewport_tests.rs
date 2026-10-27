@@ -31,6 +31,7 @@ fn three_gpu_viewports_keep_independent_images_and_display_settings() {
                 slot: i,
                 repaint: egui::Context::default(),
                 image: Arc::new(Frame {
+                    scalar: None,
                     validity: None,
                     color: None,
                     nifti: None,
@@ -46,6 +47,7 @@ fn three_gpu_viewports_keep_independent_images_and_display_settings() {
                 }),
                 view: ViewState {
                     window: WindowLevel {
+                        function: Default::default(),
                         width: 256.,
                         center: 128.,
                     },

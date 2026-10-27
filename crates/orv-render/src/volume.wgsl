@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 struct Params {
     origin: vec4f, right: vec4f, down: vec4f, direction: vec4f,
-    display: vec4f, transfer: vec4f, sampling: vec4f, region: vec4f,
+    display: vec4f, transfer: vec4f, sampling: vec4f, region: vec4f, voi: vec4f,
 }
 @group(0) @binding(0) var source: texture_3d<f32>;
 @group(0) @binding(1) var<uniform> p: Params;
 @group(0) @binding(2) var output: texture_storage_2d<rgba8unorm,write>;
 @group(0) @binding(3) var validity: texture_3d<u32>;
+@group(0) @binding(4) var voitable: texture_2d_array<f32>;
 
 fn interval(origin:vec3f,direction:vec3f)->vec2f {
     let maximum=vec3f(textureDimensions(source))-1.;
@@ -49,8 +50,11 @@ fn scalar_valid(point:vec3f)->bool {
     return true;
 }
 fn gray(value:f32)->f32 {
-    var g=select(clamp((value-(p.display.y-0.5))/max(p.display.x-1.,0.0001)+0.5,0.,1.),
-        select(0.,1.,value>p.display.y-0.5),p.display.x<=1.);
+    var g=analytic_voi(value,p.display.x,p.display.y,p.voi.x);
+    if p.voi.x>2.5 {
+        let index=i32(clamp(floor(value-p.voi.y),0.,p.voi.z-1.));
+        g=textureLoad(voitable,vec2i(index%256,index/256),i32(p.voi.w),0).r;
+    }
     if p.display.z>0.5 { g=1.-g; }
     return g;
 }

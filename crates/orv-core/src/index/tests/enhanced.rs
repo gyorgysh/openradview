@@ -139,6 +139,103 @@ fn enhanced_frames_partition_time_and_reconstruct_explicit_rotated_tilted_geomet
 }
 
 #[test]
+fn indexed_and_eager_enhanced_scaling_and_frame_voi_follow_source_frame_identity() {
+    for shared_transform in [false, true] {
+        let mut object = enhanced(false);
+        let mut groups = object
+            .element(Tag(0x5200, 0x9230))
+            .unwrap()
+            .items()
+            .unwrap()
+            .to_vec();
+        let transform = |slope: f64| {
+            sequence(
+                Tag(0x0028, 0x9145),
+                vec![Object::from_element_iter([
+                    DataElement::new(Tag(0x0028, 0x1053), VR::DS, slope.to_string()),
+                    DataElement::new(Tag(0x0028, 0x1052), VR::DS, "-10"),
+                    DataElement::new(Tag(0x0028, 0x1054), VR::LO, "HU"),
+                ])],
+            )
+        };
+        for (index, group) in groups.iter_mut().enumerate() {
+            if !shared_transform {
+                group.put(transform((index + 1) as f64 * 0.25));
+            }
+            group.put(sequence(
+                Tag(0x0028, 0x9132),
+                vec![Object::from_element_iter([
+                    DataElement::new(
+                        Tag(0x0028, 0x1050),
+                        VR::DS,
+                        (index as f64 * 0.5).to_string(),
+                    ),
+                    DataElement::new(Tag(0x0028, 0x1051), VR::DS, "0.5"),
+                    DataElement::new(Tag(0x0028, 0x1056), VR::CS, "LINEAR_EXACT"),
+                ])],
+            ));
+        }
+        if shared_transform {
+            let mut shared = object
+                .element(Tag(0x5200, 0x9229))
+                .unwrap()
+                .items()
+                .unwrap()[0]
+                .clone();
+            shared.put(transform(0.25));
+            object.put(sequence(Tag(0x5200, 0x9229), vec![shared]));
+        }
+        object.put(sequence(Tag(0x5200, 0x9230), groups));
+        let temp = Temp::new();
+        let path = temp.0.join("frame-presentation.dcm");
+        object.write_to_file(&path).unwrap();
+        let study = index_paths(&[path], || false, |_| {}).unwrap();
+        let mut bytes = Vec::new();
+        object.write_all(&mut bytes).unwrap();
+        let eager = crate::load::decode(&bytes).unwrap();
+        for series in &study.series {
+            for index in 0..series.frame_count() {
+                let frame = series.read_frame(index, || false).unwrap();
+                let source_index = frame.frame_index as usize;
+                let slope = if shared_transform {
+                    0.25
+                } else {
+                    (source_index + 1) as f32 * 0.25
+                };
+                assert_eq!(
+                    frame.pixels[0],
+                    [120., 200., 100., 220., 210., 110.][source_index] * slope - 10.
+                );
+                assert_eq!(frame.pixels, eager.frames[source_index].pixels);
+                assert_eq!(
+                    frame.default_window,
+                    eager.frames[source_index].default_window
+                );
+                assert_eq!(
+                    frame.default_window.function,
+                    crate::VoiFunction::LinearExact
+                );
+                assert_eq!(frame.default_window.center, source_index as f32 * 0.5);
+                assert_eq!(frame.default_window.width, 0.5);
+                assert_eq!(
+                    frame.scalar.as_ref().unwrap().info(),
+                    eager.frames[source_index].scalar.as_ref().unwrap().info()
+                );
+                assert_eq!(
+                    frame.scalar.as_ref().unwrap().info().unit,
+                    crate::scalar::Unit::Hounsfield
+                );
+                assert_eq!(
+                    series.source.as_ref().unwrap().original_window(index),
+                    Some(frame.default_window)
+                );
+            }
+            assert!(series.volume(|| false).is_ok());
+        }
+    }
+}
+
+#[test]
 fn acquisition_identity_differs_even_when_pixels_and_geometry_are_identical() {
     let temp = Temp::new();
     let path = temp.0.join("same-values.dcm");

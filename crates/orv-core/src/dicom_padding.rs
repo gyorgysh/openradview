@@ -143,12 +143,10 @@ pub(crate) fn automatic_window(pixels: &[f32], mask: Option<&[u8]>) -> crate::Wi
             (min.min(*v), max.max(*v))
         });
     if min.is_finite() && max.is_finite() {
-        crate::WindowLevel {
-            width: (f64::from(max) - f64::from(min) + 1.).clamp(1., f64::from(f32::MAX)) as f32,
-            center: ((f64::from(min) + f64::from(max)) / 2.) as f32,
-        }
+        crate::WindowLevel::source_range(min, max)
     } else {
         crate::WindowLevel {
+            function: crate::VoiFunction::LinearExact,
             width: 1.,
             center: 0.,
         }

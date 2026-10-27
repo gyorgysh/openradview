@@ -5,15 +5,26 @@ use orv_core::{
     volume_view::{Projection, TransferPreset, VolumeView},
 };
 
+pub(super) struct Context<'a> {
+    pub source_range: Option<&'a super::DisplayRange>,
+    pub initial: &'a super::DisplayRange,
+    pub color: bool,
+    pub choices: Option<&'a orv_core::scalar::VoiChoices>,
+}
+
 pub(super) fn show(
     ui: &mut egui::Ui,
     state: &mut VolumeView,
     display: &mut ViewState,
     preset: &mut TransferPreset,
-    source_range: Option<&super::DisplayRange>,
-    initial: &super::DisplayRange,
-    color: bool,
+    context: Context<'_>,
 ) -> bool {
+    let Context {
+        source_range,
+        initial,
+        color,
+        choices,
+    } = context;
     let mut fit = false;
     let narrow = ui.available_width() < 760.;
     crate::toolbar::row(ui, |ui| {
@@ -124,22 +135,75 @@ pub(super) fn show(
     });
     crate::toolbar::row(ui, |ui| {
         if !color {
-            for (label, value) in [
-                ("Width", &mut display.window.width),
-                ("Level", &mut display.window.center),
-            ] {
-                crate::toolbar::number(
-                    ui,
-                    label,
-                    egui::DragValue::new(value)
-                        .clamp_existing_to_range(false)
-                        .speed(1.0)
-                        .range(if label == "Width" {
-                            1.0..=1_000_000.0
-                        } else {
-                            -1_000_000_000.0..=1_000_000_000.0
-                        }),
-                );
+            if let Some(choices) = choices {
+                egui::ComboBox::from_id_salt("volume source presentation")
+                    .selected_text(match display.window.function {
+                        orv_core::VoiFunction::Lookup { index } => {
+                            format!("Source LUT {}", index + 1)
+                        }
+                        _ => choices
+                            .windows()
+                            .iter()
+                            .position(|value| *value == display.window)
+                            .map(|index| format!("Source window {}", index + 1))
+                            .unwrap_or_else(|| "Source display".into()),
+                    })
+                    .show_ui(ui, |ui| {
+                        for (index, window) in choices.windows().iter().copied().enumerate() {
+                            if ui
+                                .selectable_label(
+                                    display.window == window,
+                                    format!("Source window {}", index + 1),
+                                )
+                                .clicked()
+                            {
+                                display.window = window;
+                                ui.close();
+                            }
+                        }
+                        for (index, _) in choices.luts().iter().enumerate() {
+                            let window = orv_core::WindowLevel::lookup(index as u8);
+                            if ui
+                                .selectable_label(
+                                    display.window == window,
+                                    format!("Source LUT {}", index + 1),
+                                )
+                                .clicked()
+                            {
+                                display.window = window;
+                                ui.close();
+                            }
+                        }
+                    });
+            }
+            crate::controls::window_function(ui, &mut display.window);
+            let lookup = matches!(
+                display.window.function,
+                orv_core::VoiFunction::Lookup { .. }
+            );
+            let minimum = if display.window.function == orv_core::VoiFunction::Linear {
+                1.
+            } else {
+                0.000001
+            };
+            if !lookup {
+                for (label, value) in [
+                    ("Width", &mut display.window.width),
+                    ("Level", &mut display.window.center),
+                ] {
+                    crate::toolbar::number(
+                        ui,
+                        label,
+                        egui::DragValue::new(value)
+                            .clamp_existing_to_range(false)
+                            .speed(1.0)
+                            .range(if label == "Width" {
+                                minimum..=1_000_000.0
+                            } else {
+                                -1_000_000_000.0..=1_000_000_000.0
+                            }),
+                    );
+                }
             }
         }
         if state.projection == Projection::Composite {
@@ -153,7 +217,14 @@ pub(super) fn show(
                 egui::DragValue::new(&mut state.transfer.low)
                     .clamp_existing_to_range(false)
                     .speed(1.0)
-                    .range(if color { 0. } else { -1_000_000_000.0 }..=state.transfer.high - 1.),
+                    .range(
+                        if color { 0. } else { -1_000_000_000.0 }
+                            ..=state
+                                .transfer
+                                .high
+                                .next_down()
+                                .min(state.transfer.high - 1e-20),
+                    ),
             );
             crate::toolbar::number(
                 ui,
@@ -165,7 +236,13 @@ pub(super) fn show(
                 egui::DragValue::new(&mut state.transfer.high)
                     .clamp_existing_to_range(false)
                     .speed(1.0)
-                    .range(state.transfer.low + 1.0..=if color { 255. } else { 1_000_000_000.0 }),
+                    .range(
+                        state.transfer.low.next_up().max(state.transfer.low + 1e-20)..=if color {
+                            255.
+                        } else {
+                            1_000_000_000.0
+                        },
+                    ),
             );
         }
     });
@@ -229,9 +306,12 @@ mod tests {
                         &mut state,
                         &mut display,
                         &mut TransferPreset::Bone,
-                        None,
-                        &initial,
-                        false,
+                        Context {
+                            source_range: None,
+                            initial: &initial,
+                            color: false,
+                            choices: None,
+                        },
                     );
                 },
             );
@@ -273,6 +353,7 @@ mod tests {
         state.transfer.high = 3_000_000.;
         let mut display = ViewState {
             window: WindowLevel {
+                function: Default::default(),
                 width: 450_000.,
                 center: 200_000_000.,
             },
@@ -289,9 +370,12 @@ mod tests {
                     &mut state,
                     &mut display,
                     &mut preset,
-                    None,
-                    &TransferPreset::Bone.values(),
-                    false
+                    Context {
+                        source_range: None,
+                        initial: &TransferPreset::Bone.values(),
+                        color: false,
+                        choices: None
+                    }
                 ));
                 // The same shared window controls also receive source/MPR requests.
                 crate::controls::window(
@@ -299,6 +383,7 @@ mod tests {
                     &mut display.window,
                     &mut display.invert,
                     WindowLevel::SOFT_TISSUE,
+                    None,
                 );
             });
             output.textures_delta.clear();

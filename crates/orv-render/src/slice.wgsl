@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-struct Params { window: vec4f, geometry: vec4f, output: vec4f }
+struct Params { window: vec4f, geometry: vec4f, output: vec4f, voi: vec4f }
 @group(0) @binding(0) var image: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> p: Params;
 @group(0) @binding(2) var valid: texture_2d<u32>;
+@group(0) @binding(3) var voitable: texture_2d_array<f32>;
 struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f }
 @vertex fn vs(@builtin(vertex_index) index: u32) -> Vertex {
     let xy = array<vec2f, 3>(vec2f(-1., -1.), vec2f(3., -1.), vec2f(-1., 3.));
@@ -55,8 +56,11 @@ fn weighted(xy:vec2i,weight:f32)->vec4f {
         return vec4f(select(encoded,sample.rgb,p.output.x>0.5),1.);
     }
     let value=sample.x;
-    var gray=select(clamp((value-(p.window.y-0.5))/max(p.window.x-1.,0.0001)+0.5,0.,1.),
-                    select(0.,1.,value>p.window.y-0.5),p.window.x<=1.);
+    var gray=analytic_voi(value,p.window.x,p.window.y,p.voi.x);
+    if p.voi.x>2.5 {
+        let index=i32(clamp(floor(value-p.voi.y),0.,p.voi.z-1.));
+        gray=textureLoad(voitable,vec2i(index%256,index/256),i32(p.voi.w),0).r;
+    }
     if p.window.z>0.5 { gray=1.-gray; }
     return output_gray(gray);
 }

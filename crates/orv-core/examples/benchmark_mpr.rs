@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frames = (0..depth)
         .map(|z| {
             Arc::new(Frame {
+                scalar: None,
                 validity: mask.clone(),
                 color: None,
                 nifti: None,
@@ -52,6 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 frame_index: 0,
                 monochrome1: false,
                 default_window: WindowLevel {
+                    function: Default::default(),
                     width: 256.,
                     center: 128.,
                 },

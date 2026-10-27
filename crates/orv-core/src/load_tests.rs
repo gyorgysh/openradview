@@ -32,6 +32,7 @@ fn signed_rescale_once_and_photometric_remains_a_display_flag() {
         assert_eq!(
             frame.default_window,
             WindowLevel {
+                function: Default::default(),
                 width: 200.0,
                 center: 0.0
             }

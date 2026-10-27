@@ -10,6 +10,7 @@ fn oversized_source_is_rejected_before_creating_a_gpu_texture() {
             (0..2)
                 .map(|z| {
                     Arc::new(Frame {
+                        scalar: None,
                         validity: None,
                         color: None,
                         nifti: None,
