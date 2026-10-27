@@ -22,6 +22,7 @@ pub(super) enum ViewMode {
     Mpr,
     Volume,
     Oblique,
+    Compare,
 }
 
 #[derive(Default)]
@@ -56,10 +57,66 @@ pub struct Workspace {
     pub(super) mode: ViewMode,
     pub(super) volume: Option<crate::volume_ui::VolumeSession>,
     pub(super) oblique: Option<crate::oblique_ui::ObliqueSession>,
+    pub(super) comparison: Option<crate::comparison::ComparisonSession>,
     #[cfg(feature = "mcp")]
     pub(super) sharing: crate::sharing::Sharing,
 }
 impl Workspace {
+    pub(super) fn set_mode(&mut self, mode: ViewMode, ctx: &egui::Context) {
+        if self.mode == mode {
+            return;
+        }
+        if self.mode == ViewMode::Compare {
+            let selected = self
+                .comparison
+                .as_ref()
+                .map_or(self.selected, |comparison| comparison.active_series());
+            self.select(selected);
+        }
+        self.export.close();
+        self.image_info.close();
+        self.labels.stop_painting();
+        self.labels.open = false;
+        self.mode = mode;
+        if mode == ViewMode::Compare {
+            #[cfg(feature = "mcp")]
+            self.sharing.enter_local_comparison();
+            self.mpr = None;
+            self.image_worker = None;
+            self.decoded_image = None;
+            self.last_image_view = None;
+            self.comparison = self.study.as_ref().and_then(|study| {
+                crate::comparison::ComparisonSession::start(study.clone(), self.selected, ctx)
+            });
+            if self.comparison.is_none() {
+                self.mode = ViewMode::Acquired;
+            }
+        }
+        self.discard_inactive_views();
+        if let Some(frames) = self
+            .study
+            .as_ref()
+            .and_then(|study| study.series.get(self.selected))
+            .map(|series| Arc::new(series.clone()))
+        {
+            match self.mode {
+                ViewMode::Mpr if self.mpr.is_none() => {
+                    self.mpr = Some(MprSession::start(frames, self.view.window, ctx.clone()))
+                }
+                ViewMode::Volume => {
+                    self.volume = Some(crate::volume_ui::VolumeSession::start(frames))
+                }
+                ViewMode::Oblique => {
+                    self.oblique = Some(crate::oblique_ui::ObliqueSession::start(
+                        frames,
+                        self.view.window,
+                        ctx.clone(),
+                    ))
+                }
+                _ => (),
+            }
+        }
+    }
     pub(crate) fn local_dialog_open(&self) -> bool {
         self.image_info.is_open()
             || self.export.is_open()
@@ -112,6 +169,7 @@ impl Workspace {
         self.mode = ViewMode::Acquired;
         self.volume = None;
         self.oblique = None;
+        self.comparison = None;
         self.annotations = Default::default();
         self.image_worker = None;
         self.decoded_image = None;
@@ -140,6 +198,7 @@ impl Workspace {
         self.mode = ViewMode::Acquired;
         self.volume = None;
         self.oblique = None;
+        self.comparison = None;
         self.annotations = Default::default();
         self.clear_gpu = true;
         self.image_worker = None;
@@ -233,7 +292,7 @@ impl Workspace {
         {
             self.pause_playback();
         }
-        if !blocked {
+        if !blocked && self.mode != ViewMode::Compare {
             self.labels.window(ui.ctx(), self.selected, series, slice);
         }
         ui.add_enabled_ui(!blocked, |ui| {
@@ -310,7 +369,7 @@ impl Workspace {
             }
             if self.study.is_some() {
                 ui.menu_button("Study", |ui| {
-                    let ready = self.rendered_view().is_some_and(|(_, ready)| ready);
+                    let ready = self.picture_ready();
                     if ui.add_enabled(ready, egui::Button::new("Export picture…"))
                         .on_hover_text("Save the current pane and view settings locally, without app overlays.")
                         .clicked() {
@@ -336,40 +395,13 @@ impl Workspace {
                 });
             });
             if self.study.is_some() {
-                let previous = self.mode;
-                ui.selectable_value(&mut self.mode, ViewMode::Acquired, "2D image");
-                ui.selectable_value(&mut self.mode, ViewMode::Mpr, "Linked MPR");
-                ui.selectable_value(&mut self.mode, ViewMode::Volume, "3D / MIP");
-                ui.selectable_value(&mut self.mode, ViewMode::Oblique, "Oblique");
-                if previous != self.mode
-                    && let Some(frames) = self
-                        .study
-                        .as_ref()
-                        .and_then(|s| s.series.get(self.selected))
-                        .map(|s| Arc::new(s.clone()))
-                {
-                    self.discard_inactive_views();
-                    match self.mode {
-                        ViewMode::Mpr if self.mpr.is_none() => {
-                            self.mpr = Some(MprSession::start(
-                                frames,
-                                self.view.window,
-                                ui.ctx().clone(),
-                            ))
-                        }
-                        ViewMode::Volume => {
-                            self.volume = Some(crate::volume_ui::VolumeSession::start(frames));
-                        }
-                        ViewMode::Oblique => {
-                            self.oblique = Some(crate::oblique_ui::ObliqueSession::start(
-                                frames,
-                                self.view.window,
-                                ui.ctx().clone(),
-                            ));
-                        }
-                        _ => (),
-                    }
-                }
+                let mut mode = self.mode;
+                ui.selectable_value(&mut mode, ViewMode::Acquired, "2D image");
+                ui.selectable_value(&mut mode, ViewMode::Mpr, "Linked MPR");
+                ui.selectable_value(&mut mode, ViewMode::Volume, "3D / MIP");
+                ui.selectable_value(&mut mode, ViewMode::Oblique, "Oblique");
+                ui.add_enabled_ui(self.study.as_ref().is_some_and(|study| study.series.len() > 1), |ui| { ui.selectable_value(&mut mode, ViewMode::Compare, "Compare series"); });
+                if mode != self.mode { self.set_mode(mode, ui.ctx()); }
             }
             #[cfg(feature = "mcp")]
             self.agent_toolbar(ui);
@@ -433,6 +465,11 @@ impl Workspace {
                             }
                         }
                         ViewMode::Acquired => self.image_ui(ui, frame),
+                        ViewMode::Compare => {
+                            if let Some(comparison) = &mut self.comparison {
+                                comparison.ui(ui, frame);
+                            }
+                        }
                     }
                 } else {
                     self.empty(ui, seconds, reduce_motion);
@@ -455,9 +492,14 @@ impl Workspace {
             if study.synthetic {
                 theme::eyebrow(ui, "SYNTHETIC DEMO · NO PATIENT DATA");
             }
+            let active_series = self
+                .comparison
+                .as_ref()
+                .filter(|_| self.mode == ViewMode::Compare)
+                .map_or(self.selected, |comparison| comparison.active_series());
             let select = self
                 .browser
-                .ui(ui, self.selected, frame.wgpu_render_state());
+                .ui(ui, active_series, frame.wgpu_render_state());
             ui.add_space(18.0);
             if study.skipped_files > 0 {
                 ui.label(
@@ -470,7 +512,14 @@ impl Workspace {
                 );
             }
             if let Some(index) = select {
-                self.select(index);
+                if self.mode == ViewMode::Compare
+                    && let Some(comparison) = &mut self.comparison
+                {
+                    comparison.select_active(index, ui.ctx(), frame);
+                    self.export.close();
+                } else {
+                    self.select(index);
+                }
             }
         } else {
             ui.label("No study open");
@@ -532,6 +581,17 @@ impl Workspace {
             self.labels.discard_question = true;
         }
     }
+    fn return_to_labels(&mut self) {
+        if self
+            .study
+            .as_ref()
+            .is_some_and(|study| study.series.get(self.labels.series).is_some())
+            && (self.mode != ViewMode::Acquired || self.selected != self.labels.series)
+        {
+            self.select(self.labels.series);
+        }
+        self.labels.open = true;
+    }
     #[cfg(feature = "updates")]
     pub(super) fn labels_need_saving(&self) -> bool {
         self.labels.dirty || self.labels.busy()
@@ -543,7 +603,7 @@ impl Workspace {
             crate::dialogs::window("Keep your labels",ctx).open(&mut open).show(ctx,|ui| {
                 ui.label("Labels are in memory. Export them to keep your work. Continuing discards the current map; nothing is saved automatically.");
                 ui.horizontal(|ui| {
-                    if ui.button("Return to labels").clicked(){self.labels.open=true;dismiss=true;}
+                    if ui.button("Return to labels").clicked(){self.return_to_labels();dismiss=true;}
                     if ui.button("Discard labels and continue").clicked(){self.discard_labels=true;self.labels.cancel();dismiss=true;}
                 });
             });
@@ -575,6 +635,26 @@ impl Workspace {
 #[cfg(test)]
 mod label_safety_tests {
     use super::*;
+    #[test]
+    fn returning_to_unsaved_labels_leaves_comparison_and_selects_their_source_series() {
+        let ctx = egui::Context::default();
+        let mut study = orv_core::study::demo_study();
+        study.series.push(study.series[0].clone());
+        let mut workspace = Workspace {
+            study: Some(Arc::new(study)),
+            ..Default::default()
+        };
+        workspace.labels.dirty = true;
+        workspace.labels.series = 0;
+        workspace.set_mode(ViewMode::Compare, &ctx);
+        workspace.return_to_labels();
+        assert_eq!(workspace.mode, ViewMode::Acquired);
+        assert_eq!(workspace.selected, 0);
+        assert!(workspace.comparison.is_none());
+        assert!(workspace.labels.open && workspace.labels.dirty);
+        workspace.labels.dirty = false;
+        workspace.close();
+    }
     #[test]
     fn native_close_request_waits_for_explicit_disposition_of_unsaved_labels() {
         let ctx = egui::Context::default();

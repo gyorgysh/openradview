@@ -19,7 +19,8 @@ impl Workspace {
             && !self.local_dialog_open()
             && let Some(request) = self.sharing.broker.as_ref().and_then(|b| b.take_request())
         {
-            if self.sharing.comparison.is_active()
+            if self.mode == ViewMode::Compare
+                || self.sharing.comparison.is_active()
                 || self.sharing.modal_open()
                 || self.loading.is_some()
             {
@@ -61,11 +62,15 @@ impl Workspace {
     }
     pub(crate) fn agent_toolbar(&mut self, ui: &mut egui::Ui) {
         if ui
-            .button(if self.sharing.is_active() {
-                "Agents · connected"
-            } else {
-                "Agents"
-            })
+            .add_enabled(
+                self.mode != ViewMode::Compare,
+                egui::Button::new(if self.sharing.is_active() {
+                    "Agents · connected"
+                } else {
+                    "Agents"
+                }),
+            )
+            .on_hover_text("Sharing requires a single series view and a separate Allow review.")
             .clicked()
         {
             self.sharing.panel_open = true;
@@ -100,6 +105,10 @@ impl Workspace {
         }
     }
     pub(super) fn apply_shared_scene(&mut self, scene: &SceneState, ctx: &egui::Context) {
+        if self.mode == ViewMode::Compare {
+            self.sharing.revoke();
+            return;
+        }
         self.pause_playback();
         if scene.validate().is_err() {
             self.sharing.notice = Some("The requested view is invalid".into());

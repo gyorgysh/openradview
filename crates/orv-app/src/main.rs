@@ -4,6 +4,7 @@ mod annotations;
 mod app;
 mod brand;
 mod cli;
+mod comparison;
 mod controls;
 mod copy;
 mod demos;

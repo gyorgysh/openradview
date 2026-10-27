@@ -33,6 +33,14 @@ the loaded volume; drag to orbit, and use the named transfer presets/controls.
 MPR and projections require consistent geometry and a volume within the budget.
 Their interpolated values can differ from source pixels.
 
+**Compare series** opens two source-image panes from the loaded study. Choose
+**Left pane** or **Right pane**, then select that pane's series in the sidebar.
+Tools and picture export apply to the active pane, marked by a brighter border.
+Navigation and contrast stay independent. **Link physical slices** is available
+for compatible declared geometry; it follows physical image centers. It does not
+register anatomy. Entering comparison ends sharing; sharing after leaving needs
+a fresh Allow. The comparison layout stays in memory.
+
 **Measure** offers distance, angle and rectangle statistics when the displayed
 geometry supports them. **Image info…** shows dimensions, spacing, image context
 and histograms. Readouts and measurements are for exploration and can be wrong.

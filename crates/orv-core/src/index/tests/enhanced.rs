@@ -124,6 +124,9 @@ fn enhanced_frames_partition_time_and_reconstruct_explicit_rotated_tilted_geomet
             [8., 20.5, 30.]
         );
         assert_eq!(first.pixels[0], (part as f32 + 1.) * 100.);
+        let navigation = crate::navigation::NavigationStack::prepare(series, || false).unwrap();
+        assert_eq!(navigation.center(1), Some([9.25, 20.75, 33.]));
+        assert_eq!(navigation.nearest([9.25, 20.75, 33.]), Some(1));
         let volume = series.volume(|| false).unwrap();
         let point = volume.voxel_to_world([0.5, 0.5, 1.]);
         assert_eq!(point, [9.25, 20.75, 33.]);

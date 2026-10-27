@@ -104,8 +104,8 @@ async fn native_review_freezes_one_real_metal_image_for_both_clients_and_release
             .iter()
             .all(|r| matches!(r.status(), orv_agents::RecipientStatus::Submitted(_)))
     );
-    // The central close/import/series-change path calls Sharing::revoke.
-    sharing.revoke();
+    // Local two-series viewing invalidates frozen commentary grants too.
+    sharing.enter_local_comparison();
     assert!(!sharing.is_active() && sharing.comparison.live.is_none());
     for (recipient, client) in recipients.iter().zip(&mut clients) {
         assert!(recipient.is_revoked() && recipient.read_snapshot().is_err());

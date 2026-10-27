@@ -95,6 +95,19 @@ Series previews use one idle-blocking worker, coalesce visible-row requests and
 reuse the decoded source cache. At most 32 small textures remain in RAM, with
 shared RAM/GPU reservations; closing the study cancels work and drops previews.
 
+Local two-series comparison owns independent latest-frame workers and pane state,
+sharing the original study/cache and process-wide admission pools. Optional slice
+linking validates header geometry on workers and uses a physical image-center
+point with nearest-plane lookup. Bounded navigation tables share prepared-source
+RAM admission; comparison does not materialize two volumes. The active pane owns
+tools, contrast and single-picture export. Click/drag/scroll or the pane buttons
+activate it; passive hover does not change its tools.
+
+Entering comparison revokes live and frozen grants, cancels review/shared work and
+removes agent composition. Dual-pane content is never published through MCP.
+Leaving comparison returns to its active series and requires fresh Allow to share.
+The layout, marks and previews have no persistence or restore path.
+
 Quarter-turn/flip display transforms leave acquisition geometry and source pixels
 unchanged. The source-to-viewport map is shared by probes, measurements, label
 meshes/brush footprints and overlays; the slice shader applies its inverse.

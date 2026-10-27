@@ -81,8 +81,54 @@ impl PictureExport {
 }
 
 impl crate::workspace::Workspace {
+    pub(super) fn picture_ready(&self) -> bool {
+        if self.mode == crate::workspace::ViewMode::Compare {
+            self.comparison
+                .as_ref()
+                .and_then(|comparison| comparison.picture())
+                .is_some()
+        } else {
+            self.rendered_view().is_some_and(|(_, ready)| ready)
+        }
+    }
     pub(super) fn open_picture_export(&mut self, frame: &eframe::Frame) {
         self.pause_playback();
+        if self.mode == crate::workspace::ViewMode::Compare {
+            let Some((index, spec, pixels, output_size)) = self
+                .comparison
+                .as_ref()
+                .and_then(|comparison| comparison.picture())
+            else {
+                return;
+            };
+            let Some(series) = self
+                .study
+                .as_ref()
+                .and_then(|study| study.series.get(index))
+            else {
+                return;
+            };
+            let Some(gpu) = frame.wgpu_render_state() else {
+                return;
+            };
+            self.export.open(Input {
+                series: Arc::new(series.clone()),
+                scene: SceneState {
+                    schema_version: 1,
+                    source_sha256: "0".repeat(64),
+                    series_index: index as u32,
+                    view: spec.view,
+                    crosshair_mm: None,
+                    reformat_side: 512,
+                    output_size,
+                    reconstruction: None,
+                },
+                pixels,
+                device: gpu.device.clone(),
+                queue: gpu.queue.clone(),
+            });
+            return;
+        }
         let Some((spec, true)) = self.rendered_view() else {
             return;
         };
@@ -103,6 +149,7 @@ impl crate::workspace::Workspace {
             crate::workspace::ViewMode::Mpr => self.mpr.as_ref().and_then(|m| m.picture()),
             crate::workspace::ViewMode::Oblique => self.oblique.as_ref().and_then(|m| m.picture()),
             crate::workspace::ViewMode::Volume => self.volume.as_ref().and_then(|m| m.picture()),
+            crate::workspace::ViewMode::Compare => None,
         };
         let Some((pixels, output_size)) = captured else {
             return;

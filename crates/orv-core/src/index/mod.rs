@@ -149,6 +149,17 @@ impl IndexedSeries {
     pub fn is_empty(&self) -> bool {
         self.frames.is_empty()
     }
+    pub(crate) fn navigation_frame(&self, index: usize) -> Option<crate::navigation::SpatialFrame> {
+        let entry = self.frames.get(index)?;
+        let geometry = match &entry.header.format {
+            header::Format::Nifti(nifti) => nifti.frame_geometry(&entry.header, entry.frame),
+            header::Format::Dicom(_) => entry.header.geometry_for(entry.frame).cloned(),
+        };
+        Some(crate::navigation::SpatialFrame {
+            size: [entry.header.width, entry.header.height],
+            geometry,
+        })
+    }
     pub fn original_window(&self, index: usize) -> Option<crate::WindowLevel> {
         let entry = self.frames.get(index)?;
         let header = &entry.header;

@@ -11,6 +11,7 @@ pub mod inspection;
 pub mod labels;
 pub mod load;
 pub mod measurements;
+pub mod navigation;
 pub mod nifti_view;
 pub mod oblique;
 pub mod resources;

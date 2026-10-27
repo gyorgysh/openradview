@@ -85,12 +85,7 @@ impl Nifti {
         if !window.is_valid() {
             return Err(LoadError::Unsupported);
         }
-        let geometry = header.geometry.clone().map(|mut g| {
-            for (p, step) in g.position.iter_mut().zip(self.step) {
-                *p += step * frame as f64;
-            }
-            g
-        });
+        let geometry = self.frame_geometry(header, frame);
         Ok(Arc::new(Frame {
             scalar: header.scalar.get(frame).cloned(),
             validity: None,

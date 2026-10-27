@@ -25,6 +25,16 @@ pub(super) struct Nifti {
     pub view: NiftiView,
     pub metadata_bytes: u64,
 }
+impl Nifti {
+    pub fn frame_geometry(&self, header: &Header, frame: u32) -> Option<crate::study::Geometry> {
+        header.geometry.clone().map(|mut geometry| {
+            for (position, step) in geometry.position.iter_mut().zip(self.step) {
+                *position += step * f64::from(frame);
+            }
+            geometry
+        })
+    }
+}
 /// Reads only the fixed header. The data may reside in a separate paired source.
 pub(super) fn read_headers(
     source: &Source,

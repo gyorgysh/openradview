@@ -2,6 +2,10 @@
 
 ## 1.1.0 — Unreleased
 
+- Compare two source series locally with independent pane controls and optional
+  physical slice linking for compatible geometry. Memory limits remain shared;
+  picture export captures the active pane. Entering comparison ends sharing, and
+  returning to a single series requires fresh approval before sharing again.
 - Keep multiple temporary distance, angle and rectangular ROI marks while
   navigating the current series or exact reformat plane. Select/delete/clear
   them from Measurements; statistics run in the background. Visible series gain

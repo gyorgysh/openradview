@@ -98,6 +98,11 @@ fn nifti_versions_endian_time_and_vector_axes_are_separate_spatial_volumes() {
                     assert!(s.label().contains(&format!("Time {}/2", i % 2 + 1)));
                     assert_eq!(a.geometry.as_ref().unwrap().position, [-10., 0., 0.]);
                     assert_eq!(b.geometry.as_ref().unwrap().position, [-10., 0., 4.]);
+                    let navigation =
+                        crate::navigation::NavigationStack::prepare(s, || false).unwrap();
+                    assert_eq!(navigation.center(0), Some([-11., -1.5, 0.]));
+                    assert_eq!(navigation.center(1), Some([-11., -1.5, 4.]));
+                    assert_eq!(navigation.nearest([-11., -1.5, 4.]), Some(1));
                     let volume =
                         crate::volume::Volume::new(s.volume_frames(|| false).unwrap()).unwrap();
                     assert_eq!(volume.dimensions(), [2, 2, 2]);

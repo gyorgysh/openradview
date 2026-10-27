@@ -48,6 +48,41 @@ fn approve(workspace: &mut Workspace, ctx: &egui::Context) {
 }
 
 #[test]
+fn local_series_comparison_revokes_sharing_and_cannot_publish_or_apply_shared_views() {
+    use crate::workspace::ViewMode;
+    let ctx = egui::Context::default();
+    let mut workspace = workspace();
+    let mut source = orv_core::study::demo_study();
+    source.series.push(source.series[0].clone());
+    workspace.study = Some(Arc::new(source));
+    open(&mut workspace, &ctx);
+    approve(&mut workspace, &ctx);
+    let session = workspace.sharing.live.as_ref().unwrap().session.clone();
+    let mut scene = session.current().unwrap();
+    scene.view.slice = 3;
+    session.request_view(scene.clone()).unwrap();
+    workspace.set_mode(ViewMode::Compare, &ctx);
+    assert!(session.is_revoked());
+    assert!(!workspace.sharing.is_active());
+    assert!(workspace.sharing.draft.is_none());
+    assert!(
+        workspace.rendered_view().is_none(),
+        "Local comparison has no agent composition"
+    );
+    workspace.sharing_before_ui(&ctx, false);
+    workspace.apply_shared_scene(&scene, &ctx);
+    assert_eq!(workspace.mode, ViewMode::Compare);
+    assert!(session.request_view(scene).is_err());
+    workspace.set_mode(ViewMode::Acquired, &ctx);
+    assert!(!workspace.sharing.is_active());
+    assert!(
+        workspace.sharing.live.is_none(),
+        "Returning to one series needs a fresh Allow"
+    );
+    workspace.close();
+}
+
+#[test]
 fn provider_warning_and_allow_remain_visible_without_scrolling_at_minimum_window_size() {
     let ctx = egui::Context::default();
     crate::theme::install(&ctx);

@@ -199,6 +199,10 @@ impl Sharing {
         }
         self.connection_open = false;
     }
+    pub(crate) fn enter_local_comparison(&mut self) {
+        self.revoke();
+        self.panel_open = false;
+    }
     fn open(&mut self, index: u32, series: Arc<Series>, spec: ViewSpec, ctx: &egui::Context) {
         self.notice = None;
         let size = spec.preferred_size.unwrap_or([512, 512]);

@@ -223,6 +223,18 @@ pub fn clear(frame: &eframe::Frame) {
     }
 }
 
+pub fn clear_slot(frame: &eframe::Frame, slot: usize) {
+    if let Some(render) = frame.wgpu_render_state()
+        && let Some(renderers) = render
+            .renderer
+            .write()
+            .callback_resources
+            .get_mut::<ViewportRenderers>()
+    {
+        renderers.slots.remove(&slot);
+    }
+}
+
 pub fn draw(
     ui: &mut egui::Ui,
     frame: &eframe::Frame,

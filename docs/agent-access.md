@@ -38,6 +38,10 @@ Restart restores no grant. Exact-view grants require another **Review shared vie
 approval before a changed scene can be read. A new requester can replace a live
 grant only after another explicit Allow. Frozen comparisons reject viewer requests.
 
+The viewer's **Compare series** layout is local-only. Entering it revokes live
+and frozen grants and cancels shared reviews/work. Agents cannot access its two
+panes. Return to a single series and review a fresh Allow before sharing again.
+
 The review shows a ready image-only preview and the exact scope. Identifying tags
 are omitted, but names may be burned into pixels or inferred from the image.
 Your client/provider controls onward sharing, retention, deletion and training.

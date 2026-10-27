@@ -212,6 +212,32 @@ offers selection, deletion and clearing. ROI statistics run in the background,
 one calculation per collection. Changing series or closing its view clears marks;
 restart restores none. They are excluded from image-only exports and agent snapshots.
 
+## Local series comparison
+
+**Compare series** shows two independently navigable source 2D series from the
+current study. It shares the indexed source cache and RAM/GPU ceilings, without
+preparing two dense volumes. Select a pane with its button or by interacting with
+its image/slider, then choose a series in the sidebar. Tools, contrast and explicit
+picture export apply to the active pane. Narrow layouts stack the panes vertically.
+
+Optional physical linking requires complete, regular parallel planes and the same
+declared spatial reference. Dimensions, spacing, source order and in-plane display
+orientation can differ. Each navigation table is bounded to 32 MiB and admitted
+against the shared prepared-source RAM pool. Checking uses headers on workers,
+without decoding a whole series. A source image's physical center chooses the
+nearest target plane within its field of view and half-slice end bounds. A point
+outside that field leaves the other image unchanged with a message. This is no
+registration, resampling or proof of anatomical correspondence. Missing, irregular
+or unrelated geometry keeps navigation independent. NIfTI linking also requires
+a matching loaded-source reference and transform context; a template name alone
+does not establish correspondence.
+
+Entering comparison revokes live/frozen sharing and cancels shared reviews/work.
+Agents cannot access the dual-pane layout. Return to a single series and review a
+fresh Allow before sharing. Marks, layout and previews stay in memory; no session,
+bookmark, study history or thumbnail files are created. Picture export captures
+only the active completed source pane through the existing explicit export path.
+
 ## Local playback and picture export
 
 Source 2D series have explicit Play/Pause, requested1–30fps (default8) and optional
