@@ -221,7 +221,7 @@ impl Draft {
         }
         egui::CollapsingHeader::new("Preview details and metadata").show(ui, |ui| {
             if self.tools.measurements {
-                ui.label("ROI statistics read scalar samples across the approved image before PNG windowing/downsampling, including outside its zoomed/panned crop. Physical measurements require valid plane geometry and are unavailable on 3D/MIP projections.");
+                ui.label("ROI statistics read scalar samples across the approved image before PNG windowing/downsampling, including outside its zoomed/panned crop. Physical measurements require valid plane geometry and are unavailable on slab or 3D/MIP projections.");
             }
             if self.full_series && !self.existing && let Some(preview) = &self.preview {
                 let count = preview.data.source.description().image_count as u32;
@@ -243,7 +243,7 @@ impl Draft {
                         ui.image((preview.texture.id(), preview.texture.size_vec2()));
                     });
                 }
-                ui.label("Fields: source fingerprint, series index/count/modality, complete scene/display state, output size, geometry, numeric source format/scaling, declared intensity units and image/view hashes; projections include camera, transfer function and sampling budgets. No names, dates, original UIDs, descriptions or file paths are copied. Resampling approximates the source.");
+                ui.label("Fields: source fingerprint, series index/count/modality, complete scene/display state, output size, geometry, numeric source format/scaling, declared intensity units and image/view hashes; 3D/MIP includes camera, transfer function, clipping and sampling budgets; slabs include their explicit plane, thickness, minimum/maximum mode and sample count. No names, dates, original UIDs, descriptions or file paths are copied. Resampling approximates the source.");
                 egui::CollapsingHeader::new("Exact view and image details (JSON)").show(ui, |ui| {
                     ui.add(egui::Label::new(RichText::new(&preview.json).monospace().small()).wrap());
                 });

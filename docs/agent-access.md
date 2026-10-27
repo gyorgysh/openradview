@@ -72,8 +72,10 @@ RGB rectangle statistics do not imply RGB support in the MCP `roi_stats` tool.
 
 Snapshots exclude UI annotations and label overlays. They bind source/view/PNG
 hashes, dimensions and actual coordinate context. MPR uses the completed rendered
-crosshair; oblique records its centre and orthonormal axes; projections record the
-source affine, camera, transfer and quality instead of inventing an image plane.
+crosshair; oblique records its centre and orthonormal axes. Scalar slabs record
+their explicit plane, physical thickness, minimum/maximum mode, sample count and
+sampling grid, with no physical measurement geometry. 3D/MIP records the source
+affine, camera, transfer, physical clipping and quality.
 NIfTI scanner/aligned/template references remain distinct. Rendered values may
 differ from source pixels. Pending navigation never counts as a completed snapshot.
 

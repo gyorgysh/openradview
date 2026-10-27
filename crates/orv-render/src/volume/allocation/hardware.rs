@@ -35,8 +35,15 @@ fn profile(info: &wgpu::AdapterInfo) -> Option<Profile> {
     if info.backend != wgpu::Backend::Metal {
         return None;
     }
-    let device = objc2_metal::MTLCreateSystemDefaultDevice()?;
-    if device.name().to_string() != info.name {
+    let devices = objc2_metal::MTLCopyAllDevices();
+    if devices.len() > 64 {
+        return None;
+    }
+    let mut matches = devices
+        .iter()
+        .filter(|device| device.name().to_string() == info.name);
+    let device = matches.next()?;
+    if matches.next().is_some() {
         return None;
     }
     Some(Profile {
