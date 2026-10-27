@@ -79,6 +79,10 @@ jobs:
           xvfb-run -a env WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 cargo nextest run --locked --target ${{ matrix.target }} -p orv-render --features gpu-tests --test gpu_golden --test volume_gpu --no-fail-fast -E 'binary(gpu_golden) or test(snapshot::slab_gpu_snapshot) or test(limits::a_display_only_device)'
           cargo build --locked --target ${{ matrix.target }} -p orv-app --features qa
           xvfb-run -a env WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 ORV_QA_NATIVE_SMOKE=1 python scripts/ci/native_gl.py target/${{ matrix.target }}/debug/openradview
+      - name: Published native updater roundtrip and live feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci/published_updates.py --target ${{ matrix.target }}
       - name: Portable packaging helpers
         run: python -m unittest discover -s scripts/portable -p 'test_*.py'
       - name: Native optimized application archive

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::protocol::{MAX_EXPANDED, MAX_FILES, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(any(test, not(target_os = "macos")))]
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
     fs,
@@ -15,6 +17,103 @@ pub(crate) struct Layout {
     pub product: String,
     pub target: String,
     pub files: Vec<String>,
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+#[derive(Deserialize)]
+struct BuildInventory {
+    version: String,
+    target: String,
+    files: std::collections::BTreeMap<String, String>,
+}
+
+/// Compare portable managed files with the local package inventory before
+/// replacing or deleting them. The inventory is not a signature on its own.
+#[cfg(any(test, not(target_os = "macos")))]
+pub(crate) fn validate_installed_content(
+    root: &Path,
+    target: &str,
+    version: Option<&str>,
+    cancelled: impl Fn() -> bool,
+) -> Result<()> {
+    const CHANGED: &str = "The installed app contains modified files or an invalid inventory. Update manually to preserve your files.";
+    validate_layout(root, target)?;
+    let build_path = root.join("build.json");
+    let metadata = fs::symlink_metadata(&build_path).map_err(|_| CHANGED)?;
+    if !metadata.is_file() || metadata.len() > 1024 * 1024 {
+        return Err(CHANGED);
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(&build_path)
+        .map_err(|_| CHANGED)?
+        .take(1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| CHANGED)?;
+    if bytes.len() > 1024 * 1024 {
+        return Err(CHANGED);
+    }
+    let build: BuildInventory = serde_json::from_slice(&bytes).map_err(|_| CHANGED)?;
+    if build.target != target
+        || version.is_some_and(|expected| expected != build.version)
+        || crate::protocol::stable_version(&build.version).is_err()
+    {
+        return Err(CHANGED);
+    }
+    let layout: Layout = serde_json::from_slice(&fs::read(layout_path(root)).map_err(|_| CHANGED)?)
+        .map_err(|_| CHANGED)?;
+    let expected: BTreeSet<_> = layout
+        .files
+        .into_iter()
+        .filter(|name| name != "build.json")
+        .collect();
+    if !root.join("build.json").is_file()
+        || build.files.keys().cloned().collect::<BTreeSet<_>>() != expected
+    {
+        return Err(CHANGED);
+    }
+    let mut total = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    for (name, expected_hash) in build.files {
+        if cancelled() {
+            return Err("Installation was canceled because the app is closing.");
+        }
+        if expected_hash.len() != 64
+            || !expected_hash
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(CHANGED);
+        }
+        let path = root.join(relative(&name)?);
+        if !fs::symlink_metadata(&path).map_err(|_| CHANGED)?.is_file() {
+            return Err(CHANGED);
+        }
+        let mut input = fs::File::open(path).map_err(|_| CHANGED)?;
+        let mut hash = Sha256::new();
+        loop {
+            if cancelled() {
+                return Err("Installation was canceled because the app is closing.");
+            }
+            let read = input.read(&mut buffer).map_err(|_| CHANGED)?;
+            if read == 0 {
+                break;
+            }
+            total = total
+                .checked_add(read as u64)
+                .filter(|n| *n <= MAX_EXPANDED)
+                .ok_or(CHANGED)?;
+            hash.update(&buffer[..read]);
+        }
+        let actual: String = hash
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        if actual != expected_hash {
+            return Err(CHANGED);
+        }
+    }
+    Ok(())
 }
 pub(crate) fn relative(value: &str) -> Result<PathBuf> {
     if value.is_empty()

@@ -72,24 +72,41 @@ fn command_ok(command: &mut Command, timeout: Duration, message: &'static str) -
         }
     }
 }
-fn probe(executable: &Path, version: &str) -> Result<()> {
+pub(crate) fn probe(executable: &Path, version: &str) -> Result<()> {
     command_ok(
         Command::new(executable).args(["--update-health-check", version]),
         Duration::from_secs(15),
         "The staged update failed its version check or did not finish.",
     )
 }
-pub(crate) fn current_trust(root: &Path) -> Result<()> {
+pub(crate) fn current_trust(
+    root: &Path,
+    version: Option<&str>,
+    cancelled: impl Fn() -> bool,
+) -> Result<()> {
+    if cancelled() {
+        return Err("Installation was canceled because the app is closing.");
+    }
+    archive::validate_layout(root, TARGET)?;
     #[cfg(target_os = "macos")]
     {
-        signing_team(root)?;
+        let _ = version;
+        let team = signing_team(root)?;
+        let changed = "The installed macOS app has changed or its signature is invalid. Update manually to preserve your files.";
+        verify_signature(root, &team, Some("com.openradview.app")).map_err(|_| changed)?;
+        verify_signature(&root.join(companion_relative()), &team, None).map_err(|_| changed)?;
+        if cancelled() {
+            return Err("Installation was canceled because the app is closing.");
+        }
+        Ok(())
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = root;
-    Ok(())
+    {
+        archive::validate_installed_content(root, TARGET, version, cancelled)
+    }
 }
 #[cfg(target_os = "macos")]
-fn signing_team(root: &Path) -> Result<String> {
+pub(crate) fn signing_team(root: &Path) -> Result<String> {
     let output = Command::new("/usr/bin/codesign")
         .args(["-dv", "--verbose=4"])
         .arg(root)
@@ -101,6 +118,29 @@ fn signing_team(root: &Path) -> Result<String> {
     }
     String::from_utf8_lossy(&output.stderr).lines().find_map(|l| l.strip_prefix("TeamIdentifier=")).filter(|s| s.len() == 10 && s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())).map(str::to_owned).ok_or("In-app installation requires a Developer ID signed app. Use a manual update for this development build.")
 }
+#[cfg(target_os = "macos")]
+pub(crate) fn verify_signature(path: &Path, team: &str, identifier: Option<&str>) -> Result<()> {
+    // codesign interprets an argument without '=' as a requirements file path.
+    let mut required = format!(
+        "=anchor apple generic and certificate leaf[subject.OU] = \"{team}\" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
+    );
+    if let Some(identifier) = identifier {
+        required.push_str(&format!(" and identifier \"{identifier}\""));
+    }
+    command_ok(
+        Command::new("/usr/bin/codesign")
+            .args([
+                "--verify",
+                "--strict",
+                "--all-architectures",
+                "-R",
+                &required,
+            ])
+            .arg(path),
+        Duration::from_secs(30),
+        "The staged macOS signature failed verification.",
+    )
+}
 pub(crate) fn validate_stage(staged: &Path, current: &Path, manifest: &Manifest) -> Result<()> {
     archive::validate_layout(staged, TARGET)?;
     #[cfg(target_os = "macos")]
@@ -109,29 +149,8 @@ pub(crate) fn validate_stage(staged: &Path, current: &Path, manifest: &Manifest)
         if signing_team(staged)? != team {
             return Err("The update's Apple signing team differs from the installed app.");
         }
-        let developer_id = format!(
-            "anchor apple generic and certificate leaf[subject.OU] = \"{team}\" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
-        );
-        for path in [staged.to_path_buf(), staged.join(companion_relative())] {
-            let required = if path == staged {
-                format!("{developer_id} and identifier \"com.openradview.app\"")
-            } else {
-                developer_id.clone()
-            };
-            command_ok(
-                Command::new("/usr/bin/codesign")
-                    .args([
-                        "--verify",
-                        "--strict",
-                        "--all-architectures",
-                        "-R",
-                        &required,
-                    ])
-                    .arg(path),
-                Duration::from_secs(30),
-                "The staged macOS signature failed verification.",
-            )?;
-        }
+        verify_signature(staged, &team, Some("com.openradview.app"))?;
+        verify_signature(&staged.join(companion_relative()), &team, None)?;
         command_ok(
             Command::new("/usr/sbin/spctl")
                 .args(["--assess", "--type", "execute"])
@@ -205,7 +224,22 @@ pub(super) fn swap_impl(
     }
     Ok(backup)
 }
-pub(crate) fn cleanup(backup: &Path, current: &Path) -> Result<()> {
+pub(crate) fn cleanup(backup: &Path, current: &Path, cancelled: impl Fn() -> bool) -> Result<()> {
+    current_trust(current, None, &cancelled)?;
+    cleanup_impl(backup, current, |old| {
+        current_trust(old, None, &cancelled)?;
+        #[cfg(target_os = "macos")]
+        if signing_team(old)? != signing_team(current)? {
+            return Err("The old backup's signing team differs; it was preserved.");
+        }
+        Ok(())
+    })
+}
+pub(super) fn cleanup_impl(
+    backup: &Path,
+    current: &Path,
+    verify_previous: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
     if backup.parent() != current.parent()
         || !backup.file_name().is_some_and(|n| {
             n.to_string_lossy()
@@ -231,6 +265,7 @@ pub(crate) fn cleanup(backup: &Path, current: &Path) -> Result<()> {
         return Err("The old backup contains unexpected files and was preserved.");
     }
     archive::validate_layout(&backup.join("previous"), TARGET)?;
+    verify_previous(&backup.join("previous"))?;
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::fs::OpenOptionsExt;

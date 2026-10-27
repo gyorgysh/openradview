@@ -6,6 +6,8 @@ mod lifecycle;
 mod network;
 mod preferences;
 mod protocol;
+#[cfg(feature = "release-validation")]
+pub mod release_validation;
 #[cfg(test)]
 mod tests;
 use preferences::{Cleanup, Preferences};
@@ -305,7 +307,7 @@ fn perform_install(
     lifecycle: &lifecycle::Lifecycle,
 ) -> Result<PathBuf> {
     let current = install::root(exe)?;
-    install::current_trust(&current)?;
+    install::current_trust(&current, Some(version), || lifecycle.closing())?;
     let parent = current
         .parent()
         .ok_or("Cannot locate the app's parent folder.")?;
@@ -336,10 +338,22 @@ fn perform_install(
         }
     })?;
     change(state, notify, Status::Verifying, "");
-    let extracted = staging.path().join("unpacked");
-    std::fs::create_dir(&extracted).map_err(|_| "Cannot prepare the update directory.")?;
-    archive::unpack(&archive, &extracted)?;
-    let contents: Vec<_> = std::fs::read_dir(&extracted)
+    let staged = unpack_bundle(&archive, &staging.path().join("unpacked"), manifest)?;
+    install::validate_stage(&staged, &current, manifest)?;
+    install::current_trust(&current, Some(version), || lifecycle.closing())?;
+    let _commit = lifecycle.begin_commit()?;
+    change(state, notify, Status::Installing, "");
+    install::swap(&staged, &current, exe)
+}
+
+fn unpack_bundle(
+    archive: &std::path::Path,
+    extracted: &std::path::Path,
+    manifest: &Manifest,
+) -> Result<PathBuf> {
+    std::fs::create_dir(extracted).map_err(|_| "Cannot prepare the update directory.")?;
+    archive::unpack(archive, extracted)?;
+    let contents: Vec<_> = std::fs::read_dir(extracted)
         .map_err(|_| "Cannot inspect the staged update.")?
         .collect();
     if contents.len() != 1
@@ -351,12 +365,7 @@ fn perform_install(
     {
         return Err("The update archive has an unexpected layout.");
     }
-    let staged = extracted.join(&manifest.bundle);
-    install::validate_stage(&staged, &current, manifest)?;
-    archive::validate_layout(&current, TARGET)?;
-    let _commit = lifecycle.begin_commit()?;
-    change(state, notify, Status::Installing, "");
-    install::swap(&staged, &current, exe)
+    Ok(extracted.join(&manifest.bundle))
 }
 fn worker(
     state: &Mutex<State>,
@@ -370,7 +379,7 @@ fn worker(
     let cleanup = lock(state).prefs.cleanup.clone();
     if let Some(cleanup) = cleanup.filter(|c| c.installed_version == version)
         && let Ok(current) = install::root(exe)
-        && install::cleanup(&cleanup.backup, &current).is_ok()
+        && install::cleanup(&cleanup.backup, &current, || lifecycle.closing()).is_ok()
     {
         let mut state = lock(state);
         state.prefs.cleanup = None;
@@ -426,8 +435,9 @@ fn worker(
                 change(state, notify, Status::Checking, "");
                 match check(version) {
                     Ok(Some(manifest)) => {
-                        let readiness =
-                            install::root(exe).and_then(|root| install::current_trust(&root));
+                        let readiness = install::root(exe).and_then(|root| {
+                            install::current_trust(&root, Some(version), || lifecycle.closing())
+                        });
                         {
                             let mut s = lock(state);
                             s.manifest = Some(manifest);

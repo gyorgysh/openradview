@@ -299,9 +299,84 @@ fn managed_install_refuses_added_files_and_retains_a_complete_previous_version()
     );
     archive::validate_layout(&current, TARGET).unwrap();
     archive::validate_layout(&backup.join("previous"), TARGET).unwrap();
-    install::cleanup(&backup, &current).unwrap();
+    install::cleanup_impl(&backup, &current, |_| Ok(())).unwrap();
     assert!(!backup.exists());
     assert_eq!(fs::read(exe).unwrap(), b"new");
+}
+
+fn add_inventory(current: &Path, version: &str) {
+    use sha2::{Digest, Sha256};
+    let layout_path = archive::layout_path(current);
+    let mut layout: archive::Layout =
+        serde_json::from_slice(&fs::read(&layout_path).unwrap()).unwrap();
+    layout.files.push("build.json".into());
+    fs::write(&layout_path, serde_json::to_vec(&layout).unwrap()).unwrap();
+    let files: std::collections::BTreeMap<_, _> = layout
+        .files
+        .iter()
+        .filter(|name| name.as_str() != "build.json")
+        .map(|name| {
+            let content = fs::read(current.join(name)).unwrap();
+            let hash: String = Sha256::digest(content)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            (name.clone(), hash)
+        })
+        .collect();
+    fs::write(
+        current.join("build.json"),
+        serde_json::to_vec(&serde_json::json!({"version":version,"target":TARGET,"files":files}))
+            .unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn portable_inventory_rejects_changed_files_and_keeps_modified_backups() {
+    let folder = tempfile::tempdir().unwrap();
+    let current = folder.path().join("app");
+    let staged = folder.path().join("new");
+    managed(&current, b"old");
+    managed(&staged, b"new");
+    add_inventory(&current, "1.0.0");
+    archive::validate_installed_content(&current, TARGET, Some("1.0.0"), || false).unwrap();
+    assert!(
+        archive::validate_installed_content(&current, TARGET, Some("1.1.0"), || false).is_err()
+    );
+    assert!(archive::validate_installed_content(&current, TARGET, None, || true).is_err());
+    let calls = std::cell::Cell::new(0);
+    assert!(
+        archive::validate_installed_content(&current, TARGET, None, || {
+            calls.set(calls.get() + 1);
+            calls.get() > 2
+        })
+        .is_err()
+    );
+    assert!(calls.get() > 2);
+    let inventory_path = current.join("build.json");
+    let inventory = fs::read(&inventory_path).unwrap();
+    let mut incomplete: serde_json::Value = serde_json::from_slice(&inventory).unwrap();
+    incomplete["files"].as_object_mut().unwrap().clear();
+    fs::write(&inventory_path, serde_json::to_vec(&incomplete).unwrap()).unwrap();
+    assert!(archive::validate_installed_content(&current, TARGET, None, || false).is_err());
+    fs::write(&inventory_path, inventory).unwrap();
+    let executable = current.join(install::executable_relative());
+    fs::write(&executable, b"changed by the user").unwrap();
+    assert!(
+        archive::validate_installed_content(&current, TARGET, Some("1.0.0"), || false).is_err()
+    );
+    let backup = install::swap(&staged, &current, &executable).unwrap();
+    assert!(
+        install::cleanup_impl(&backup, &current, |previous| {
+            archive::validate_installed_content(previous, TARGET, None, || false)
+        })
+        .is_err()
+    );
+    assert_eq!(
+        fs::read(backup.join("previous").join(install::executable_relative())).unwrap(),
+        b"changed by the user"
+    );
 }
 #[test]
 fn failed_swap_restores_the_old_tree_and_executable() {
@@ -333,7 +408,7 @@ fn both_swap_strategies_keep_complete_backups_and_restore_failed_stages() {
                 assert_eq!(fs::read(&exe).unwrap(), b"new");
                 archive::validate_layout(&backup.join("previous"), TARGET).unwrap();
                 assert!(!backup.join("running").exists());
-                install::cleanup(&backup, &current).unwrap();
+                install::cleanup_impl(&backup, &current, |_| Ok(())).unwrap();
                 assert!(!backup.exists());
             } else {
                 assert!(result.is_err());

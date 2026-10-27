@@ -38,6 +38,8 @@ fn running_executable_survives_failed_then_successful_swap_and_backup_cleanup() 
     let executable = current.join(install::executable_relative());
     let original = std::env::current_exe().unwrap();
     fs::copy(&original, &executable).unwrap();
+    #[cfg(not(target_os = "macos"))]
+    add_inventory(&current, "1.0.0");
     let mut child = Running(
         Command::new(&executable)
             .args(["--exact", "tests::native_process::updater_child_fixture"])
@@ -57,6 +59,8 @@ fn running_executable_survives_failed_then_successful_swap_and_backup_cleanup() 
         thread::sleep(Duration::from_millis(10));
     }
     assert!(folder.path().join("ready").exists());
+    #[cfg(not(target_os = "macos"))]
+    archive::validate_installed_content(&current, TARGET, Some("1.0.0"), || false).unwrap();
     assert!(install::swap(&folder.path().join("missing"), &current, &executable).is_err());
     archive::validate_layout(&current, TARGET).unwrap();
     assert!(child.0.try_wait().unwrap().is_none());
@@ -73,13 +77,13 @@ fn running_executable_survives_failed_then_successful_swap_and_backup_cleanup() 
     assert!(child.0.try_wait().unwrap().is_none());
     #[cfg(windows)]
     {
-        assert!(install::cleanup(&backup, &current).is_err());
+        assert!(install::cleanup_impl(&backup, &current, |_| Ok(())).is_err());
         assert!(old_executable.exists());
     }
 
     fs::write(folder.path().join("stop"), b"stop").unwrap();
     assert!(child.0.wait().unwrap().success());
-    install::cleanup(&backup, &current).unwrap();
+    install::cleanup_impl(&backup, &current, |_| Ok(())).unwrap();
     assert!(!backup.exists());
     assert_eq!(fs::read(&executable).unwrap(), b"new payload");
 }

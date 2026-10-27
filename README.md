@@ -58,7 +58,9 @@ Approved agents can request snapshots, adjust supported views and query geometry
 
 ## Updates and platforms
 
-Automatic GitHub update checks are enabled by default in standalone installations. Turn them off on first launch or in **Privacy → Updates**, where you can also check manually. Debian packages disable automatic checks and in-app installation; download a newer `.deb` and install it with your package manager. Checks contain no study data; GitHub receives ordinary connection information, app version and platform. Download, installation and restart require your action. The updater verifies signed manifests, target, size and hashes and supports rollback.
+Automatic GitHub update checks are enabled by default in standalone installations. Turn them off on first launch or in **Privacy → Updates**, where you can also check manually. Debian packages from 1.1.0 disable automatic checks and in-app installation; 1.0.0 may still check when enabled, but requires your package manager to install updates. Checks contain no study data; GitHub receives ordinary connection information, app version and platform. Download, installation and restart require your action. The updater verifies signed manifests, target, size and hashes and supports rollback.
+
+On macOS, versions 1.0.0 and 1.1.0 need a manual DMG update because their in-app installation fails signature verification. [Manual update guidance](docs/platforms.md)
 
 Apple Silicon with Metal has native UI checks. Windows and Linux builds are previews with native CI tests, GPU rendering and installer checks. Broader interactive desktop, accessibility, consumer GPU performance and older-version update acceptance remain pending. [Platform status](docs/platforms.md) · [Validation scope](docs/validation.md)
 

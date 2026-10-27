@@ -83,6 +83,20 @@ def main():
             details = subprocess.run(['codesign','-d','--verbose=4',str(app)], capture_output=True, text=True, check=True).stderr
             if f"TeamIdentifier={credentials['TEAM_ID']}\n" not in details: raise ValueError('Signed app does not belong to the configured Apple team')
             run(sys.executable,'scripts/macos/notarize.py',str(app),'--submit','--profile',profile)
+            for target in ('aarch64-apple-darwin', *native_inputs.TARGETS):
+                archive_name, _ = native_inputs.release_checks.update_protocol.names(build['version'], target)
+                archive = common.DIST / archive_name
+                run(sys.executable,'scripts/update_protocol.py',str(archive),'--version',build['version'],'--target',target)
+                signature = common.DIST/f'update-{target}.signature.txt'
+                signing_env = os.environ.copy(); signing_env['UPDATER_ED25519_PRIVATE_KEY'] = credentials['UPDATER_ED25519_PRIVATE_KEY']
+                try: run('node','scripts/ci/sign-manifest.mjs',str(common.DIST/f'update-{target}.raw.json'),str(signature),env=signing_env)
+                finally: signing_env.pop('UPDATER_ED25519_PRIVATE_KEY',None)
+                run(sys.executable,'scripts/update_protocol.py',str(archive),'--version',build['version'],'--target',target,'--signature-file',str(signature))
+            archive_name, _ = native_inputs.release_checks.update_protocol.names(build['version'], 'aarch64-apple-darwin')
+            archive = common.DIST/archive_name
+            envelope = common.DIST/'update-aarch64-apple-darwin.json'
+            run(str(ROOT/'target/debug/examples/verify_release_update'),
+                str(archive),str(envelope),str(archive),str(envelope))
             run(sys.executable,'scripts/macos/dmg.py','--sign-identity',identity,'--app-notarized')
             stem = f"OpenRadView-{build['version']}-macos-arm64-standard"
             dmg = common.DIST/(stem+'.dmg')
@@ -100,15 +114,6 @@ def main():
             if log.get('status') != 'Accepted' or log.get('sha256') != common.sha256(dmg) or log.get('issues'): raise ValueError('DMG notarization log does not accept this exact image')
             run('xcrun','stapler','staple',str(dmg))
             run(sys.executable,'scripts/macos/dmg.py','--audit',str(dmg),'--notarized','--record-stapled','--notary-log',str(log_path))
-            for target in ('aarch64-apple-darwin', *native_inputs.TARGETS):
-                archive_name, _ = native_inputs.release_checks.update_protocol.names(build['version'], target)
-                archive = common.DIST / archive_name
-                run(sys.executable,'scripts/update_protocol.py',str(archive),'--version',build['version'],'--target',target)
-                signature = common.DIST/f'update-{target}.signature.txt'
-                signing_env = os.environ.copy(); signing_env['UPDATER_ED25519_PRIVATE_KEY'] = credentials['UPDATER_ED25519_PRIVATE_KEY']
-                try: run('node','scripts/ci/sign-manifest.mjs',str(common.DIST/f'update-{target}.raw.json'),str(signature),env=signing_env)
-                finally: signing_env.pop('UPDATER_ED25519_PRIVATE_KEY',None)
-                run(sys.executable,'scripts/update_protocol.py',str(archive),'--version',build['version'],'--target',target,'--signature-file',str(signature))
             try:
                 candidate, _ = release.prepare('arm64', native_inputs.TARGETS)
             except (ValueError, OSError, subprocess.CalledProcessError) as error:

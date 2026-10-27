@@ -33,8 +33,9 @@ are available there too. Enabled background checks run about once a day; a manua
 check contacts GitHub when requested. Download, installation and restart are
 separate user actions, not automatic consequences of a check.
 
-Debian package installations disable automatic checks and in-app replacement.
-You can check manually, then download and install a newer package yourself.
+Debian package installations from 1.1.0 disable automatic checks and in-app
+replacement. Version 1.0.0 may still check automatically if enabled, but cannot
+replace the package-managed app. You can check manually, then download and install a newer package yourself.
 The app does not configure an apt repository.
 
 Update requests contain your IP address, app version in the user agent,

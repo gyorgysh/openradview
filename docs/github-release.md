@@ -78,6 +78,15 @@ platform archive; the DMG, Windows Setup EXE and Debian package are manual
 installers. A Debian installation uses its package manager for future installs.
 All assets must be present and hash-verified before normal publication.
 
+Before submitting the DMG for notarization, the release job exercises the signed
+macOS archive and manifest through the updater in a temporary folder. It checks
+staging, signing identity, tampering rejection, health probes, swap and backup
+cleanup. This uses the candidate for both sides of the check; it does not prove
+an older installed app's updater or a graphical restart.
+The native jobs additionally exercise the current updater against published
+1.0.0 and 1.1.0 signed archives and the live feed on Windows/Linux. They do not
+run an older version's updater interface or graphical restart.
+
 A timeout does not mean Apple received nothing. Inspect the preserved submission
 ID/log; do not rerun the workflow blindly. Attempts after the first are refused.
 Small nonsecret notary records are retained for seven days and completed files

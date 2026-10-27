@@ -8,6 +8,9 @@ const COMMITTING: u8 = 2;
 pub(crate) struct Lifecycle(AtomicU8);
 pub(crate) struct Commit<'a>(&'a Lifecycle);
 impl Lifecycle {
+    pub fn closing(&self) -> bool {
+        self.0.load(Ordering::SeqCst) == CLOSING
+    }
     pub fn request_close(&self) -> bool {
         self.0
             .compare_exchange(RUNNING, CLOSING, Ordering::SeqCst, Ordering::SeqCst)

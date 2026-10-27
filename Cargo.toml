@@ -6,18 +6,18 @@ default-members = ["crates/orv-app"]
 resolver = "3"
 
 [workspace.package]
-version = "1.1.0"
+version = "1.1.1"
 edition = "2024"
 rust-version = "1.99"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/gyorgysh/openradview"
 
 [workspace.dependencies]
-orv-core = { path = "crates/orv-core", version = "=1.1.0" }
-orv-render = { path = "crates/orv-render", version = "=1.1.0" }
-orv-mcp = { path = "crates/orv-mcp", version = "=1.1.0" }
-orv-agents = { path = "crates/orv-agents", version = "=1.1.0" }
-orv-updates = { path = "crates/orv-updates", version = "=1.1.0" }
+orv-core = { path = "crates/orv-core", version = "=1.1.1" }
+orv-render = { path = "crates/orv-render", version = "=1.1.1" }
+orv-mcp = { path = "crates/orv-mcp", version = "=1.1.1" }
+orv-agents = { path = "crates/orv-agents", version = "=1.1.1" }
+orv-updates = { path = "crates/orv-updates", version = "=1.1.1" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.145", features = ["float_roundtrip"] }
 sha2 = "=0.11.1"

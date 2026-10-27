@@ -168,9 +168,15 @@ separate user actions. Ed25519 signatures bind exact manifest bytes; target,
 version, name, size and hashes are checked before bounded extraction.
 
 Managed installations are staged beside the app, audited and swapped with a
-complete rollback copy. Package-manager locations, modified trees and unwritable
-folders keep an external/manual update path. macOS additionally checks the
-Developer ID team and Gatekeeper. Explicit restart revokes grants and protects
+complete rollback copy. Package-manager locations, added or missing files and
+unwritable folders keep an external/manual update path. macOS verifies the
+installed and staged Developer ID signatures and assesses the staged app with
+Gatekeeper. The macOS signature checks sealed bundle contents, but does not
+authenticate the separate stapled ticket. On Windows/Linux, managed file contents
+are compared with the local build inventory before replacement and backup
+removal. That inventory is not authenticated and cannot detect a coordinated
+change to itself and a file. Backups with a detected mismatch are preserved.
+Explicit restart revokes grants and protects
 unsaved labels. [Release process](github-release.md)
 
 Native codec and patched windowing sources, licenses and file inventories are committed under

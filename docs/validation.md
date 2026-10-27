@@ -27,6 +27,15 @@ changes, modal placement, labels/export, local agent review/denial/revoke and
 update preferences. No private patient files or provider account are needed.
 [Development commands](../CONTRIBUTING.md)
 
+The release job also checks the signed macOS candidate through the updater's
+staging, signature, swap and cleanup paths in a disposable folder, including
+wrong-identity and modified-file refusal. It exercises the candidate on both
+sides; it does not establish an older installed updater or graphical restart.
+Native Windows/Linux jobs exercise the current updater code against the published
+1.0.0 and 1.1.0 signed archives, the live feed and download, temporary swaps,
+changed-file refusal and backup preservation. These checks run the published
+executables' health probes, not their updater interfaces or graphical restart.
+
 ## Platform and release acceptance
 
 Apple Silicon/macOS with Metal has native local evidence. Native Windows MSVC and Linux GNU CI run default/full suites, GPU rendering,

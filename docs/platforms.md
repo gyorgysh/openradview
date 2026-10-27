@@ -12,6 +12,12 @@ upgrade from an older published version. Other architectures require separate
 packages and checks. Development CI stays manual and cached; tag releases use
 [the protected release workflow](github-release.md).
 
+On macOS, versions 1.0.0 and 1.1.0 cannot install an update in the app because
+their signature check fails. To update from either version, export any labels
+you want to keep, quit the app and replace it using the DMG from the
+[releases page](https://github.com/gyorgysh/openradview/releases). A version
+containing the updater fix is needed for later in-app installation.
+
 ## Native Linux build
 
 Use Rust from rust-toolchain.toml, a C/C++ compiler, CMake, pkg-config, Python3.11+
@@ -91,8 +97,9 @@ The Linux amd64 `.deb` targets Debian/Ubuntu systems with compatible runtime
 libraries. Its dependencies are derived from the actual ELF programs, with the
 desktop libraries and a Vulkan ICD declared explicitly; Mesa EGL/OpenGL drivers
 are recommended. It installs the app under `/opt/openradview`, commands under `/usr/bin`, and the desktop entry and icon in
-their standard locations. Its marker disables automatic GitHub checks and folder
-replacement by the in-app updater. Manual checks remain available; download and
+their standard locations. From 1.1.0 its marker disables automatic GitHub checks
+and folder replacement by the in-app updater. Version 1.0.0 may still check when
+enabled, but the marker prevents in-app replacement. Manual checks remain available; download and
 install later `.deb` versions with your package manager. The app does not add
 an apt repository. The portable TAR.GZ keeps the writable-folder update path.
 
@@ -116,8 +123,13 @@ Normal packages include the shared Rust GitHub updater. Automatic checks are ena
 turned off on first launch or in Privacy → Updates. A manual check is always available. Download/install and
 restart require explicit actions. Signed manifests bind each exact platform
 archive; only managed writable app folders can be replaced. Recognized external
-package locations/receipts, read-only and modified app folders use external or
-manual installation. Unknown package layouts are not universally detected; see
+package locations/receipts, read-only folders and folders with added or missing
+files use external or manual installation. Starting in 1.1.1, sealed macOS bundle
+contents and listed Windows/Linux files are also checked before replacement and
+backup cleanup. The macOS check does not authenticate the separate stapled
+ticket. The Windows/Linux check uses the local build inventory, which cannot
+authenticate changes to itself.
+Unknown package layouts are not universally detected; see
 [the ownership checks](architecture.md#updates-and-release-integrity). macOS additionally checks
 the same Developer ID team and Gatekeeper. Development/ad-hoc Mac builds cannot
 use in-app installation. Native filesystem and installer tests do not establish an older-version
