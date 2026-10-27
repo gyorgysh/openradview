@@ -61,7 +61,14 @@ async fn call(client: &Client, port: u16, token: &str, name: &str, args: Value) 
 #[tokio::test]
 async fn authenticated_tools_are_scoped_and_revoke_closes_the_listener() {
     let (session, scene) = common::session();
-    let server = LocalServer::start(session.clone(), Arc::new(|| {})).unwrap();
+    let (notify, mut notifications) = tokio::sync::mpsc::unbounded_channel();
+    let server = LocalServer::start(
+        session.clone(),
+        Arc::new(move || {
+            let _ = notify.send(());
+        }),
+    )
+    .unwrap();
     let port = listening(&server).await;
     let token = server.token_for_configuration();
     let client = client();
@@ -170,8 +177,15 @@ async fn authenticated_tools_are_scoped_and_revoke_closes_the_listener() {
     session.approve_preview(&next).unwrap();
     let tags = call(&client, port, token, "get_tags", json!({})).await;
     assert_ne!(tags["result"]["isError"], true);
+    // Completed requests may have notified about view changes. After dropping
+    // the server, await the worker's terminal notification and runtime cleanup.
+    while notifications.try_recv().is_ok() {}
     drop(server);
     assert!(session.is_revoked());
+    tokio::time::timeout(Duration::from_secs(3), notifications.recv())
+        .await
+        .unwrap()
+        .unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         match tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).await {

@@ -16,6 +16,8 @@ pub(super) struct Ready {
 pub(super) struct Upload {
     pub receiver: Receiver<Result<Ready, String>>,
     cancel: Arc<AtomicBool>,
+    #[cfg(all(test, feature = "gpu-tests"))]
+    pub(super) worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Upload {
     pub fn start(
@@ -58,7 +60,12 @@ impl Upload {
             let _ = fallback.send(Err("Could not start the volume worker".into()));
             repaint.request_repaint();
         }
-        Self { receiver, cancel }
+        Self {
+            receiver,
+            cancel,
+            #[cfg(all(test, feature = "gpu-tests"))]
+            worker: spawn.ok(),
+        }
     }
 }
 impl Drop for Upload {

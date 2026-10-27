@@ -107,9 +107,11 @@ impl LocalServer {
                 })
             });
             worker_session.revoke();
+            // Finish bounded runtime shutdown before publishing terminal status.
+            // Revocation itself remains immediate and never waits on the UI.
+            if let Ok(runtime) = runtime { runtime.shutdown_timeout(std::time::Duration::from_secs(1)); }
             set_status(&worker_status, match result { Ok(()) => ServerStatus::Stopped, Err(e) => ServerStatus::Failed(e) });
             notify_ui();
-            if let Ok(runtime) = runtime { runtime.shutdown_timeout(std::time::Duration::from_secs(1)); }
         }).map_err(|_| "Could not start local transport worker")?;
         Ok(Self {
             session,

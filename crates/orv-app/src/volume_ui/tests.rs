@@ -57,13 +57,36 @@ fn background_upload_cancel_releases_source_without_waiting_on_ui() {
     frames.truncate(2);
     let weak = Arc::downgrade(&frames[0]);
     drop(study);
-    let upload = Upload::start(frames, device, queue, wgpu::TextureFormat::Rgba8Unorm, ctx);
+    let mut upload = Upload::start(
+        frames,
+        device.clone(),
+        queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+        ctx,
+    );
+    let worker = upload.worker.take().unwrap();
     drop(upload);
     let deadline = Instant::now() + Duration::from_secs(3);
     while weak.upgrade().is_some() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(weak.upgrade().is_none());
+    // Source release can precede device cleanup on the worker. The test process
+    // must not exit while its last native graphics owner is still unwinding.
+    while !worker.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        worker.is_finished(),
+        "Cancelled upload did not finish cleanup"
+    );
+    worker.join().unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(30)),
+        })
+        .unwrap();
 }
 
 #[test]
