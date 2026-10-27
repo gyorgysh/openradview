@@ -198,8 +198,19 @@ saved automatically. Each transformed exact view needs its own preview approval.
 The series filter searches modality/series-number and NIfTI subvolume labels,
 without changing the active series until a row is selected. Import builds a
 bounded 32 MiB text catalogue on its worker; one cancellable search worker retains
-only the latest query. Only visible rows are laid out. No thumbnail decoding or
-extra agent scope is introduced. Clearing a study closes inspection/filter workers.
+only the latest query. Only visible rows are laid out. One cancellable worker
+prepares previews for at most 32 visible rows, sampling the middle source image
+with its original presentation. At most 32 64×64 previews are retained in RAM;
+the shared source cache and RAM/GPU reservations apply. No thumbnail files or
+extra agent scope are introduced. Clearing a study closes inspection/filter/preview workers.
+
+Distance, angle and rectangular ROI marks remain in memory across navigation in
+the current series. Source marks bind to the exact frame ordinal and geometry;
+reformat marks bind to the exact plane and sampling grid. Each collection holds
+at most 128 marks. **Measurements…** lists marks on the current image/plane and
+offers selection, deletion and clearing. ROI statistics run in the background,
+one calculation per collection. Changing series or closing its view clears marks;
+restart restores none. They are excluded from image-only exports and agent snapshots.
 
 ## Local playback and picture export
 

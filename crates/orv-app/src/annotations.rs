@@ -9,24 +9,30 @@ use orv_core::{
 use std::sync::Arc;
 mod stats_worker;
 
-#[derive(PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct ImageKey {
     size: [u32; 2],
     geometry: Option<Geometry>,
-    pixels: usize,
+    frame: Option<u32>,
 }
+const MAX_MARKS: usize = 128;
+
 struct Mark {
+    id: u64,
+    image: ImageKey,
     points: Vec<[f64; 2]>,
     tool: Tool,
     label: String,
 }
 #[derive(Default)]
 pub struct Annotations {
-    calculation: Option<stats_worker::Calculation>,
+    calculation: Option<(u64, stats_worker::Calculation)>,
     image: Option<ImageKey>,
     active_tool: Option<Tool>,
     pending: Vec<[f64; 2]>,
-    complete: Option<Mark>,
+    marks: Vec<Mark>,
+    selected: Option<u64>,
+    next_id: u64,
     preserve_plane: bool,
 }
 pub fn mapping(rect: Rect, image: &Frame, view: &ViewState) -> Option<ImageMapping> {
@@ -54,7 +60,7 @@ impl Annotations {
         }
     }
     pub fn has_content(&self, tool: Tool) -> bool {
-        tool.measures() || self.complete.is_some() || !self.pending.is_empty()
+        tool.measures() || self.visible_marks().next().is_some() || !self.pending.is_empty()
     }
     pub fn status_overlay(&mut self, ui: &mut egui::Ui, rect: Rect, tool: Tool) {
         self.poll();
@@ -91,14 +97,21 @@ impl Annotations {
     pub fn clear(&mut self) {
         self.calculation = None;
         self.pending.clear();
-        self.complete = None;
+        self.marks.clear();
+        self.selected = None;
     }
     pub fn status(&self, tool: Tool) -> String {
         if !self.pending.is_empty() {
             return format!("{} point(s) placed · click to finish", self.pending.len());
         }
-        if let Some(mark) = &self.complete {
-            return mark.label.clone();
+        if let Some(mark) = self.selected_mark() {
+            return format!("#{} · {}", mark.id.saturating_add(1), mark.label);
+        }
+        if self.marks.len() == MAX_MARKS {
+            return format!("{MAX_MARKS} measurements in memory. Delete or clear to add more.");
+        }
+        if tool == Tool::Roi && self.calculation.is_some() {
+            return "A rectangle is still being calculated. Other measurement tools remain available.".into();
         }
         match tool {
             Tool::Distance => "Distance: click two points. Requires valid spacing.",
@@ -117,24 +130,14 @@ impl Annotations {
         tool: Tool,
     ) {
         self.poll();
-        let key = ImageKey {
-            size: [image.width, image.height],
-            geometry: image.geometry.clone(),
-            pixels: if self.preserve_plane {
-                0
-            } else {
-                Arc::as_ptr(image) as usize
-            },
-        };
-        if self.image.as_ref() != Some(&key) {
-            self.clear();
-            self.image = Some(key);
-        }
+        self.bind_image(image, view);
         if self.active_tool != Some(tool) {
             self.pending.clear();
             self.active_tool = Some(tool);
         }
         if tool.measures()
+            && self.marks.len() < MAX_MARKS
+            && (tool != Tool::Roi || self.calculation.is_none())
             && !crate::viewport::navigation_override(ui, response)
             && response.clicked_by(egui::PointerButton::Primary)
             && let Some(pos) = response.interact_pointer_pos()
@@ -146,27 +149,54 @@ impl Annotations {
                 self.pending.push(pixel);
                 let needed = if tool == Tool::Angle { 3 } else { 2 };
                 if self.pending.len() == needed {
+                    let id = self.next_id;
+                    self.next_id = self.next_id.wrapping_add(1);
                     let label = if tool == Tool::Roi {
-                        self.calculation = Some(stats_worker::Calculation::start(
-                            image.clone(),
-                            self.pending.clone(),
-                            ui.ctx().clone(),
+                        self.calculation = Some((
+                            id,
+                            stats_worker::Calculation::start(
+                                image.clone(),
+                                self.pending.clone(),
+                                ui.ctx().clone(),
+                            ),
                         ));
                         "Calculating local rectangle statistics…".into()
                     } else {
                         report(image, &self.pending, tool, || false)
                             .unwrap_or_else(|error| format!("Measurement unavailable: {error}"))
                     };
-                    self.complete = Some(Mark {
+                    self.marks.push(Mark {
+                        id,
+                        image: self.image.clone().unwrap_or_else(|| self.key(image, view)),
                         points: std::mem::take(&mut self.pending),
                         tool,
                         label,
                     });
+                    self.selected = Some(id);
                 }
             }
         }
-        if let Some(mark) = &self.complete {
+        for mark in self.visible_marks() {
             paint(ui, response.rect, image, view, &mark.points, mark.tool);
+            if let Some(point) = mark.points.first()
+                && let Some(position) = screen_at(response.rect, image, view, *point)
+            {
+                ui.painter_at(response.rect).text(
+                    position + egui::vec2(6., 6.),
+                    egui::Align2::LEFT_TOP,
+                    format!(
+                        "#{}{}",
+                        mark.id.saturating_add(1),
+                        if self.selected == Some(mark.id) {
+                            " •"
+                        } else {
+                            ""
+                        }
+                    ),
+                    egui::FontId::monospace(11.),
+                    theme::PAPER,
+                );
+            }
         }
         let mut draft = self.pending.clone();
         if !draft.is_empty()
@@ -181,22 +211,100 @@ impl Annotations {
     }
 }
 impl Annotations {
+    fn key(&self, image: &Frame, view: &ViewState) -> ImageKey {
+        ImageKey {
+            size: [image.width, image.height],
+            geometry: image.geometry.clone(),
+            frame: (!self.preserve_plane).then_some(view.slice),
+        }
+    }
+    pub fn bind_image(&mut self, image: &Frame, view: &ViewState) {
+        let key = self.key(image, view);
+        if self.image.as_ref() != Some(&key) {
+            self.pending.clear();
+            self.image = Some(key);
+            self.selected = self.visible_marks().last().map(|mark| mark.id);
+        }
+    }
+    fn visible_marks(&self) -> impl Iterator<Item = &Mark> {
+        self.marks
+            .iter()
+            .filter(|mark| Some(&mark.image) == self.image.as_ref())
+    }
+    fn selected_mark(&self) -> Option<&Mark> {
+        self.visible_marks()
+            .find(|mark| Some(mark.id) == self.selected)
+    }
+    fn delete_selected(&mut self) {
+        if let Some(id) = self.selected.take() {
+            self.marks.retain(|mark| mark.id != id);
+            if self.calculation.as_ref().is_some_and(|task| task.0 == id) {
+                self.calculation = None;
+            }
+            self.selected = self.visible_marks().last().map(|mark| mark.id);
+        }
+    }
+    pub fn controls(&mut self, ui: &mut egui::Ui) {
+        self.poll();
+        ui.menu_button("Measurements…", |ui| {
+            ui.set_max_width(320.);
+            ui.weak(format!(
+                "Temporary · {} / {MAX_MARKS} in memory",
+                self.marks.len()
+            ));
+            ui.weak("Only this image / plane is listed. Nothing is saved.");
+            let mut selected = self.selected;
+            egui::ScrollArea::vertical()
+                .max_height(180.)
+                .show(ui, |ui| {
+                    for mark in self.visible_marks() {
+                        ui.selectable_value(
+                            &mut selected,
+                            Some(mark.id),
+                            format!("#{} · {}", mark.id.saturating_add(1), mark.label),
+                        );
+                    }
+                });
+            self.selected = selected;
+            if ui
+                .add_enabled(
+                    self.selected_mark().is_some(),
+                    egui::Button::new("Delete selected measurement"),
+                )
+                .clicked()
+            {
+                self.delete_selected();
+                ui.close();
+            }
+            if ui
+                .add_enabled(
+                    !self.marks.is_empty() || !self.pending.is_empty(),
+                    egui::Button::new("Clear all measurements"),
+                )
+                .clicked()
+            {
+                self.clear();
+                ui.close();
+            }
+        });
+    }
     fn poll(&mut self) {
         if let Some(result) =
             self.calculation
                 .as_ref()
-                .and_then(|task| match task.result.try_recv() {
-                    Ok(result) => Some(result),
+                .and_then(|(id, task)| match task.result.try_recv() {
+                    Ok(result) => Some((*id, result)),
                     Err(std::sync::mpsc::TryRecvError::Empty) => None,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        Some(Err("The rectangle statistics worker stopped".into()))
+                        Some((*id, Err("The rectangle statistics worker stopped".into())))
                     }
                 })
         {
             self.calculation = None;
-            if let Some(mark) = &mut self.complete {
-                mark.label =
-                    result.unwrap_or_else(|error| format!("Measurement unavailable: {error}"));
+            if let Some(mark) = self.marks.iter_mut().find(|mark| mark.id == result.0) {
+                mark.label = result
+                    .1
+                    .unwrap_or_else(|error| format!("Measurement unavailable: {error}"));
             }
         }
     }
@@ -304,6 +412,108 @@ fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn draw(
+        ctx: &egui::Context,
+        annotations: &mut Annotations,
+        image: &Arc<Frame>,
+        view: &ViewState,
+        events: Vec<egui::Event>,
+    ) {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                let (_, response) =
+                    ui.allocate_exact_size(egui::vec2(400., 400.), egui::Sense::click_and_drag());
+                annotations.show(ui, &response, image, view, Tool::Distance);
+            },
+        );
+        output.textures_delta.clear();
+    }
+    fn click(
+        ctx: &egui::Context,
+        annotations: &mut Annotations,
+        image: &Arc<Frame>,
+        view: &ViewState,
+        pos: Pos2,
+    ) {
+        draw(
+            ctx,
+            annotations,
+            image,
+            view,
+            vec![egui::Event::PointerMoved(pos)],
+        );
+        for pressed in [true, false] {
+            draw(
+                ctx,
+                annotations,
+                image,
+                view,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+        }
+    }
+    #[test]
+    fn marks_survive_navigation_and_redecoding_without_retaining_source_pixels() {
+        let ctx = egui::Context::default();
+        let image = Arc::new((*orv_core::study::demo_study().series[0].frames[0]).clone());
+        let mut annotations = Annotations::default();
+        let mut view = ViewState::default();
+        for x in [100., 200., 120., 220.] {
+            click(&ctx, &mut annotations, &image, &view, Pos2::new(x, 160.));
+        }
+        assert_eq!(annotations.marks.len(), 2);
+        assert_eq!(
+            Arc::strong_count(&image),
+            1,
+            "Completed marks retain no images"
+        );
+        view.slice = 1;
+        annotations.bind_image(&image, &view);
+        assert_eq!(
+            annotations.visible_marks().count(),
+            0,
+            "Frame ordinal matters even with identical geometry"
+        );
+        view.slice = 0;
+        view.transform.quarter_turns = 1;
+        let decoded_again = Arc::new((*image).clone());
+        annotations.bind_image(&decoded_again, &view);
+        assert_eq!(annotations.visible_marks().count(), 2);
+        assert_eq!(annotations.selected, Some(1));
+        annotations.delete_selected();
+        assert_eq!(annotations.visible_marks().count(), 1);
+        assert_eq!(annotations.selected, Some(0));
+        annotations.clear();
+        annotations.bind_image(&image, &view);
+        assert_eq!(annotations.visible_marks().count(), 0);
+    }
+    #[test]
+    fn physical_plane_keys_reject_changed_geometry_and_mark_collection_is_bounded() {
+        let ctx = egui::Context::default();
+        let image = orv_core::study::demo_study().series[0].frames[0].clone();
+        let mut annotations = Annotations::for_reformats();
+        let view = ViewState::default();
+        for _ in 0..MAX_MARKS + 1 {
+            click(&ctx, &mut annotations, &image, &view, Pos2::new(100., 160.));
+            click(&ctx, &mut annotations, &image, &view, Pos2::new(200., 160.));
+        }
+        assert_eq!(annotations.marks.len(), MAX_MARKS);
+        let mut changed = (*image).clone();
+        changed.geometry.as_mut().unwrap().position[2] += 1.;
+        annotations.bind_image(&changed, &view);
+        assert_eq!(annotations.visible_marks().count(), 0);
+        annotations.bind_image(&image, &view);
+        assert_eq!(annotations.visible_marks().count(), MAX_MARKS);
+    }
     #[test]
     fn measurement_text_does_not_capture_canvas_clicks_or_hide_the_pointer() {
         let ctx = egui::Context::default();

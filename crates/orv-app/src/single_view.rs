@@ -57,7 +57,10 @@ impl Workspace {
             });
         }
         let mut inspect = false;
-        if let Some((_, image)) = self.current_image() {
+        if let Some((index, image)) = self.current_image() {
+            let mut displayed_view = self.view.clone();
+            displayed_view.slice = index as u32;
+            self.annotations.bind_image(&image, &displayed_view);
             crate::view_context::show(ui, &image);
         }
         if controls::tools(ui, &mut self.tool, false, !color, |ui| {
@@ -69,9 +72,7 @@ impl Workspace {
                 self.labels.open = true;
             }
             inspect = ui.button("Image info…").clicked();
-            if ui.button("Clear measurement").clicked() {
-                self.annotations.clear();
-            }
+            self.annotations.controls(ui);
             crate::toolbar::label(
                 ui,
                 egui::RichText::new(format!("{:.0}%", self.view.zoom * 100.0))

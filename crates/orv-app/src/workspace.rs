@@ -32,7 +32,7 @@ pub struct Workspace {
     demo: Option<crate::demos::Demo>,
     browser: crate::series_browser::SeriesBrowser,
     show_demo_credits: bool,
-    pub(super) study: Option<Study>,
+    pub(super) study: Option<Arc<Study>>,
     pub(super) image_worker: Option<crate::frame_worker::FrameWorker>,
     pub(super) decoded_image: Option<(usize, Arc<Frame>)>,
     pub(super) last_image_view: Option<ViewState>,
@@ -170,9 +170,13 @@ impl Workspace {
                 self.demo = self.loading.as_ref().and_then(|task| task.demo);
                 self.loading = None;
                 self.labels = Default::default();
-                self.browser =
-                    crate::series_browser::SeriesBrowser::new(study.catalog, ctx.clone());
-                self.study = Some(study.study);
+                let source = Arc::new(study.study);
+                self.browser = crate::series_browser::SeriesBrowser::new(
+                    study.catalog,
+                    source.clone(),
+                    ctx.clone(),
+                );
+                self.study = Some(source);
                 self.clear_gpu = true;
                 self.select(0);
             }
@@ -405,7 +409,7 @@ impl Workspace {
                 top: 16,
                 bottom: 10,
             }))
-            .show(ui, |ui| self.sidebar(ui));
+            .show(ui, |ui| self.sidebar(ui, frame));
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(16.0))
             .show(ui, |ui| {
@@ -435,7 +439,7 @@ impl Workspace {
                 }
             });
     }
-    fn sidebar(&mut self, ui: &mut egui::Ui) {
+    fn sidebar(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         theme::eyebrow(ui, "LOCAL SERIES");
         ui.add_space(12.0);
         if let Some(study) = &self.study {
@@ -451,7 +455,9 @@ impl Workspace {
             if study.synthetic {
                 theme::eyebrow(ui, "SYNTHETIC DEMO · NO PATIENT DATA");
             }
-            let select = self.browser.ui(ui, self.selected);
+            let select = self
+                .browser
+                .ui(ui, self.selected, frame.wgpu_render_state());
             ui.add_space(18.0);
             if study.skipped_files > 0 {
                 ui.label(
@@ -608,7 +614,7 @@ mod label_safety_tests {
     fn unsaved_labels_protect_study_closure_and_replacement() {
         let ctx = egui::Context::default();
         let mut workspace = Workspace {
-            study: Some(Study::default()),
+            study: Some(Arc::new(Study::default())),
             ..Default::default()
         };
         workspace.labels.dirty = true;

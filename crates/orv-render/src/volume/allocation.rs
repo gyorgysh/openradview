@@ -3,9 +3,19 @@
 use orv_core::resources::{MemoryBudget, Reservation};
 mod hardware;
 
-pub(crate) struct GpuReservation {
+pub struct GpuReservation {
     memory: Option<Reservation>,
     queue: wgpu::Queue,
+}
+impl GpuReservation {
+    /// Admit a bounded UI texture or other caller-owned GPU resource.
+    pub fn new(
+        bytes: u64,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<Self, &'static str> {
+        reserve_bytes(bytes, device, queue)
+    }
 }
 impl Drop for GpuReservation {
     fn drop(&mut self) {

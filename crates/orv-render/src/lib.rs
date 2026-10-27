@@ -18,3 +18,5 @@ pub fn native_backends() -> wgpu::Backends {
         wgpu::Backends::VULKAN | wgpu::Backends::GL
     }
 }
+
+pub use volume::allocation::GpuReservation;

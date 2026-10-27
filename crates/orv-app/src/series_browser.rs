@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Metadata-only series catalogue and virtualized rows. No pixel decoding.
+//! Metadata catalogue and virtualized rows with worker-built RAM previews.
 mod search;
+mod thumbnails;
 use eframe::egui;
 use orv_core::{load::LoadError, study::Study};
 use std::sync::Arc;
@@ -53,21 +54,29 @@ pub struct SeriesBrowser {
     rows: Option<Vec<usize>>,
     generation: u64,
     pending: bool,
+    thumbnails: thumbnails::Thumbnails,
 }
 impl SeriesBrowser {
-    pub fn new(catalog: Catalog, ctx: egui::Context) -> Self {
+    pub fn new(catalog: Catalog, study: Arc<Study>, ctx: egui::Context) -> Self {
         let search = if catalog.entries.len() > 1 {
-            search::Search::start(catalog.entries.clone(), ctx)
+            search::Search::start(catalog.entries.clone(), ctx.clone())
         } else {
             None
         };
         Self {
             catalog,
             search,
+            thumbnails: thumbnails::Thumbnails::start(study, ctx),
             ..Default::default()
         }
     }
-    pub fn ui(&mut self, ui: &mut egui::Ui, selected: usize) -> Option<usize> {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        selected: usize,
+        render: Option<&eframe::egui_wgpu::RenderState>,
+    ) -> Option<usize> {
+        self.thumbnails.poll(ui, render);
         if let Some(search) = &self.search
             && let Some((generation, rows)) = search.take()
             && generation == self.generation
@@ -127,7 +136,9 @@ impl SeriesBrowser {
         let row_height = ui.text_style_height(&egui::TextStyle::Button)
             + ui.text_style_height(&egui::TextStyle::Small)
             + 14.;
+        let row_height = row_height.max(58.);
         let mut choice = None;
+        let mut visible = Vec::new();
         egui::ScrollArea::vertical()
             .id_salt("filtered-series")
             .max_height((ui.available_height() - 126.).max(row_height))
@@ -135,9 +146,13 @@ impl SeriesBrowser {
                 for row in range {
                     let index = self.rows.as_ref().map_or(row, |rows| rows[row]);
                     if let Some(entry) = self.catalog.entries.get(index) {
+                        if render.is_some() {
+                            visible.push(index);
+                        }
+                        let texture = self.thumbnails.texture(index);
                         let response = ui
                             .push_id(index, |ui| {
-                                series_row(ui, &entry.text, index == selected, row_height)
+                                series_row(ui, &entry.text, index == selected, row_height, texture)
                             })
                             .inner;
                         if response.on_hover_text(&entry.text).clicked() {
@@ -146,6 +161,7 @@ impl SeriesBrowser {
                     }
                 }
             });
+        self.thumbnails.visible(visible);
         if count == 0 {
             ui.weak("No matching series. Clear the filter to see all series.");
         }
@@ -153,7 +169,13 @@ impl SeriesBrowser {
     }
 }
 
-fn series_row(ui: &mut egui::Ui, text: &str, selected: bool, height: f32) -> egui::Response {
+fn series_row(
+    ui: &mut egui::Ui,
+    text: &str,
+    selected: bool,
+    height: f32,
+    texture: Option<egui::TextureId>,
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), height),
         egui::Sense::click(),
@@ -177,6 +199,22 @@ fn series_row(ui: &mut egui::Ui, text: &str, selected: bool, height: f32) -> egu
             egui::StrokeKind::Inside,
         );
     }
+    let preview = egui::Rect::from_min_size(rect.min + egui::vec2(4., 5.), egui::vec2(48., 48.));
+    if let Some(texture) = texture {
+        painter.image(
+            texture,
+            preview,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1., 1.)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        painter.rect_stroke(
+            preview,
+            2.,
+            egui::Stroke::new(1., crate::theme::GRAPHITE),
+            egui::StrokeKind::Inside,
+        );
+    }
     let (title, count) = text.split_once('\n').unwrap_or((text, ""));
     let mut top = rect.top() + 5.;
     for (text, style) in [
@@ -188,14 +226,14 @@ fn series_row(ui: &mut egui::Ui, text: &str, selected: bool, height: f32) -> egu
             text.to_owned(),
             font,
             visuals.fg_stroke.color,
-            (rect.width() - 16.).max(1.),
+            (rect.width() - 64.).max(1.),
         );
         job.wrap.max_rows = 1;
         job.wrap.break_anywhere = true;
         let galley = painter.layout_job(job);
         let height = galley.size().y;
         painter.galley(
-            egui::pos2(rect.left() + 8., top),
+            egui::pos2(rect.left() + 60., top),
             galley,
             visuals.fg_stroke.color,
         );
@@ -265,7 +303,7 @@ mod tests {
                 ..Default::default()
             },
             |ui| {
-                browser.ui(ui, 0);
+                browser.ui(ui, 0, None);
             },
         );
         assert!(

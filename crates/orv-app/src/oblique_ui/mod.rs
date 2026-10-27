@@ -86,7 +86,6 @@ impl ObliqueSession {
                     if self.target.is_none() {
                         self.target = Some(snapshot.plane.clone());
                     }
-                    self.annotations.clear();
                     self.snapshot = Some(snapshot);
                     self.error = None;
                 }
@@ -131,12 +130,11 @@ impl ObliqueSession {
                 }
             });
         }
+        self.annotations.bind_image(&snapshot.image, &self.view);
         crate::view_context::show(ui, &snapshot.image);
         if controls::tools(ui, &mut self.tool, false, !color, |ui| {
             controls::orientation(ui, &mut self.view.transform);
-            if ui.button("Clear measurements").clicked() {
-                self.annotations.clear();
-            }
+            self.annotations.controls(ui);
         }) {
             self.fit();
         }

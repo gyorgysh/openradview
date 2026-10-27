@@ -63,7 +63,6 @@ impl Workspace {
                     self.initialize_window = false;
                     self.decoded_image = Some((result.index, image));
                     self.decode_error = None;
-                    self.annotations.clear();
                 }
                 Err(e) => self.decode_error = Some((result.index, e)),
             }

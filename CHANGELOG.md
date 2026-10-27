@@ -2,6 +2,10 @@
 
 ## 1.1.0 — Unreleased
 
+- Keep multiple temporary distance, angle and rectangular ROI marks while
+  navigating the current series or exact reformat plane. Select/delete/clear
+  them from Measurements; statistics run in the background. Visible series gain
+  lazy, bounded previews. Marks and previews stay in memory and clear on closure.
 - macOS Cmd+Q and menu Quit now honor the existing choice to keep or discard
   unsaved labels and the close guard during update installation.
 - Rotate 2D/source and reformatted views by 90° and flip them horizontally or

@@ -87,6 +87,14 @@ playback and finite animation. Idle viewing does not require a polling loop.
 Measurements map image centres to validated physical coordinates rather than
 screen distance. Projections cannot masquerade as measurement planes.
 
+Temporary marks are bounded per series/pane and keyed by source-frame ordinal
+or exact reformat geometry, independently of decoded allocation addresses.
+Completed marks retain coordinates/results without retaining source pixels.
+One cancellable ROI calculation per pane publishes to its original mark ID.
+Series previews use one idle-blocking worker, coalesce visible-row requests and
+reuse the decoded source cache. At most 32 small textures remain in RAM, with
+shared RAM/GPU reservations; closing the study cancels work and drops previews.
+
 Quarter-turn/flip display transforms leave acquisition geometry and source pixels
 unchanged. The source-to-viewport map is shared by probes, measurements, label
 meshes/brush footprints and overlays; the slice shader applies its inverse.

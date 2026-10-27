@@ -8,7 +8,7 @@ mod reconstruction;
 
 fn workspace() -> Workspace {
     let mut workspace = Workspace::default();
-    workspace.study = Some(demo_study());
+    workspace.study = Some(Arc::new(demo_study()));
     workspace.view.slice = 24;
     workspace
 }

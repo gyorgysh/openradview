@@ -37,6 +37,9 @@ Their interpolated values can differ from source pixels.
 geometry supports them. **Image info…** shows dimensions, spacing, image context
 and histograms. Readouts and measurements are for exploration and can be wrong.
 No projection measurement is treated as a source-plane measurement.
+Marks stay in memory while browsing the same series. **Measurements…** selects,
+deletes or clears them; they are cleared when the series/view closes and are never
+saved automatically. Sidebar previews are generated for visible series in memory.
 
 **Labels…** paints a local source-grid label map. It is not organ recognition or
 an AI model. Export a map explicitly if you want to keep it; changes remain in

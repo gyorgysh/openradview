@@ -60,7 +60,7 @@ fn indexed_navigation_retains_the_previous_complete_frame_until_the_requested_on
     let study =
         orv_core::index::index_paths(std::slice::from_ref(&dir.0), || false, |_| {}).unwrap();
     let mut workspace = Workspace::default();
-    workspace.study = Some(study);
+    workspace.study = Some(Arc::new(study));
     let ctx = egui::Context::default();
     let until = Instant::now() + Duration::from_secs(5);
     while workspace.current_image().is_none() {
@@ -98,7 +98,7 @@ fn indexed_navigation_retains_the_previous_complete_frame_until_the_requested_on
 #[test]
 fn a_slider_target_is_not_published_before_that_frame_is_painted() {
     let mut workspace = Workspace::default();
-    workspace.study = Some(orv_core::study::demo_study());
+    workspace.study = Some(Arc::new(orv_core::study::demo_study()));
     workspace.view.slice = 24;
     workspace.last_image_view = Some(workspace.view.clone());
     workspace.view.slice = 25;

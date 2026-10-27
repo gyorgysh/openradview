@@ -195,6 +195,9 @@ impl MprSession {
         }
         crate::view_context::show(ui, &snapshot.volume.frames()[0]);
         let active = self.active_index();
+        for (index, image) in snapshot.images.iter().enumerate() {
+            self.annotations[index].bind_image(image, &self.views[index]);
+        }
         if controls::tools(ui, &mut self.tool, true, !color, |ui| {
             controls::orientation(ui, &mut self.views[active].transform);
             egui::ComboBox::from_id_salt("mpr-layout")
@@ -211,7 +214,8 @@ impl MprSession {
                         ui.selectable_value(&mut self.layout, layout, layout.label());
                     }
                 });
-            if ui.button("Clear measurements").clicked() {
+            self.annotations[active].controls(ui);
+            if ui.button("Clear all panes").clicked() {
                 for a in &mut self.annotations {
                     a.clear();
                 }

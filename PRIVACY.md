@@ -7,7 +7,7 @@ web content. Maintainers do not receive your scans through the viewer.
 ## Local viewing and storage
 
 Images are opened when you select or drop local files. The study index, bounded
-decoded cache, measurements and view state are held in memory. Requested frames
+decoded cache, series previews, measurements and view state are held in memory. Requested frames
 are read from the selected sources on background workers, so keep those files
 available while viewing. ZIP data streams without extraction or a patient-data
 disk cache. No recent-study list or patient database is saved.
