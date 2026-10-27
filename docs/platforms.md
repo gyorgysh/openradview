@@ -4,7 +4,7 @@
 | --- | --- |
 | Apple Silicon macOS 13+ · DMG | Native UI and Metal checks; release app/DMG use Developer ID signing, notarization and Gatekeeper verification |
 | Windows x64 MSVC · Setup EXE / ZIP | Native default/full tests, GPU rendering and installer probes; interactive desktop checks remain separate. No Authenticode signature |
-| Linux x64 GNU · TAR.GZ / DEB | Native default/full tests, Vulkan rendering and installer probes; interactive desktop checks remain separate. ELF library requirements are in build.json |
+| Linux x64 GNU · TAR.GZ / DEB | Native default/full tests, Vulkan/software OpenGL rendering, empty-window startup/idle and installer probes; interactive desktop checks remain separate. ELF library requirements are in build.json |
 
 Windows/Linux packages are previews. Native CI evidence is included in releases;
 it does not establish consumer GPU performance, accessibility or a production
@@ -34,7 +34,8 @@ OpenGL drivers without compute support can display 2D/MPR but cannot render
 volume/MIP. Software graphics can be slow at large window sizes. Startup prints
 the selected backend, adapter and driver locally to stderr; no diagnostics are
 sent anywhere. `openradview --help` prints usage without opening a window.
-Native OpenGL runtime and affected-machine performance checks remain pending.
+CI checks Mesa software OpenGL rendering and empty-window startup/idle under
+Xvfb. Interactive desktop and affected-machine performance checks remain pending.
 
 Fetch locked dependencies once, then package offline on the intended oldest host:
 

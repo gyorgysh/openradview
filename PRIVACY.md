@@ -12,6 +12,10 @@ are read from the selected sources on background workers, so keep those files
 available while viewing. ZIP data streams without extraction or a patient-data
 disk cache. No recent-study list or patient database is saved.
 
+Two-series comparison stays local and in memory. Entering it revokes agent
+sharing and cancels pending reviews; returning to a single series requires fresh
+approval before sharing again. Neither comparison pane is exposed through MCP.
+
 Closing a study releases app-owned references; it does not guarantee forensic
 memory erasure. Operating-system swap, file-dialog history, backups and screen
 capture are controlled by your device. The research-use notice is per running
@@ -85,7 +89,7 @@ fingerprinted before review and verified again when read after approval; changed
 source content is refused. Revocation prevents future access, not copies already
 received by a client.
 
-Optional comparisons share one frozen reviewed image/context with separately
+Optional agent comparisons share one frozen reviewed image/context with separately
 named recipients and temporary tokens. Both sharing acknowledgements start
 unchecked. Replies stay in memory as bounded plain text. Revoke/clear, source
 replacement/closure or exit erases local results and revokes the tokens. Hiding

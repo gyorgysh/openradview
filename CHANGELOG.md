@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 — Unreleased
+## 1.1.0 — 2026-10-27
 
 - Choose physical slab thickness with maximum/minimum projections in scalar
   linked MPR and oblique views. Bounded previews refine after interaction; missing
@@ -46,6 +46,8 @@
   compute support keep 2D/MPR available; 3D/MIP explains the requirement.
 - Fix an OpenGL 3D texture-view validation error, preserving linear-light display
   interpolation without alternate texture views.
+- Fix source grayscale lookup-table display on OpenGL, including single tables
+  and multiple-table arrays.
 - `--help` and `--version` print to the terminal without opening the viewer.
 - Debian installations hide automatic GitHub checks and keep manual checking
   available. Install newer `.deb` files through your package manager.
@@ -53,6 +55,11 @@
   mouse controls or drawing beyond the pane. Tool selection requests a repaint.
 - Larger Help/Privacy dialogs, visible scrollbars, bottom padding and an
   explanation of negative coordinates in linked MPR.
+
+Windows/Linux packages remain previews. Native CI covers tests, GPU rendering
+and installer probes; broader interactive desktop/accessibility, consumer GPU
+performance and older-version production update acceptance remain pending.
+See [platform status](docs/platforms.md) and [validation](docs/validation.md).
 
 ## 1.0.0
 

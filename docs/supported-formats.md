@@ -115,7 +115,8 @@ restart decompression. Slow I/O/decoding does not hold the decoded-entry lock, s
 already-cached slices remain retrievable by other workers.
 Opening an already uncompressed source can be faster. Integrity, cancellation and
 resource tests are software checks; native codecs/OS allocations are not a hard
-process-memory sandbox. No runtime-validated Windows/Linux release or built-in AI model is claimed.
+process-memory sandbox. Windows/Linux runtime coverage is limited to the checks
+listed in [platform status](platforms.md). No built-in AI model is included.
 
 Color resampling and compositing use linear-light sRGB presentation. Pre-ICC RGB
 code values are interpolated separately and rounded to their declared precision

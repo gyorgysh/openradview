@@ -37,10 +37,11 @@ Images stay on your device during local viewing. There is no app account, teleme
 | Capability | What is available |
 | --- | --- |
 | Open images | DICOM files, folders and ZIP/ZIP64; supported NIfTI-1/2 single or paired files, including gzip. Time points and components stay separate; complex presentations are explicit. |
-| Navigate | Slice scrolling, pan, zoom, contrast, presets, fit, invert and reset. Searchable series list and decoder-paced image playback. |
-| Compare planes | Linked axial/coronal/sagittal MPR and oblique slices from a validated regular volume. NIfTI scanner, aligned and template references stay distinct. |
+| Navigate | Slice scrolling, pan, zoom, contrast, presets, fit, invert, reset, 90° rotation and flips. Searchable series list with temporary previews and decoder-paced image playback. |
+| Compare planes | Linked axial/coronal/sagittal MPR and oblique slices from a validated regular volume, including scalar maximum/minimum slabs with explicit thickness and sample counts. NIfTI scanner, aligned and template references stay distinct. |
+| Compare series | Two local source panes with independent controls and optional physical slice linking for compatible geometry. Entering comparison ends agent sharing. |
 | View in 3D | Experimental GPU volume rendering and MIP with transfer controls and refinement after interaction. Projections use the loaded data; no anatomy is inferred. |
-| Inspect pixels | Image information, histograms, nearest-pixel values, distance, angle and scalar/RGB rectangle statistics. Declared padding and missing samples are excluded. |
+| Inspect pixels | Image information, histograms, nearest-pixel values, temporary distance/angle marks and scalar/RGB rectangle statistics. Declared padding and missing samples are excluded. Physical measurements are disabled on slab projections. |
 | View color | Supported 8/16-bit RGB/YBR, palettes and embedded RGB input ICC conversion to sRGB. Source code values stay separate; the app does not calibrate your monitor. |
 | Add local labels | Brush, erase, scalar threshold fill, undo, matching NIfTI import and explicit NIfTI-2 export. No organ recognition, bundled AI model or DICOM SEG/RTSTRUCT support. |
 | Save a picture | Image-only PNG and reproducible view settings from a completed pane. Saves are explicit and leave original files unchanged. Check for text burned into pixels before sharing. |
@@ -59,7 +60,7 @@ Approved agents can request snapshots, adjust supported views and query geometry
 
 Automatic GitHub update checks are enabled by default in standalone installations. Turn them off on first launch or in **Privacy → Updates**, where you can also check manually. Debian packages disable automatic checks and in-app installation; download a newer `.deb` and install it with your package manager. Checks contain no study data; GitHub receives ordinary connection information, app version and platform. Download, installation and restart require your action. The updater verifies signed manifests, target, size and hashes and supports rollback.
 
-Apple Silicon with Metal is the tested platform. Windows and Linux builds are previews; native GPU, dialog, installation and update acceptance remain pending. [Platform status](docs/platforms.md) · [Validation scope](docs/validation.md)
+Apple Silicon with Metal has native UI checks. Windows and Linux builds are previews with native CI tests, GPU rendering and installer checks. Broader interactive desktop, accessibility, consumer GPU performance and older-version update acceptance remain pending. [Platform status](docs/platforms.md) · [Validation scope](docs/validation.md)
 
 ## Build from source
 

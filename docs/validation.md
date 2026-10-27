@@ -17,6 +17,9 @@ Opt-in GPU tests exercise actual rendering and offscreen comparisons, including
 MPR, oblique, volume/MIP, RGB, missing samples and snapshot provenance. Run the
 full feature suite on a supported GPU; a skipped GPU test is not a pass.
 Painted UI tests check control geometry, wrapping and stable view parameters.
+Linux CI also checks software OpenGL rendering and an empty native window under
+Xvfb for startup and quiet-window repainting. This developer-only probe opens no
+study and changes no consent; it is excluded from distributed packages.
 
 The macOS native review uses generated inputs and the included licensed public
 CT, MRI and X-ray datasets. It checks loading/cancellation, navigation, view
