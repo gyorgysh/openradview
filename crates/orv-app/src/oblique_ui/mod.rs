@@ -133,6 +133,7 @@ impl ObliqueSession {
         }
         crate::view_context::show(ui, &snapshot.image);
         if controls::tools(ui, &mut self.tool, false, !color, |ui| {
+            controls::orientation(ui, &mut self.view.transform);
             if ui.button("Clear measurements").clicked() {
                 self.annotations.clear();
             }

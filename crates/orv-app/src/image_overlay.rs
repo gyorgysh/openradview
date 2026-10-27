@@ -29,9 +29,9 @@ pub fn draw(ui: &egui::Ui, response: &egui::Response, image: &Frame, view: &View
             (edges.center_bottom(), Align2::CENTER_BOTTOM),
         ]
         .into_iter()
-        .zip(directions)
+        .zip(view.transform.edge_order().map(|index| &directions[index]))
         {
-            label(position, align, &text);
+            label(position, align, text);
         }
         if let Some((mm, width)) = scale_bar(rect, image, view) {
             let start = rect.left_bottom() + egui::vec2(12., -14.);
@@ -92,8 +92,13 @@ fn scale_bar(rect: Rect, image: &Frame, view: &ViewState) -> Option<(f64, f32)> 
     geometry.validate().ok()?;
     let mapping = annotations::mapping(rect, image, view)?;
     let a = mapping.pixel_to_view([0., 0.])?;
-    let b = mapping.pixel_to_view([1., 0.])?;
-    let points_per_mm = (b[0] - a[0]).abs() * f64::from(rect.width()) / geometry.spacing[1];
+    let (pixel_step, spacing) = if view.transform.swaps_axes() {
+        ([0., 1.], geometry.spacing[0])
+    } else {
+        ([1., 0.], geometry.spacing[1])
+    };
+    let b = mapping.pixel_to_view(pixel_step)?;
+    let points_per_mm = (b[0] - a[0]).abs() * f64::from(rect.width()) / spacing;
     let available = f64::from((rect.width() * 0.22).min(120.));
     let target = available / points_per_mm;
     if !target.is_finite() || target <= 0. {
@@ -128,6 +133,20 @@ mod tests {
         };
         let (mm, points) = scale_bar(rect, &image, &zoom).unwrap();
         assert!((f64::from(points) / mm - 800. / 300.).abs() < 1e-5);
+        for quarter_turns in [1, 3] {
+            for flip_horizontal in [false, true] {
+                let rotated = ViewState {
+                    transform: orv_core::DisplayTransform {
+                        quarter_turns,
+                        flip_horizontal,
+                        flip_vertical: true,
+                    },
+                    ..Default::default()
+                };
+                let (mm, points) = scale_bar(rect, &image, &rotated).unwrap();
+                assert!((f64::from(points) / mm - 400. / 300.).abs() < 1e-5);
+            }
+        }
         image.geometry = None;
         assert!(scale_bar(rect, &image, &zoom).is_none());
     }

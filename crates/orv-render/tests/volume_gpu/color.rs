@@ -88,7 +88,7 @@ fn color_mip_takes_separate_channel_maxima_and_records_color_provenance() {
         for value in &png.get_pixel(0, 0).0[..3] {
             assert!(value.abs_diff(if invert { 0 } else { 255 }) <= 1, "{png:?}");
         }
-        assert_eq!(result.manifest.renderer_version, 6);
+        assert_eq!(result.manifest.renderer_version, 7);
         let metadata = &result.manifest.volume.unwrap().source;
         assert!(metadata.color.is_some());
         assert!(

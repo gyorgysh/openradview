@@ -70,7 +70,7 @@ fn production_volume_snapshot_matches_affine_rays_and_complete_provenance() {
         result.manifest.png_sha256,
         hex(&Sha256::digest(&result.png))
     );
-    assert_eq!(result.manifest.renderer_version, 6);
+    assert_eq!(result.manifest.renderer_version, 7);
     let encoded = serde_json::to_string(&result.manifest).unwrap();
     assert_eq!(
         serde_json::from_str::<SnapshotManifest>(&encoded).unwrap(),

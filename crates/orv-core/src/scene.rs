@@ -67,6 +67,11 @@ impl SceneState {
                     plane.validate().map_err(|_| "Invalid oblique plane")
                 }
                 Reconstruction::Volume(state) => {
+                    if !self.view.transform.is_identity() {
+                        return Err(
+                            "Volume scenes use camera orientation, not 2D display rotation/flips",
+                        );
+                    }
                     if self.reformat_side != 2 {
                         return Err("Volume scenes use the canonical unused reformat side of two");
                     }

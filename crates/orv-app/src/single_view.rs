@@ -61,6 +61,7 @@ impl Workspace {
             crate::view_context::show(ui, &image);
         }
         if controls::tools(ui, &mut self.tool, false, !color, |ui| {
+            controls::orientation(ui, &mut self.view.transform);
             if ui
                 .selectable_label(self.labels.painting(self.selected), "Labels…")
                 .clicked()

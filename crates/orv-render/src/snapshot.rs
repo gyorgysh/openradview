@@ -154,7 +154,7 @@ fn finish(
     png: Vec<u8>,
 ) -> Result<Snapshot, &'static str> {
     let manifest = SnapshotManifest {
-        renderer_version: 6, // Source-bound grayscale functions, tables and intensity context.
+        renderer_version: 7, // Display rotation/flips use the same native and snapshot mapping.
         scene: scene.clone(),
         scene_sha256: scene.hash()?,
         png_sha256: hex(&Sha256::digest(&png)),

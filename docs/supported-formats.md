@@ -122,7 +122,7 @@ reformatted pixels remain missing and are excluded from statistics. RGB maximum
 projection takes a separate maximum per channel, potentially from different
 depths. Color opacity uses linear-light brightness on a0–255 scale, without CT
 presets. Presentation uses RGBA8 even when source codes have16-bit precision.
-Scalar and color snapshots identify renderer version 6. Scalar manifests include
+Scalar and color snapshots identify renderer version 7. Scalar manifests include
 typed source precision/units/scaling; resampled outputs do not claim the first
 source frame's linear transform as their own. Source choices participate in both
 whole-source fingerprints and per-frame verification. The geometry-only agent
@@ -185,6 +185,15 @@ remain unlabeled. The image-space scale follows declared spacing and current fit
 zoom. It is not monitor calibration or a promise of true object size in projection
 images. NIfTI scanner/aligned/Talairach/MNI/template references remain distinct.
 These overlays are desktop context and stay outside existing image-only snapshots.
+
+**Rotate / flip** changes source 2D, linked MPR or oblique display orientation by
+90° steps and horizontal/vertical flips. It changes no source pixels, acquisition
+geometry or physical coordinates. Probes, measurement marks, direction letters,
+scale bars and local label overlays follow the displayed view. In linked MPR the
+brighter pane border marks the active pane. Fit resets pan/zoom; Reset orientation
+in the menu restores the source display axes. Volume projections use camera roll.
+Picture exports retain the display transform in their scene metadata. Nothing is
+saved automatically. Each transformed exact view needs its own preview approval.
 
 The series filter searches modality/series-number and NIfTI subvolume labels,
 without changing the active series until a row is selected. Import builds a

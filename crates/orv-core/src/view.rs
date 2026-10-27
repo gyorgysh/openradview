@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+mod transform;
+pub use transform::DisplayTransform;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -131,6 +133,8 @@ pub struct ViewState {
     /// Pan in fractions of viewport width/height.
     pub pan: [f32; 2],
     pub invert: bool,
+    #[serde(default, skip_serializing_if = "DisplayTransform::is_identity")]
+    pub transform: DisplayTransform,
 }
 
 impl Default for ViewState {
@@ -143,6 +147,7 @@ impl Default for ViewState {
             zoom: 1.0,
             pan: [0.0, 0.0],
             invert: false,
+            transform: DisplayTransform::default(),
         }
     }
 }
@@ -154,6 +159,9 @@ impl ViewState {
         }
         if !self.window.is_valid() {
             return Err("Invalid display function or window parameters");
+        }
+        if !self.transform.is_valid() {
+            return Err("Invalid display rotation");
         }
         if !self.zoom.is_finite() || !(0.05..=50.0).contains(&self.zoom) {
             return Err("Zoom is outside the supported range");
@@ -206,6 +214,15 @@ mod tests {
         let original = v.hash().unwrap();
         v.slice = 1;
         assert_ne!(original, v.hash().unwrap());
+        let before = v.hash().unwrap();
+        v.transform.rotate_clockwise();
+        assert_ne!(before, v.hash().unwrap());
+        let restored: ViewState =
+            serde_json::from_str(&serde_json::to_string(&v).unwrap()).unwrap();
+        assert_eq!(restored, v);
+        v.transform.quarter_turns = 4;
+        assert!(v.validate().is_err());
+        v.transform = Default::default();
         v.window.center = f32::NAN;
         assert!(v.hash().is_err());
     }

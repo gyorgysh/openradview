@@ -38,7 +38,7 @@ impl SliceRenderer {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(64),
+                        min_binding_size: wgpu::BufferSize::new(80),
                     },
                     count: None,
                 },
@@ -98,7 +98,7 @@ impl SliceRenderer {
         });
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("slice params"),
-            contents: &[0u8; 64],
+            contents: &[0u8; 80],
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         Self {
@@ -294,10 +294,11 @@ impl SliceRenderer {
         if crate::voi::signature(frame.scalar.as_deref()) != self.voi_signature {
             return Err("Source presentation changed; upload the image before drawing");
         }
+        let image_aspect = view.transform.aspect(f64::from(frame.aspect_ratio())) as f32;
         if !viewport_aspect.is_finite()
             || viewport_aspect <= 0.0
-            || !frame.aspect_ratio().is_finite()
-            || frame.aspect_ratio() <= 0.0
+            || !image_aspect.is_finite()
+            || image_aspect <= 0.0
         {
             return Err("Invalid image or viewport aspect ratio");
         }
@@ -310,7 +311,7 @@ impl SliceRenderer {
             view.zoom,
             view.pan[0],
             view.pan[1],
-            frame.aspect_ratio(),
+            image_aspect,
             viewport_aspect,
             u8::from(self.srgb) as f32,
             u8::from(frame.rgba.is_some()) as f32,
@@ -320,6 +321,10 @@ impl SliceRenderer {
             voi[1],
             voi[2],
             voi[3],
+            f32::from(view.transform.quarter_turns),
+            u8::from(view.transform.flip_horizontal) as f32,
+            u8::from(view.transform.flip_vertical) as f32,
+            0.,
         ];
         queue.write_buffer(&self.uniform, 0, bytemuck::cast_slice(&params));
         Ok(())

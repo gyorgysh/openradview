@@ -232,3 +232,23 @@ pub fn navigation_hint(ui: &mut egui::Ui, tool: Tool) {
     };
     ui.label(egui::RichText::new(format!("{scroll} · Pinch / Cmd/Ctrl scroll: zoom · Space drag: move · ↑↓: images · [S] browse slices" )).size(11.0).color(crate::theme::SILVER));
 }
+
+pub fn orientation(ui: &mut egui::Ui, transform: &mut orv_core::DisplayTransform) {
+    ui.menu_button("Rotate / flip", |ui| {
+        if ui.button("Rotate 90° clockwise").clicked() {
+            transform.rotate_clockwise();
+            ui.close();
+        }
+        if ui.button("Rotate 90° counterclockwise").clicked() {
+            transform.rotate_counterclockwise();
+            ui.close();
+        }
+        ui.checkbox(&mut transform.flip_horizontal, "Flip horizontally");
+        ui.checkbox(&mut transform.flip_vertical, "Flip vertically");
+        if ui.button("Reset orientation").clicked() {
+            *transform = Default::default();
+            ui.close();
+        }
+        ui.small("Display only · source coordinates stay unchanged");
+    });
+}

@@ -23,7 +23,7 @@ pub mod view;
 pub mod view_mapping;
 pub mod volume;
 pub mod volume_view;
-pub use view::{Plane, ViewState, VoiFunction, WindowLevel};
+pub use view::{DisplayTransform, Plane, ViewState, VoiFunction, WindowLevel};
 
 #[cfg(test)]
 #[path = "../tests/support/mod.rs"]

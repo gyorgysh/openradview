@@ -87,6 +87,12 @@ playback and finite animation. Idle viewing does not require a polling loop.
 Measurements map image centres to validated physical coordinates rather than
 screen distance. Projections cannot masquerade as measurement planes.
 
+Quarter-turn/flip display transforms leave acquisition geometry and source pixels
+unchanged. The source-to-viewport map is shared by probes, measurements, label
+meshes/brush footprints and overlays; the slice shader applies its inverse.
+Transforms participate in scene serialization/hashes and exact-view consent.
+Volume projections use their camera orientation and reject 2D transforms.
+
 Native Linux OpenGL uses the same wgpu renderer, with downlevel device limits for
 2D/MPR. Compute-capable drivers can also use volume/MIP; other drivers receive
 an explanation when opening those views. `WGPU_BACKEND` selects an allowed native

@@ -2,6 +2,10 @@
 
 ## 1.1.0 — Unreleased
 
+- Rotate 2D/source and reformatted views by 90° and flip them horizontally or
+  vertically. Cursor values, orientation letters, measurements, label overlays
+  and explicit picture exports follow the display while source coordinates stay
+  unchanged. Linked MPR highlights the active pane.
 - Honor source grayscale window functions and bounded VOI tables, including
   alternative source windows. Keep scaling, display mapping and inversion
   separate. Show declared intensity units/source precision, and bind presentation

@@ -145,6 +145,14 @@ impl MprSession {
         ));
         viewport::draw(ui, frame, response.rect, image.clone(), view, index + 1, "");
         let painter = ui.painter_at(response.rect);
+        if self.active_index() == index {
+            painter.rect_stroke(
+                response.rect,
+                0.,
+                egui::Stroke::new(1.5, theme::SMOKE),
+                egui::StrokeKind::Inside,
+            );
+        }
         if let Some(g) = &image.geometry
             && let Ok(pixel) = g.world_to_pixel(snapshot.point)
             && let Some(center) = annotations::screen_at(response.rect, image, view, pixel)

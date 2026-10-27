@@ -4,6 +4,111 @@ use orv_core::{ViewState, WindowLevel, study::Frame};
 use orv_render::slice::SliceRenderer;
 
 #[test]
+fn quarter_turns_and_flips_match_known_scalar_color_and_missing_pixel_layouts() {
+    use orv_core::{DisplayTransform, scene::SceneState};
+    use orv_render::snapshot::SnapshotRenderer;
+    let layouts = [
+        [0, 1, 2, 3, 4, 5],
+        [3, 0, 4, 1, 5, 2],
+        [5, 4, 3, 2, 1, 0],
+        [2, 5, 1, 4, 0, 3],
+    ];
+    let mut renderer = pollster::block_on(SnapshotRenderer::new()).expect("Real GPU required");
+    for color in [false, true] {
+        let codes = [0u8, 51, 102, 153, 204, 255];
+        let missing = [false, true, false, false, false, true];
+        let original: Vec<[u8; 4]> = codes
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                if missing[index] {
+                    [10, 10, 10, 255]
+                } else if color {
+                    [*value, 255 - value, value / 3, 255]
+                } else {
+                    [*value, *value, *value, 255]
+                }
+            })
+            .collect();
+        let mut frame = (*orv_core::study::demo_study().series[0].frames[0]).clone();
+        frame.width = 3;
+        frame.height = 2;
+        frame.geometry = None;
+        frame.scalar = None;
+        frame.pixels = if color {
+            Vec::new().into()
+        } else {
+            codes.map(f32::from).into()
+        };
+        frame.validity = (!color).then(|| missing.map(|value| u8::from(!value)).into());
+        frame.rgba = color.then(|| {
+            codes
+                .iter()
+                .enumerate()
+                .flat_map(|(index, value)| {
+                    [
+                        *value,
+                        255 - value,
+                        value / 3,
+                        if missing[index] { 0 } else { 255 },
+                    ]
+                })
+                .collect::<Vec<_>>()
+                .into()
+        });
+        for (quarter_turns, layout) in layouts.iter().enumerate() {
+            let [width, height] = if quarter_turns % 2 == 0 {
+                [3, 2]
+            } else {
+                [2, 3]
+            };
+            for flip_horizontal in [false, true] {
+                for flip_vertical in [false, true] {
+                    let transform = DisplayTransform {
+                        quarter_turns: quarter_turns as u8,
+                        flip_horizontal,
+                        flip_vertical,
+                    };
+                    let scene = SceneState {
+                        schema_version: 1,
+                        source_sha256: "0".repeat(64),
+                        series_index: 0,
+                        view: ViewState {
+                            transform,
+                            window: WindowLevel {
+                                width: 256.,
+                                center: 128.,
+                                function: Default::default(),
+                            },
+                            ..Default::default()
+                        },
+                        crosshair_mm: None,
+                        reformat_side: 2,
+                        output_size: [width, height],
+                        reconstruction: None,
+                    };
+                    let snapshot = renderer.capture(&frame, &scene, || false).unwrap();
+                    assert_eq!(snapshot.manifest.scene.view.transform, transform);
+                    let image = image::load_from_memory(&snapshot.png).unwrap().to_rgba8();
+                    for y in 0..height {
+                        for x in 0..width {
+                            let col = if flip_horizontal { width - 1 - x } else { x };
+                            let row = if flip_vertical { height - 1 - y } else { y };
+                            let expected = original[layout[(row * width + col) as usize]];
+                            let actual = image.get_pixel(x, y).0;
+                            assert!(
+                                actual.iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= 1),
+                                "{color:?} {transform:?} ({x},{y}): {actual:?} != {expected:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn scalar_source_validity_excludes_finite_padding_before_window_and_inversion() {
     use orv_core::scene::SceneState;
     use orv_render::snapshot::SnapshotRenderer;
@@ -378,7 +483,7 @@ fn color_interpolation_is_linear_light_and_missing_pixels_keep_the_background() 
     for value in &png.get_pixel(1, 1).0[..3] {
         assert!(value.abs_diff(188) <= 1);
     }
-    assert_eq!(snapshot.manifest.renderer_version, 6);
+    assert_eq!(snapshot.manifest.renderer_version, 7);
     frame.rgba = Some(
         vec![
             0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255,

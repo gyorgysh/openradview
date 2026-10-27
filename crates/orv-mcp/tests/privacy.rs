@@ -77,6 +77,21 @@ fn explicit_review_is_required_and_does_not_expand_with_view_control() {
         session.authorize(&other, Operation::Snapshot).is_err(),
         "Even display settings must be reviewed in exact-view mode"
     );
+    other.view.invert = false;
+    for change in 0..3 {
+        let mut transformed = other.clone();
+        match change {
+            0 => transformed.view.transform.rotate_clockwise(),
+            1 => transformed.view.transform.flip_horizontal = true,
+            _ => transformed.view.transform.flip_vertical = true,
+        }
+        assert!(
+            session
+                .authorize(&transformed, Operation::Snapshot)
+                .is_err(),
+            "Rotation/flips cannot reuse approval for another exact view"
+        );
+    }
 }
 
 #[test]

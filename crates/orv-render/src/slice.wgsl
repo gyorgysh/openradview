@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-struct Params { window: vec4f, geometry: vec4f, output: vec4f, voi: vec4f }
+struct Params { window: vec4f, geometry: vec4f, output: vec4f, voi: vec4f, transform: vec4f }
 @group(0) @binding(0) var image: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> p: Params;
 @group(0) @binding(2) var valid: texture_2d<u32>;
@@ -46,7 +46,13 @@ fn weighted(xy:vec2i,weight:f32)->vec4f {
     let viewport_aspect = p.geometry.w;
     let fit=select(vec2f(image_aspect/viewport_aspect,1.),
                    vec2f(1.,viewport_aspect/image_aspect),image_aspect>viewport_aspect);
-    let uv=(in.uv-0.5-p.geometry.xy)/(fit*p.window.w)+0.5;
+    var centered=(in.uv-0.5-p.geometry.xy)/(fit*p.window.w);
+    centered*=select(vec2f(1.),vec2f(-1.),p.transform.yz>vec2f(0.5));
+    let quarter=u32(p.transform.x);
+    if quarter==1u { centered=vec2f(centered.y,-centered.x); }
+    else if quarter==2u { centered=-centered; }
+    else if quarter==3u { centered=vec2f(-centered.y,centered.x); }
+    let uv=centered+0.5;
     if any(uv<vec2f(0.)) || any(uv>=vec2f(1.)) { return output_gray(10./255.); }
     let sample=sample_scalar(uv);
     if sample.a<0.5 { return output_gray(10./255.); }

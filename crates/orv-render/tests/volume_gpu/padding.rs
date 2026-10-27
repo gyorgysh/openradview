@@ -93,7 +93,7 @@ fn scalar_padding_stays_out_of_mip_and_compositing_at_both_sampling_qualities() 
                     };
                     assert_gray(&pixel.0, expected);
                 }
-                assert_eq!(result.manifest.renderer_version, 6);
+                assert_eq!(result.manifest.renderer_version, 7);
             }
         }
     }

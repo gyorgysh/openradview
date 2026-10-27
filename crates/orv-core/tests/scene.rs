@@ -166,6 +166,9 @@ fn explicit_scene_context_is_versioned_complete_and_hash_sensitive() {
     s.reformat_side = 2;
     s.reconstruction = Some(Reconstruction::Volume(VolumeView::fit(&volume)));
     let hash = s.hash().unwrap();
+    let mut transformed_projection = s.clone();
+    transformed_projection.view.transform.rotate_clockwise();
+    assert!(transformed_projection.validate().is_err());
     for change in 0..5 {
         let mut changed = s.clone();
         let Some(Reconstruction::Volume(state)) = &mut changed.reconstruction else {

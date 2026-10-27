@@ -165,6 +165,9 @@ impl Camera {
     pub fn frame(&self, view: &ViewState, aspect: f64) -> Result<RayFrame, &'static str> {
         self.validate()?;
         view.validate()?;
+        if !view.transform.is_identity() {
+            return Err("2D rotation/flips do not apply to volume projections; use camera roll");
+        }
         if !aspect.is_finite() || aspect <= 0.0 || aspect > 1024.0 {
             return Err("Invalid volume viewport aspect");
         }

@@ -48,6 +48,14 @@ pub struct MprSession {
     last_input: std::time::Instant,
 }
 impl MprSession {
+    pub(super) fn active_index(&self) -> usize {
+        match self.layout {
+            Layout::Axial => 0,
+            Layout::Coronal => 1,
+            Layout::Sagittal => 2,
+            _ => self.active,
+        }
+    }
     pub(crate) fn picture(&self) -> Option<(crate::export::Pixels, [u32; 2])> {
         let (spec, true) = self.shared_view()? else {
             return None;
@@ -186,7 +194,9 @@ impl MprSession {
             });
         }
         crate::view_context::show(ui, &snapshot.volume.frames()[0]);
+        let active = self.active_index();
         if controls::tools(ui, &mut self.tool, true, !color, |ui| {
+            controls::orientation(ui, &mut self.views[active].transform);
             egui::ComboBox::from_id_salt("mpr-layout")
                 .wrap_mode(egui::TextWrapMode::Extend)
                 .selected_text(self.layout.label())
@@ -318,12 +328,7 @@ impl MprSession {
 
     pub(super) fn shared_view(&self) -> Option<(crate::rendered::ViewSpec, bool)> {
         let snapshot = self.snapshot.as_ref()?;
-        let index = match self.layout {
-            Layout::Axial => 0,
-            Layout::Coronal => 1,
-            Layout::Sagittal => 2,
-            _ => self.active,
-        };
+        let index = self.active_index();
         let mut view = self.views[index].clone();
         view.slice = 0;
         Some((
