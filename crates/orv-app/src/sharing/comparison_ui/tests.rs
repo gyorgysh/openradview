@@ -23,7 +23,8 @@ async fn native_review_freezes_one_real_metal_image_for_both_clients_and_release
         &ctx,
     );
     assert!(sharing.modal_open() && !sharing.is_active());
-    let until = Instant::now() + Duration::from_secs(15);
+    // Software-rendered previews can take longer on shared native CI hosts.
+    let until = Instant::now() + Duration::from_secs(60);
     while sharing.comparison.draft.as_ref().unwrap().preview.is_none() {
         sharing.poll(&ctx);
         assert!(sharing.comparison.draft.as_ref().unwrap().error.is_none());

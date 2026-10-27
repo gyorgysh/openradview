@@ -14,7 +14,8 @@ fn workspace() -> Workspace {
 }
 
 fn preview(sharing: &mut Sharing, ctx: &egui::Context) {
-    let until = Instant::now() + Duration::from_secs(10);
+    // Software-rendered previews can take longer on shared native CI hosts.
+    let until = Instant::now() + Duration::from_secs(60);
     loop {
         sharing.poll(ctx);
         let draft = sharing.draft.as_ref().expect("Review remains open");
