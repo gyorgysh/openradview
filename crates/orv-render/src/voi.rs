@@ -62,7 +62,14 @@ pub(crate) fn upload(
     cancelled: &impl Fn() -> bool,
 ) -> Result<wgpu::TextureView, &'static str> {
     let tables = data.map(|data| data.choices().luts()).unwrap_or_default();
-    let layers = tables.len().max(1) as u32;
+    // The pinned OpenGL backend infers 2D/cube targets from the allocation,
+    // without reinterpreting them for an array view. Keep a genuine array for
+    // empty/single tables and avoid square six-layer cube-compatible extents.
+    // Padding stays within the existing sixteen-table admission allowance.
+    let mut layers = tables.len().max(2) as u32;
+    if layers.is_multiple_of(6) {
+        layers += 1;
+    }
     let side = if tables.is_empty() { 1 } else { 256 };
     if side > device.limits().max_texture_dimension_2d
         || layers > device.limits().max_texture_array_layers

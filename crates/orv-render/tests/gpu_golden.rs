@@ -637,3 +637,73 @@ fn explicit_grayscale_functions_and_tables_match_known_samples_without_baking_va
     tiny.view.window.width = 1e-20;
     assert!(renderer.capture(&frame, &tiny, || false).is_ok());
 }
+
+#[test]
+fn lookup_array_layers_and_row_boundaries_match_independent_known_values() {
+    use orv_core::{
+        scalar::{ScalarData, ScalarInfo, Storage, Unit, VoiChoices, VoiLut},
+        scene::SceneState,
+    };
+    use orv_render::snapshot::SnapshotRenderer;
+    let mut frame = (*orv_core::study::demo_study().series[0].frames[0]).clone();
+    frame.width = 5;
+    frame.height = 1;
+    frame.geometry = None;
+    let indices = [0usize, 255, 256, 511, 65535];
+    let codes = [65535u16, 8192, 32768, 49151, 0];
+    frame.pixels = indices.map(|index| index as f32 - 32768.).into();
+    let mut renderer = pollster::block_on(SnapshotRenderer::new()).expect("Real GPU required");
+    // Single layers, cube-compatible counts and the maximum supported count
+    // exercise allocation target inference as well as first/last atlas rows.
+    for count in [1u16, 6, 12, 16] {
+        let tables = (0..count)
+            .map(|layer| {
+                let mut entries = vec![0u16; 65536];
+                for (index, code) in indices.into_iter().zip(codes) {
+                    entries[index] = code.wrapping_add(layer * 4096);
+                }
+                VoiLut::new(-32768, 16, entries.into()).unwrap()
+            })
+            .collect();
+        frame.scalar = Some(
+            ScalarData::new(
+                ScalarInfo {
+                    value_type: orv_core::scalar::ValueType::F32,
+                    storage: Storage::SignedInteger,
+                    stored_bits: 16,
+                    unit: Unit::Unknown,
+                    rescale: None,
+                    resampled: false,
+                },
+                VoiChoices::new(Vec::new(), tables).unwrap(),
+            )
+            .unwrap(),
+        );
+        for layer in 0..count {
+            let scene = SceneState {
+                schema_version: 1,
+                source_sha256: "0".repeat(64),
+                series_index: 0,
+                view: ViewState {
+                    window: WindowLevel::lookup(layer as u8),
+                    ..Default::default()
+                },
+                crosshair_mm: None,
+                reformat_side: 2,
+                output_size: [5, 1],
+                reconstruction: None,
+            };
+            let snapshot = renderer.capture(&frame, &scene, || false).unwrap();
+            let image = image::load_from_memory(&snapshot.png).unwrap().to_rgba8();
+            for (pixel, code) in image.pixels().zip(codes) {
+                let expected = (f64::from(code.wrapping_add(layer * 4096)) / 257.).round() as u8;
+                assert!(
+                    pixel.0[..3]
+                        .iter()
+                        .all(|value| value.abs_diff(expected) <= 1),
+                    "count={count}, layer={layer}: {pixel:?} vs {expected}"
+                );
+            }
+        }
+    }
+}
