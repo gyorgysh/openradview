@@ -111,3 +111,56 @@ fn clipped_projection_preserves_scalar_padding_and_refuses_unrepresentable_bound
             .is_err()
     );
 }
+
+#[test]
+fn physical_clip_is_invariant_to_large_world_translation() {
+    let original = volume(None, false);
+    let translation = [1_000_000., -2_000_000., 3_000_000.];
+    let shifted = Arc::new(
+        Volume::new(
+            original
+                .frames()
+                .iter()
+                .map(|frame| {
+                    let mut frame = (**frame).clone();
+                    let geometry = frame.geometry.as_mut().unwrap();
+                    geometry.position =
+                        std::array::from_fn(|axis| geometry.position[axis] + translation[axis]);
+                    Arc::new(frame)
+                })
+                .collect(),
+        )
+        .unwrap(),
+    );
+    let mut renderer = pollster::block_on(SnapshotRenderer::new()).expect("Real GPU required");
+    for projection in [Projection::Maximum, Projection::Composite] {
+        let capture = |renderer: &mut SnapshotRenderer, volume: Arc<Volume>, offset: [f64; 3]| {
+            let mut state = VolumeView::fit(&volume);
+            state.projection = projection;
+            state.camera.yaw_degrees = 23.;
+            state.camera.pitch_degrees = -18.;
+            state.camera.roll_degrees = 11.;
+            state.clip = Some(PhysicalClip {
+                minimum_mm: std::array::from_fn(|i| [0.4, 0.8, 1.][i] + offset[i]),
+                maximum_mm: std::array::from_fn(|i| [2.8, 3.6, 4.4][i] + offset[i]),
+            });
+            let mut requested = scene(
+                state,
+                WindowLevel {
+                    width: 512.,
+                    center: 256.,
+                    function: Default::default(),
+                },
+            );
+            requested.output_size = [23, 19];
+            renderer
+                .capture_volume(volume, &requested, || false)
+                .unwrap()
+                .png
+        };
+        assert_eq!(
+            capture(&mut renderer, original.clone(), [0.; 3]),
+            capture(&mut renderer, shifted.clone(), translation)
+        );
+    }
+}

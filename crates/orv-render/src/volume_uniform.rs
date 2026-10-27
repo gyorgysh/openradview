@@ -79,16 +79,22 @@ pub(crate) fn parameters(
         display.window,
     )?);
     if let Some(clip) = &state.clip {
-        if (0..3).any(|axis| clip.minimum_mm[axis] as f32 >= clip.maximum_mm[axis] as f32) {
+        // Rebase both rays and clipping bounds before f32 conversion, preserving
+        // sub-millimeter clipping at large physical coordinate offsets.
+        let reference = volume.voxel_to_world([0.; 3]);
+        let relative = |point: [f64; 3]| std::array::from_fn(|axis| point[axis] - reference[axis]);
+        let minimum = relative(clip.minimum_mm);
+        let maximum = relative(clip.maximum_mm);
+        if (0..3).any(|axis| minimum[axis] as f32 >= maximum[axis] as f32) {
             return Err("Clipping bounds are too close for this GPU coordinate precision");
         }
         for (index, vector) in [
-            rays.origin_mm,
+            relative(rays.origin_mm),
             rays.right_mm,
             rays.down_mm,
             rays.direction_unit,
-            clip.minimum_mm,
-            clip.maximum_mm,
+            minimum,
+            maximum,
         ]
         .into_iter()
         .enumerate()
