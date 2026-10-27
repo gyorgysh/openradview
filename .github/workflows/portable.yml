@@ -45,7 +45,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config binutils dpkg-dev desktop-file-utils libxkbcommon-dev libwayland-dev libvulkan1 libegl1 mesa-vulkan-drivers libegl-mesa0 libgl1-mesa-dri xvfb xauth xdg-desktop-portal xdg-desktop-portal-gtk
+          sudo apt-get install -y build-essential cmake pkg-config binutils dpkg-dev desktop-file-utils libxkbcommon-dev libxkbcommon-x11-0 libx11-xcb1 libx11-6 libxcursor1 libxi6 libxrandr2 libxcb1 libdbus-1-3 libwayland-dev libvulkan1 libegl1 mesa-vulkan-drivers libegl-mesa0 libgl1-mesa-dri xvfb xauth xdg-desktop-portal xdg-desktop-portal-gtk
       - name: Pinned Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
