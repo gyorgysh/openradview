@@ -570,6 +570,41 @@ impl Workspace {
 mod label_safety_tests {
     use super::*;
     #[test]
+    fn native_close_request_waits_for_explicit_disposition_of_unsaved_labels() {
+        let ctx = egui::Context::default();
+        let mut workspace = Workspace::default();
+        workspace.labels.dirty = true;
+        let mut input = egui::RawInput::default();
+        input
+            .viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .events
+            .push(egui::ViewportEvent::Close);
+        let mut output = ctx.run_ui(input, |ui| workspace.protect_labels_on_quit(ui.ctx()));
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::CancelClose)
+        );
+        assert!(
+            workspace.labels.dirty && workspace.pending_quit && workspace.labels.discard_question
+        );
+        output.textures_delta.clear();
+        workspace.labels.discard_question = false;
+        workspace.discard_labels = true;
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            workspace.label_discard_dialog(ui.ctx())
+        });
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::Close)
+        );
+        assert!(!workspace.labels.dirty && !workspace.pending_quit);
+        output.textures_delta.clear();
+    }
+    #[test]
     fn unsaved_labels_protect_study_closure_and_replacement() {
         let ctx = egui::Context::default();
         let mut workspace = Workspace {

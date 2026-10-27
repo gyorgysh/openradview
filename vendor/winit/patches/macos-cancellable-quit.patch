@@ -1,0 +1,50 @@
+SPDX-License-Identifier: Apache-2.0
+Subject: Route macOS application termination through cancellable window-close events
+
+--- a/src/platform_impl/macos/app_state.rs
++++ b/src/platform_impl/macos/app_state.rs
+@@ -7,6 +7,7 @@
+ use objc2::{declare_class, msg_send_id, mutability, ClassType, DeclaredClass};
+ use objc2_app_kit::{
+     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSRunningApplication,
++    NSApplicationTerminateReply, NSWindow,
+ };
+ use objc2_foundation::{MainThreadMarker, NSNotification, NSObject, NSObjectProtocol};
+ 
+@@ -14,6 +15,7 @@
+ use super::event_loop::{notify_windows_of_exit, stop_app_immediately, ActiveEventLoop, PanicInfo};
+ use super::observer::{EventLoopWaker, RunLoop};
+ use super::{menu, WindowId, DEVICE_ID};
++use super::window::WinitWindow;
+ use crate::event::{DeviceEvent, Event, StartCause, WindowEvent};
+ use crate::event_loop::{ActiveEventLoop as RootActiveEventLoop, ControlFlow};
+ use crate::window::WindowId as RootWindowId;
+@@ -69,6 +71,28 @@
+         #[method(applicationWillTerminate:)]
+         fn app_will_terminate(&self, notification: &NSNotification) {
+             self.will_terminate(notification)
++        }
++
++        #[method(applicationShouldTerminate:)]
++        fn app_should_terminate(&self, app: &NSApplication) -> NSApplicationTerminateReply {
++            if !self.ivars().is_running.get() {
++                return NSApplicationTerminateReply::NSTerminateNow;
++            }
++            let mut requested = false;
++            for window in app.windows() {
++                if window.is_kind_of::<WinitWindow>() {
++                    // WindowId is the object's address, as in WinitWindow::id.
++                    // Queue the cancellable request instead of closing native windows.
++                    let id = WindowId(&*window as *const NSWindow as usize);
++                    self.maybe_queue_window_event(id, WindowEvent::CloseRequested);
++                    requested = true;
++                }
++            }
++            if requested {
++                NSApplicationTerminateReply::NSTerminateCancel
++            } else {
++                NSApplicationTerminateReply::NSTerminateNow
++            }
+         }
+     }
+ );

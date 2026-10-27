@@ -2,6 +2,8 @@
 
 ## 1.1.0 — Unreleased
 
+- macOS Cmd+Q and menu Quit now honor the existing choice to keep or discard
+  unsaved labels and the close guard during update installation.
 - Rotate 2D/source and reformatted views by 90° and flip them horizontally or
   vertically. Cursor values, orientation letters, measurements, label overlays
   and explicit picture exports follow the display while source coordinates stay

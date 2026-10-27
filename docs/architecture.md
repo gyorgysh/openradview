@@ -93,6 +93,11 @@ meshes/brush footprints and overlays; the slice shader applies its inverse.
 Transforms participate in scene serialization/hashes and exact-view consent.
 Volume projections use their camera orientation and reject 2D transforms.
 
+The reviewed macOS windowing patch routes application termination through the
+same cancellable close requests as window closure. This lets the application
+protect unsaved labels and an update installation before exiting; it introduces
+no automatic study or label save. Other platforms retain upstream windowing.
+
 Native Linux OpenGL uses the same wgpu renderer, with downlevel device limits for
 2D/MPR. Compute-capable drivers can also use volume/MIP; other drivers receive
 an explanation when opening those views. `WGPU_BACKEND` selects an allowed native
@@ -137,6 +142,6 @@ folders keep an external/manual update path. macOS additionally checks the
 Developer ID team and Gatekeeper. Explicit restart revokes grants and protects
 unsaved labels. [Release process](github-release.md)
 
-Native codec sources, patches, licenses and file inventories are committed under
+Native codec and patched windowing sources, licenses and file inventories are committed under
 `vendor/`. Packagers verify them and include the receipts and third-party notices
 with binaries. No codec/model download occurs in the installed app.
