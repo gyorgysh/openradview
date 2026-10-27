@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.1 — 2026-10-27
+
+- Fix macOS update installation when verifying the signed application and
+  companion. Version 1.0.0 and 1.1.0 installations need a manual DMG update
+  to reach a version containing this fix.
+- Check sealed Mac bundle contents and portable package inventories before
+  replacement and backup cleanup, preserving backups when a mismatch is found.
+- Preserve the complete Windows backup while an older app or companion is
+  still running.
+
 ## 1.1.0 — 2026-10-27
 
 - Choose physical slab thickness with maximum/minimum projections in scalar
