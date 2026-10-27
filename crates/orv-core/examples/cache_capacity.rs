@@ -56,13 +56,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     file.write_all(&header)?;
     file.set_len(header.len() as u64 + u64::from(payload))?;
     drop(file);
+    let indexing = Instant::now();
     let study = index_paths(std::slice::from_ref(&input.0), || false, |_| {})?;
+    let index_ms = indexing.elapsed().as_secs_f64() * 1000.;
     let policy = memory_policy();
     let series = &study.series[0];
     let mut identities = Vec::new();
+    let mut first_decode_ms = 0.;
     let cold = Instant::now();
     for index in 0..count {
+        let started = Instant::now();
         let image = series.read_frame(index as usize, || false)?;
+        if index == 0 {
+            first_decode_ms = started.elapsed().as_secs_f64() * 1000.;
+        }
         if image.pixels.len() != usize::from(side).pow(2)
             || image.pixels.iter().any(|value| *value != 0.)
         {
@@ -93,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Closed source retained cached pixels".into());
     }
     println!(
-        "{{\"decoded_bytes\":{},\"cache_limit_bytes\":{},\"volume_limit_bytes\":{},\"retained_bytes\":{},\"cold_total_ms\":{cold_ms:.4},\"reverse_cache_hits\":{hits},\"frame_count\":{count},\"warm_median_ms\":{:.4},\"warm_p95_ms\":{:.4},\"released\":true}}",
+        "{{\"decoded_bytes\":{},\"cache_limit_bytes\":{},\"volume_limit_bytes\":{},\"retained_bytes\":{},\"index_ms\":{index_ms:.4},\"first_decode_ms\":{first_decode_ms:.4},\"cold_total_ms\":{cold_ms:.4},\"reverse_cache_hits\":{hits},\"frame_count\":{count},\"warm_median_ms\":{:.4},\"warm_p95_ms\":{:.4},\"released\":true}}",
         u64::from(count) * u64::from(side).pow(2) * 4,
         policy.cache_bytes,
         policy.volume_bytes,
