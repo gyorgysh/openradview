@@ -79,6 +79,14 @@ fn running_executable_survives_failed_then_successful_swap_and_backup_cleanup() 
     {
         assert!(install::cleanup_impl(&backup, &current, |_| Ok(())).is_err());
         assert!(old_executable.exists());
+        archive::validate_layout(&backup.join("previous"), TARGET).unwrap();
+        archive::validate_installed_content(
+            &backup.join("previous"),
+            TARGET,
+            Some("1.0.0"),
+            || false,
+        )
+        .unwrap();
     }
 
     fs::write(folder.path().join("stop"), b"stop").unwrap();

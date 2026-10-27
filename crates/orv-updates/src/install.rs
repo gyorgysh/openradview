@@ -269,10 +269,13 @@ pub(super) fn cleanup_impl(
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::fs::OpenOptionsExt;
+        let mut guards = Vec::new();
         for file in [executable_relative(), companion_relative()] {
             let path = backup.join("previous").join(file);
             if path.exists() {
-                fs::OpenOptions::new().read(true).share_mode(0).open(path).map_err(|_| "The previous app or companion is still running; its backup was preserved.")?;
+                // Windows may allow a read-only exclusive open of a running
+                // mapped image even though deleting that image will fail.
+                guards.push(fs::OpenOptions::new().read(true).write(true).share_mode(0).open(path).map_err(|_| "The previous app or companion is still running or cannot be checked; its backup was preserved.")?);
             }
         }
     }
