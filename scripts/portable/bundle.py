@@ -25,7 +25,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import update_protocol
 
 TARGETS = {"x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-gnu", "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"}
-SYSTEM_DLLS = {"kernel32.dll", "ntdll.dll", "shell32.dll", "user32.dll", "dwmapi.dll", "imm32.dll", "userenv.dll", "uxtheme.dll", "ws2_32.dll", "bcryptprimitives.dll", "bcrypt.dll", "dxgi.dll", "gdi32.dll", "ole32.dll", "oleaut32.dll", "propsys.dll", "setupapi.dll", "uiautomationcore.dll", "combase.dll", "rpcrt4.dll", "advapi32.dll", "d3d12.dll", "d3dcompiler_47.dll", "dwrite.dll", "crypt32.dll", "secur32.dll", "winmm.dll", "version.dll", "shcore.dll", "ucrtbase.dll", "dbghelp.dll", "dinput8.dll"}
+# Microsoft system information bindings link PDH, Power Profile and PSAPI.
+# These OS libraries are not third-party runtime files to copy into the archive.
+SYSTEM_DLLS = {"kernel32.dll", "ntdll.dll", "shell32.dll", "user32.dll", "dwmapi.dll", "imm32.dll", "userenv.dll", "uxtheme.dll", "ws2_32.dll", "bcryptprimitives.dll", "bcrypt.dll", "dxgi.dll", "gdi32.dll", "ole32.dll", "oleaut32.dll", "propsys.dll", "setupapi.dll", "uiautomationcore.dll", "combase.dll", "rpcrt4.dll", "advapi32.dll", "d3d12.dll", "d3dcompiler_47.dll", "dwrite.dll", "crypt32.dll", "secur32.dll", "winmm.dll", "version.dll", "shcore.dll", "ucrtbase.dll", "dbghelp.dll", "dinput8.dll", "pdh.dll", "powrprof.dll", "psapi.dll"}
 
 def run(args, *, env=None):
     return subprocess.check_output(args, cwd=ROOT, env=env, text=True).strip()
