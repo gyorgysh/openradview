@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+const CONTENT: Tag = Tag(0x0020, 0x9111);
+const IN_STACK: Tag = Tag(0x0020, 0x9057);
 use dicom_core::{DataElement, DicomValue, Length, PrimitiveValue, Tag, VR};
 use dicom_object::{DefaultDicomObject, InMemDicomObject as Object};
 
@@ -48,8 +50,17 @@ fn enhanced(equal_pixels: bool) -> DefaultDicomObject {
         ),
     ]);
     object.put(sequence(Tag(0x5200, 0x9229), vec![shared]));
+    object.put(sequence(
+        Tag(0x0020, 0x9221),
+        vec![Object::from_element_iter([DataElement::new(
+            Tag(0x0020, 0x9164),
+            VR::UI,
+            "2.25.550001",
+        )])],
+    ));
     let dimensions = [Tag(0x0020, 0x9128), Tag(0x0020, 0x9057)].map(|pointer| {
         Object::from_element_iter([
+            DataElement::new(Tag(0x0020, 0x9164), VR::UI, "2.25.550001"),
             DataElement::new(
                 Tag(0x0020, 0x9165),
                 VR::AT,
@@ -560,4 +571,192 @@ fn acquisition_partition_count_is_bounded_before_decoding() {
         index_paths(&[path], || false, |_| {}),
         Err(LoadError::Limit)
     ));
+}
+
+#[test]
+fn dimension_organizations_and_actual_stack_ids_cannot_merge_unrelated_objects() {
+    for variant in 0..3 {
+        let temp = Temp::new();
+        let mut paths = Vec::new();
+        for part in 0..2 {
+            let mut encoded = Vec::new();
+            enhanced(false).write_all(&mut encoded).unwrap();
+            let mut object = dicom_object::from_reader(std::io::Cursor::new(encoded)).unwrap();
+            let uid = format!("2.25.55000{}", if variant == 0 { part + 1 } else { 1 });
+            let instance = format!("2.25.99000{}", part + 1);
+            object.put_str(Tag(0x0008, 0x0018), VR::UI, &instance);
+            object.update_meta(|meta| meta.media_storage_sop_instance_uid = instance);
+            object.put(sequence(
+                Tag(0x0020, 0x9221),
+                vec![Object::from_element_iter([DataElement::new(
+                    Tag(0x0020, 0x9164),
+                    VR::UI,
+                    uid.as_str(),
+                )])],
+            ));
+            let mut dimensions = object
+                .element(Tag(0x0020, 0x9222))
+                .unwrap()
+                .items()
+                .unwrap()
+                .to_vec();
+            for dimension in &mut dimensions {
+                dimension.put_str(Tag(0x0020, 0x9164), VR::UI, &uid);
+            }
+            if variant == 1 {
+                dimensions.push(Object::from_element_iter([
+                    DataElement::new(Tag(0x0020, 0x9164), VR::UI, uid.as_str()),
+                    DataElement::new(
+                        Tag(0x0020, 0x9165),
+                        VR::AT,
+                        PrimitiveValue::Tags(vec![Tag(0x0020, 0x9056)].into()),
+                    ),
+                    DataElement::new(
+                        Tag(0x0020, 0x9167),
+                        VR::AT,
+                        PrimitiveValue::Tags(vec![Tag(0x0020, 0x9111)].into()),
+                    ),
+                ]));
+            }
+            object.put(sequence(Tag(0x0020, 0x9222), dimensions));
+            let mut frames = object
+                .element(Tag(0x5200, 0x9230))
+                .unwrap()
+                .items()
+                .unwrap()
+                .to_vec();
+            for frame in &mut frames {
+                let mut position =
+                    frame.element(Tag(0x0020, 0x9113)).unwrap().items().unwrap()[0].clone();
+                let values = position
+                    .element(Tag(0x0020, 0x0032))
+                    .unwrap()
+                    .to_multi_float64()
+                    .unwrap();
+                position.put_str(
+                    Tag(0x0020, 0x0032),
+                    VR::DS,
+                    format!(
+                        "{}\\{}\\{}",
+                        values[0] + 0.75 * f64::from(part),
+                        values[1] + 1.5 * f64::from(part),
+                        values[2] + 9. * f64::from(part)
+                    ),
+                );
+                frame.put(sequence(Tag(0x0020, 0x9113), vec![position]));
+                let mut content = frame.element(CONTENT).unwrap().items().unwrap()[0].clone();
+                let mut indices = content
+                    .element(Tag(0x0020, 0x9157))
+                    .unwrap()
+                    .to_multi_int::<u32>()
+                    .unwrap();
+                if variant == 1 {
+                    content.put_str(
+                        Tag(0x0020, 0x9056),
+                        VR::SH,
+                        if part == 0 {
+                            "private-stack-a"
+                        } else {
+                            "private-stack-b"
+                        },
+                    );
+                    indices.push(1); // Contradictory ordinals must not conceal different actual stacks.
+                } else if variant == 2 {
+                    let position = content
+                        .element(Tag(0x0020, 0x9057))
+                        .unwrap()
+                        .to_int::<u32>()
+                        .unwrap()
+                        + part as u32 * 3;
+                    content.put(DataElement::new(
+                        Tag(0x0020, 0x9057),
+                        VR::UL,
+                        PrimitiveValue::from(position),
+                    ));
+                    indices[1] += part as u32 * 3;
+                }
+                content.put(DataElement::new(
+                    Tag(0x0020, 0x9157),
+                    VR::UL,
+                    PrimitiveValue::U32(indices.into()),
+                ));
+                frame.put(sequence(CONTENT, vec![content]));
+            }
+            object.put(sequence(Tag(0x5200, 0x9230), frames));
+            let path = temp.0.join(format!("part-{part}.dcm"));
+            object.write_to_file(&path).unwrap();
+            paths.push(path);
+        }
+        let study = index_paths(&paths, || false, |_| {}).unwrap();
+        assert_eq!(
+            study.series.len(),
+            if variant == 2 { 2 } else { 4 },
+            "organization/stack variant {variant}"
+        );
+        for series in study.series {
+            assert_eq!(series.frame_count(), if variant == 2 { 6 } else { 3 });
+            assert!(series.volume(|| false).is_ok());
+            let metadata = serde_json::to_string(&crate::scene::ImageMetadata::from_frame(
+                &series.read_frame(0, || false).unwrap(),
+            ))
+            .unwrap();
+            assert!(!metadata.contains("private-stack") && !metadata.contains("2.25.55000"));
+        }
+    }
+}
+
+#[test]
+fn dimension_ordinals_are_independent_of_actual_positions_and_need_declared_scope() {
+    let mut encoded = Vec::new();
+    enhanced(false).write_all(&mut encoded).unwrap();
+    let mut object = dicom_object::from_reader(std::io::Cursor::new(encoded)).unwrap();
+    let mut frames = object
+        .element(Tag(0x5200, 0x9230))
+        .unwrap()
+        .items()
+        .unwrap()
+        .to_vec();
+    for frame in &mut frames {
+        let mut content = frame.element(CONTENT).unwrap().items().unwrap()[0].clone();
+        let position = content.element(IN_STACK).unwrap().to_int::<u32>().unwrap();
+        content.put(DataElement::new(
+            IN_STACK,
+            VR::UL,
+            PrimitiveValue::from(position + 100),
+        ));
+        frame.put(sequence(CONTENT, vec![content]));
+    }
+    object.put(sequence(Tag(0x5200, 0x9230), frames));
+    let spatial = crate::dicom_geometry::read(&object, 6, &|| false).unwrap();
+    assert!(spatial.frames.iter().all(|frame| frame.geometry.is_some()));
+    for variant in 0..3 {
+        let mut invalid = object.clone();
+        match variant {
+            0 => {
+                invalid.remove_element(Tag(0x0020, 0x9221));
+            }
+            1 => {
+                invalid.put(sequence(
+                    Tag(0x0020, 0x9221),
+                    vec![Object::from_element_iter([DataElement::new(
+                        Tag(0x0020, 0x9164),
+                        VR::UI,
+                        "2.25.777777",
+                    )])],
+                ));
+            }
+            _ => {
+                invalid.put(sequence(
+                    Tag(0x0020, 0x9221),
+                    vec![Object::from_element_iter([DataElement::new(
+                        Tag(0x0020, 0x9164),
+                        VR::UI,
+                        "invalid",
+                    )])],
+                ));
+            }
+        }
+        let spatial = crate::dicom_geometry::read(&invalid, 6, &|| false).unwrap();
+        assert!(spatial.frames.iter().all(|frame| frame.geometry.is_none()));
+    }
 }

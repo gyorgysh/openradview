@@ -42,8 +42,10 @@ applied profile hash, with display calibration explicitly unverified.
 
 Enhanced CT, MR/MR Color and PET can use explicit shared/per-frame patient
 position, orientation and pixel spacing. Spatial reconstruction requires a complete
-dimension-index table with a matching in-stack index, valid regular geometry and
-consistent reference. Time, echo, diffusion, complex components and other declared
+dimension-index table, declared dimension organizations, a positive in-stack
+position, valid regular geometry and consistent reference. Ordinals are scoped
+to their organization; they are not assumed to equal the indexed values. Stack
+identities stay separate, including across source objects. Time, echo, diffusion, complex components and other declared
 nonspatial indices form separate acquisitions. Classical echo/time context is
 also separated. Acquisition labels use generated numbers, not patient tags.
 Missing/incomplete geometry, unresolved mixed components and sampled/distorted

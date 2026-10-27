@@ -171,25 +171,33 @@ fn supported_mapping(context: &Object) -> Result<(), LoadError> {
     Ok(())
 }
 
-// Numeric acquisition context is separated from patient names, free text and UIDs.
+// Acquisition partitions retain only an opaque digest, never raw scope or stack labels.
 fn acquisition(
     object: &Object,
     shared: Option<&Object>,
     frame: Option<&Object>,
     dimensions: &[(Tag, Tag)],
     values: &[u32],
+    organizations: &[Option<String>],
 ) -> Result<Option<[u8; 32]>, LoadError> {
     let mut hash = Sha256::new();
     let mut count = 0u32;
-    for ((tag, group), value) in dimensions.iter().zip(values) {
-        if *tag == IN_STACK && *group == CONTENT {
-            continue;
-        }
+    for (index, ((tag, group), value)) in dimensions.iter().zip(values).enumerate() {
+        // Ordinals have meaning only inside their declared organization, including
+        // the spatial index's scope. Opaque hashing retains no identifying text.
         hash.update(tag.0.to_le_bytes());
         hash.update(tag.1.to_le_bytes());
         hash.update(group.0.to_le_bytes());
         hash.update(group.1.to_le_bytes());
-        hash.update(value.to_le_bytes());
+        if let Some(Some(organization)) = organizations.get(index) {
+            hash.update((organization.len() as u32).to_le_bytes());
+            hash.update(organization.as_bytes());
+        } else {
+            hash.update(0u32.to_le_bytes());
+        }
+        if *tag != IN_STACK || *group != CONTENT {
+            hash.update(value.to_le_bytes());
+        }
         count += 1;
     }
     for tag in [
@@ -234,6 +242,19 @@ fn acquisition(
         (Tag(0x0018, 0x9117), &[Tag(0x0018, 0x9087)][..]),
     ] {
         if let Some(context) = group(shared, frame, sequence)? {
+            if sequence == CONTENT && context.element(Tag(0x0020, 0x9056)).is_ok() {
+                let stack = text(context, Tag(0x0020, 0x9056));
+                if stack.is_empty()
+                    || stack.chars().count() > 16
+                    || stack.chars().any(|c| c.is_control() || c == '\\')
+                {
+                    return Err(LoadError::Unsupported);
+                }
+                hash.update(b"Stack identity v1\0");
+                hash.update((stack.len() as u32).to_le_bytes());
+                hash.update(stack.as_bytes());
+                count += 1;
+            }
             for tag in tags {
                 if context.element(*tag).is_ok() {
                     let value = numbers::<1>(context, *tag).ok_or(LoadError::Unsupported)?[0];
@@ -324,7 +345,7 @@ pub(crate) fn read(
     if shared.is_some_and(|shared| shared.element(CONTENT).is_ok()) {
         return Err(LoadError::Unsupported);
     }
-    let base_acquisition = acquisition(object, shared, None, &[], &[])?;
+    let base_acquisition = acquisition(object, shared, None, &[], &[], &[])?;
     let allowed = spatial_allowed(object, frame_type(shared, None)?);
     let classic = (frames == 1 && shared.is_none() && per_frame.is_none() && allowed)
         .then(|| geometry(object, object, object, reference(object)))
@@ -347,7 +368,25 @@ pub(crate) fn read(
             | "1.2.840.10008.5.1.4.1.1.4.3"
             | "1.2.840.10008.5.1.4.1.1.130"
     );
+    let declared_organizations = object
+        .element(Tag(0x0020, 0x9221))
+        .ok()
+        .and_then(|value| value.value().items())
+        .filter(|items| !items.is_empty() && items.len() <= 16)
+        .and_then(|items| {
+            let mut result = Vec::new();
+            for item in items {
+                let uid = text(item, Tag(0x0020, 0x9164));
+                if !crate::load::valid_identifier(&uid) || result.contains(&uid) {
+                    return None;
+                }
+                result.push(uid);
+            }
+            Some(result)
+        })
+        .unwrap_or_default();
     let mut dimensions = Vec::new();
+    let mut organizations = Vec::new();
     if let Ok(sequence) = object.element(Tag(0x0020, 0x9222)) {
         let items = sequence.value().items().ok_or(LoadError::Unsupported)?;
         if items.is_empty() || items.len() > 16 {
@@ -360,6 +399,12 @@ pub(crate) fn read(
                 return Err(LoadError::Unsupported);
             }
             dimensions.push((pointer, group));
+            let organization = text(item, Tag(0x0020, 0x9164));
+            organizations.push(
+                declared_organizations
+                    .contains(&organization)
+                    .then_some(organization),
+            );
         }
     }
     for frame in per_frame {
@@ -385,23 +430,28 @@ pub(crate) fn read(
             .transpose()?
             .unwrap_or_default();
         let complete = !dimensions.is_empty()
+            && organizations.iter().all(Option::is_some)
             && values.len() == dimensions.len()
             && values.iter().all(|value| *value > 0)
             && content.is_none_or(|content| {
                 content.element(Tag(0x0020, 0x9056)).is_err()
                     || dimensions.contains(&(Tag(0x0020, 0x9056), CONTENT))
             })
-            && dimensions
-                .iter()
-                .zip(&values)
-                .any(|((tag, macro_tag), value)| {
-                    *tag == IN_STACK
-                        && *macro_tag == CONTENT
-                        && content
-                            .and_then(|item| item.element(IN_STACK).ok()?.to_int::<u32>().ok())
-                            == Some(*value)
-                });
-        let frame_acquisition = acquisition(object, shared, Some(frame), &dimensions, &values)?;
+            && dimensions.iter().zip(&values).any(|((tag, macro_tag), _)| {
+                *tag == IN_STACK
+                    && *macro_tag == CONTENT
+                    && content
+                        .and_then(|item| item.element(IN_STACK).ok()?.to_int::<u32>().ok())
+                        .is_some_and(|position| position > 0)
+            });
+        let frame_acquisition = acquisition(
+            object,
+            shared,
+            Some(frame),
+            &dimensions,
+            &values,
+            &organizations,
+        )?;
         let geometry =
             if enhanced && spatial_allowed(object, frame_type(shared, Some(frame))?) && complete {
                 position.zip(orientation).zip(measures).and_then(
