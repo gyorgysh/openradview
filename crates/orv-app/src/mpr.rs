@@ -46,6 +46,7 @@ pub struct MprSession {
     layout: Layout,
     reformat_side: u32,
     last_input: std::time::Instant,
+    slab: Option<orv_core::slab::Slab>,
 }
 impl MprSession {
     pub(super) fn active_index(&self) -> usize {
@@ -57,15 +58,10 @@ impl MprSession {
         }
     }
     pub(crate) fn picture(&self) -> Option<(crate::export::Pixels, [u32; 2])> {
-        let (spec, true) = self.shared_view()? else {
+        let (_, true) = self.shared_view()? else {
             return None;
         };
-        let index = match spec.view.plane {
-            orv_core::Plane::Axial => 0,
-            orv_core::Plane::Coronal => 1,
-            orv_core::Plane::Sagittal => 2,
-            _ => return None,
-        };
+        let index = self.active_index();
         Some((
             crate::export::Pixels::Reformat(
                 self.snapshot.as_ref()?.images[index].clone(),
@@ -102,6 +98,7 @@ impl MprSession {
             layout: Layout::Grid,
             reformat_side: 512,
             last_input: std::time::Instant::now(),
+            slab: None,
         }
     }
     pub(super) fn request(&mut self, volume: &orv_core::volume::Volume, point: [f64; 3]) {
@@ -116,7 +113,8 @@ impl MprSession {
         }
         self.target = Some(point);
         self.last_input = std::time::Instant::now();
-        self.worker.request_interactive(point, self.reformat_side);
+        self.worker
+            .request_slab(point, self.reformat_side, self.slab);
     }
     pub(super) fn is_settled(&self) -> bool {
         self.snapshot
@@ -194,51 +192,68 @@ impl MprSession {
             });
         }
         crate::view_context::show(ui, &snapshot.volume.frames()[0]);
-        let active = self.active_index();
         for (index, image) in snapshot.images.iter().enumerate() {
             self.annotations[index].bind_image(image, &self.views[index]);
         }
-        if controls::tools(ui, &mut self.tool, true, !color, |ui| {
-            controls::orientation(ui, &mut self.views[active].transform);
-            egui::ComboBox::from_id_salt("mpr-layout")
-                .wrap_mode(egui::TextWrapMode::Extend)
-                .selected_text(self.layout.label())
-                .show_ui(ui, |ui| {
-                    for layout in [
-                        Layout::Grid,
-                        Layout::Columns,
-                        Layout::Axial,
-                        Layout::Coronal,
-                        Layout::Sagittal,
-                    ] {
-                        ui.selectable_value(&mut self.layout, layout, layout.label());
+        if self.slab.is_some() && self.tool.measures() {
+            self.tool = Tool::Pan;
+        }
+        controls::display_panel(ui, "mpr-display-controls", |ui| {
+            let active = self.active_index();
+            if controls::tools_with_measurements(
+                ui,
+                &mut self.tool,
+                true,
+                !color,
+                snapshot.images[0].slab.is_none() && self.slab.is_none(),
+                |ui| {
+                    controls::orientation(ui, &mut self.views[active].transform);
+                    egui::ComboBox::from_id_salt("mpr-layout")
+                        .wrap_mode(egui::TextWrapMode::Extend)
+                        .selected_text(self.layout.label())
+                        .show_ui(ui, |ui| {
+                            for layout in [
+                                Layout::Grid,
+                                Layout::Columns,
+                                Layout::Axial,
+                                Layout::Coronal,
+                                Layout::Sagittal,
+                            ] {
+                                ui.selectable_value(&mut self.layout, layout, layout.label());
+                            }
+                        });
+                    self.annotations[active].controls(ui);
+                    if ui.button("Clear all panes").clicked() {
+                        for a in &mut self.annotations {
+                            a.clear();
+                        }
                     }
-                });
-            self.annotations[active].controls(ui);
-            if ui.button("Clear all panes").clicked() {
-                for a in &mut self.annotations {
-                    a.clear();
+                },
+            ) {
+                for view in &mut self.views {
+                    view.zoom = 1.;
+                    view.pan = [0.; 2];
                 }
             }
-        }) {
-            for view in &mut self.views {
-                view.zoom = 1.;
-                view.pan = [0.; 2];
+            if color {
+                controls::color_display(ui, &mut self.invert, snapshot.volume.color_info());
+            } else {
+                controls::window(
+                    ui,
+                    &mut self.window,
+                    &mut self.invert,
+                    self.original_window,
+                    snapshot.volume.frames()[0]
+                        .scalar
+                        .as_ref()
+                        .map(|data| &**data.choices()),
+                );
             }
-        }
-        if color {
-            controls::color_display(ui, &mut self.invert, snapshot.volume.color_info());
-        } else {
-            controls::window(
-                ui,
-                &mut self.window,
-                &mut self.invert,
-                self.original_window,
-                snapshot.volume.frames()[0]
-                    .scalar
-                    .as_ref()
-                    .map(|data| &**data.choices()),
-            );
+        });
+        if !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume) {
+            let point = self.target.unwrap_or(snapshot.point);
+            self.target = None;
+            self.request(&snapshot.volume, point);
         }
         let pending = self.worker.generation() != snapshot.generation || snapshot.preview;
         let elapsed = self.last_input.elapsed();
@@ -250,7 +265,7 @@ impl MprSession {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(250) - elapsed);
         }
-        let size = Vec2::new(content_width, ui.available_height().max(160.));
+        let size = Vec2::new(content_width, ui.available_height().max(60.));
         let (area, _) = ui.allocate_exact_size(size, egui::Sense::hover());
         let gap = 12.0;
         let mut paints = Vec::with_capacity(3);
@@ -335,12 +350,32 @@ impl MprSession {
         let index = self.active_index();
         let mut view = self.views[index].clone();
         view.slice = 0;
+        let reconstruction = if let Some(slab) = snapshot.images[index].slab {
+            view.plane = orv_core::Plane::Acquired;
+            Some(orv_core::scene::Reconstruction::Slab(
+                orv_core::slab::SlabPlane {
+                    plane: orv_core::oblique::ObliquePlane::anatomical(
+                        PLANES[index],
+                        snapshot.point,
+                    )
+                    .ok()?,
+                    slab,
+                },
+            ))
+        } else {
+            None
+        };
+        let point = if reconstruction.is_some() {
+            None
+        } else {
+            Some(snapshot.point)
+        };
         Some((
             crate::rendered::ViewSpec {
                 view,
-                point: Some(snapshot.point),
+                point,
                 reformat_side: snapshot.reformat_side,
-                reconstruction: None,
+                reconstruction,
                 preferred_size: None,
             },
             snapshot.generation == self.worker.generation() && !snapshot.preview,
@@ -364,6 +399,7 @@ impl MprSession {
         self.invert = scene.view.invert;
         self.views[self.active] = scene.view.clone();
         self.reformat_side = scene.reformat_side;
+        self.slab = None;
         if let Some(point) = scene.crosshair_mm {
             self.target = Some(point);
             self.last_input = std::time::Instant::now();

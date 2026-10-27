@@ -135,6 +135,7 @@ pub(super) fn decode(
         let presentation =
             crate::dicom_color::present(&object, decoded.as_ref(), color, 0, padding, cancelled)?;
         return Ok(Arc::new(Frame {
+            slab: None,
             scalar: None,
             validity: None,
             color: Some(presentation.source),
@@ -178,6 +179,7 @@ pub(super) fn decode(
         .original()
         .unwrap_or_else(|| crate::dicom_padding::automatic_window(&pixels, validity.as_deref()));
     Ok(Arc::new(Frame {
+        slab: None,
         scalar: Some(scalar),
         validity,
         color: None,

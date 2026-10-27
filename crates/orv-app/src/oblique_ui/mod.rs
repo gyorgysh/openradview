@@ -22,6 +22,7 @@ pub struct ObliqueSession {
     target: Option<ObliquePlane>,
     base: Option<ObliquePlane>,
     reformat_side: u32,
+    slab: Option<orv_core::slab::Slab>,
     view: ViewState,
     original_window: WindowLevel,
     tool: Tool,
@@ -58,6 +59,7 @@ impl ObliqueSession {
             target: None,
             base: None,
             reformat_side: 512,
+            slab: None,
             view: ViewState {
                 window,
                 ..Default::default()
@@ -132,26 +134,40 @@ impl ObliqueSession {
         }
         self.annotations.bind_image(&snapshot.image, &self.view);
         crate::view_context::show(ui, &snapshot.image);
-        if controls::tools(ui, &mut self.tool, false, !color, |ui| {
-            controls::orientation(ui, &mut self.view.transform);
-            self.annotations.controls(ui);
-        }) {
-            self.fit();
+        if self.slab.is_some() && self.tool.measures() {
+            self.tool = Tool::Pan;
         }
-        if color {
-            controls::color_display(ui, &mut self.view.invert, snapshot.volume.color_info());
-        } else {
-            controls::window(
+        controls::display_panel(ui, "oblique-display-controls", |ui| {
+            if controls::tools_with_measurements(
                 ui,
-                &mut self.view.window,
-                &mut self.view.invert,
-                self.original_window,
-                snapshot.volume.frames()[0]
-                    .scalar
-                    .as_ref()
-                    .map(|data| &**data.choices()),
-            );
-        }
+                &mut self.tool,
+                false,
+                !color,
+                snapshot.image.slab.is_none() && self.slab.is_none(),
+                |ui| {
+                    controls::orientation(ui, &mut self.view.transform);
+                    self.annotations.controls(ui);
+                },
+            ) {
+                self.fit();
+            }
+            if color {
+                controls::color_display(ui, &mut self.view.invert, snapshot.volume.color_info());
+            } else {
+                controls::window(
+                    ui,
+                    &mut self.view.window,
+                    &mut self.view.invert,
+                    self.original_window,
+                    snapshot.volume.frames()[0]
+                        .scalar
+                        .as_ref()
+                        .map(|data| &**data.choices()),
+                );
+            }
+        });
+        let slab_changed =
+            !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume);
         let controls = egui::CollapsingHeader::new("Plane controls")
             .default_open(width >= 800.)
             .show(ui, |ui| self.plane_controls(ui, &snapshot.volume));
@@ -204,8 +220,9 @@ impl ObliqueSession {
             plane.center_mm =
                 std::array::from_fn(|i| plane.center_mm[i] + normal[i] * self.offset_mm);
         }
-        if self.target.as_ref() != Some(&plane) {
-            self.worker.request(plane.clone(), self.reformat_side);
+        if self.target.as_ref() != Some(&plane) || slab_changed {
+            self.worker
+                .request_projection(plane.clone(), self.reformat_side, self.slab, true);
             self.target = Some(plane);
         }
         self.picture_size = Some(crate::rendered::picture_size(
@@ -218,7 +235,11 @@ impl ObliqueSession {
             snapshot.image.clone(),
             &self.view,
             4,
-            "OBLIQUE · RESEARCH ONLY",
+            if snapshot.image.slab.is_some() {
+                "SLAB PROJECTION · RESEARCH ONLY"
+            } else {
+                "OBLIQUE · RESEARCH ONLY"
+            },
         );
         crate::image_overlay::draw(ui, &response, &snapshot.image, &self.view);
         self.annotations
@@ -226,7 +247,9 @@ impl ObliqueSession {
         self.annotations
             .status_overlay(ui, response.rect, self.tool);
         let [l, p, s] = snapshot.plane.center_mm;
-        let status = if snapshot.generation == self.worker.generation() {
+        let status = if snapshot.preview {
+            "Preview · refining"
+        } else if snapshot.generation == self.worker.generation() {
             "Rendered"
         } else {
             "Updating · previous plane shown"

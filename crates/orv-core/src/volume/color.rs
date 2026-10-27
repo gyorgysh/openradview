@@ -104,6 +104,7 @@ impl Volume {
             })
         });
         Ok(Arc::new(Frame {
+            slab: None,
             scalar: None,
             validity: None,
             color,
@@ -156,6 +157,7 @@ mod tests {
             (0..2)
                 .map(|z| {
                     Arc::new(Frame {
+                        slab: None,
                         scalar: None,
                         validity: None,
                         color: Some(Arc::new(ColorData {

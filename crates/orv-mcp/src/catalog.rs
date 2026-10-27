@@ -31,7 +31,8 @@ pub enum Resolved {
 impl Resolved {
     pub fn image(&self) -> Result<&Frame, &'static str> {
         match self {
-            Self::Image(frame) => Ok(frame),
+            Self::Image(frame) if frame.slab.is_none() => Ok(frame),
+            Self::Image(_) => Err("Slab projections have no physical measurement plane"),
             Self::Volume(_) => Err(
                 "Projected volume views have no physical image plane; choose a slice or oblique plane",
             ),
@@ -146,6 +147,12 @@ impl PreparedSeries {
         match &scene.reconstruction {
             Some(Reconstruction::Volume(_)) => {
                 return Err("Volume projections require volume resolution");
+            }
+            Some(Reconstruction::Slab(state)) => {
+                return self
+                    .prepared_volume(&cancelled)?
+                    .reformat_slab(&state.plane, state.slab, scene.reformat_side, cancelled)
+                    .map_err(|_| "The scalar slab projection could not be completed");
             }
             Some(Reconstruction::Oblique(plane)) => {
                 return self

@@ -29,6 +29,7 @@ fn snapshot() -> Snapshot {
             png_sha256: hex(&Sha256::digest(&png)),
             scene,
             image: Some(ImageMetadata {
+                slab: None,
                 scalar: None,
                 color: None,
                 nifti: None,

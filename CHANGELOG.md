@@ -2,6 +2,11 @@
 
 ## 1.1.0 — Unreleased
 
+- Choose physical slab thickness with maximum/minimum projections in scalar
+  linked MPR and oblique views. Bounded previews refine after interaction; missing
+  samples stay excluded. Slab readouts/metadata identify projections, and physical
+  measurements stay disabled until a thin plane is selected.
+
 - Clip experimental 3D/MIP views with explicit physical LPS bounds. Clipping
   participates in exact-view approval and picture metadata; source data stays intact.
 

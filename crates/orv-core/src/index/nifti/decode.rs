@@ -87,6 +87,7 @@ impl Nifti {
         }
         let geometry = self.frame_geometry(header, frame);
         Ok(Arc::new(Frame {
+            slab: None,
             scalar: header.scalar.get(frame).cloned(),
             validity: None,
             color: None,

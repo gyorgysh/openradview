@@ -136,6 +136,7 @@ mod range_tests {
             let frames = (0..2)
                 .map(|z| {
                     Arc::new(Frame {
+                        slab: None,
                         scalar: None,
                         validity: Some([0, 1, 1, 1].into()),
                         color: None,

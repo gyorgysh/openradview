@@ -31,6 +31,7 @@ fn three_gpu_viewports_keep_independent_images_and_display_settings() {
                 slot: i,
                 repaint: egui::Context::default(),
                 image: Arc::new(Frame {
+                    slab: None,
                     scalar: None,
                     validity: None,
                     color: None,

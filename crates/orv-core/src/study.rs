@@ -49,6 +49,7 @@ impl Geometry {
 
 #[derive(Clone, Debug)]
 pub struct Frame {
+    pub slab: Option<crate::slab::Slab>,
     pub scalar: Option<Arc<crate::scalar::ScalarData>>,
     /// Optional scalar source mask: 0 is DICOM padding, 1 is a sample. Derived
     /// scalar no-data uses NaN; color validity uses RGBA alpha. No mask means
@@ -119,6 +120,11 @@ impl Frame {
     pub fn valid_dimensions(&self) -> bool {
         let count = u64::from(self.width) * u64::from(self.height);
         self.width > 0
+            && self.slab.is_none_or(|slab| {
+                slab.validate().is_ok()
+                    && self.rgba.is_none()
+                    && self.geometry.as_ref().is_some_and(|g| g.validate().is_ok())
+            })
             && self.height > 0
             && (self.scalar.is_none() || self.rgba.is_none())
             && self.validity.as_ref().is_none_or(|mask| {
@@ -328,6 +334,7 @@ pub fn demo_study() -> Study {
             }
         }
         frames.push(Arc::new(Frame {
+            slab: None,
             scalar: None,
             validity: None,
             color: None,

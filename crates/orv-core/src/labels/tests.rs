@@ -7,6 +7,7 @@ fn source() -> Arc<Volume> {
             (0..3)
                 .map(|z| {
                     Arc::new(Frame {
+                        slab: None,
                         scalar: None,
                         validity: None,
                         color: None,

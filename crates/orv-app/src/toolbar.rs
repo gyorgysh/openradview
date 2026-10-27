@@ -19,6 +19,7 @@ pub fn row<R>(
     contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::InnerResponse<R> {
     ui.scope(|ui| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let content_height = ui
             .text_style_height(&egui::TextStyle::Button)
             .max(ui.spacing().icon_width);

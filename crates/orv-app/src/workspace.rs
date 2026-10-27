@@ -353,6 +353,7 @@ impl Workspace {
         }
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             ui.spacing_mut().button_padding = egui::vec2(10., 5.);
             if ui
                 .add_enabled(self.loading.is_none(), egui::Button::new("Open files"))
@@ -400,11 +401,17 @@ impl Workspace {
                 ui.selectable_value(&mut mode, ViewMode::Mpr, "Linked MPR");
                 ui.selectable_value(&mut mode, ViewMode::Volume, "3D / MIP");
                 ui.selectable_value(&mut mode, ViewMode::Oblique, "Oblique");
-                ui.add_enabled_ui(self.study.as_ref().is_some_and(|study| study.series.len() > 1), |ui| { ui.selectable_value(&mut mode, ViewMode::Compare, "Compare series"); });
+                if ui.add_enabled(
+                    self.study.as_ref().is_some_and(|study| study.series.len() > 1),
+                    egui::Button::selectable(mode == ViewMode::Compare, "Compare series"),
+                ).clicked() { mode = ViewMode::Compare; }
                 if mode != self.mode { self.set_mode(mode, ui.ctx()); }
             }
             #[cfg(feature = "mcp")]
-            self.agent_toolbar(ui);
+            {
+                if ui.available_width() < 400. { ui.end_row(); }
+                self.agent_toolbar(ui);
+            }
             if let Some(task) = &self.loading {
                 ui.label(format!(
                     "Indexing · {} files",

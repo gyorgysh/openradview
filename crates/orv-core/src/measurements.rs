@@ -52,6 +52,9 @@ pub fn roi_stats_cancellable(
     if cancelled() {
         return Err("Cancelled");
     }
+    if frame.slab.is_some() {
+        return Err("Slab projections are not physical measurement planes");
+    }
     if frame.rgba.is_some() {
         return Err("ROI statistics need scalar images; color channels are not modality values");
     }

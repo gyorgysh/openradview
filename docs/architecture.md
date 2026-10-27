@@ -113,6 +113,13 @@ unchanged. The source-to-viewport map is shared by probes, measurements, label
 meshes/brush footprints and overlays; the slice shader applies its inverse.
 Transforms participate in scene serialization/hashes and exact-view consent.
 Volume projections use their camera orientation and reject 2D transforms.
+Scalar slabs sample bounded discrete extrema along an explicit physical plane
+normal, excluding missing samples before display mapping. CPU workers publish a
+small coherent preview, then refine once input is quiet. Projection parameters
+and the sampling grid travel through scenes/snapshots; public image metadata does
+not label them as measurement geometry. Measurements refuse projected frames.
+No full-depth projection buffer, source copy or persistence is introduced.
+
 Optional physical LPS clipping intersects the original affine source ray domain
 before sampling. It changes neither source data nor opacity distance units; its
 validated bounds participate in scene hashes, exact approval and snapshots.

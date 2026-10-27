@@ -31,7 +31,13 @@ sagittal planes through one linked point; choose Crosshair to move that point.
 **Oblique** adds explicit plane rotation and normal offset. **3D / MIP** projects
 the loaded volume; drag to orbit, and use the named transfer presets/controls.
 MPR and projections require consistent geometry and a volume within the budget.
-Their interpolated values can differ from source pixels. **Clipping…** in 3D/MIP
+Their interpolated values can differ from source pixels. In compact windows,
+**Display and tools** opens a scrollable panel that leaves room for the images.
+For scalar MPR/oblique views, choose **Slab MIP** or **Slab MinIP** and a physical
+thickness. These show discrete maximum/minimum values along the plane normal,
+with the sample count shown. A smaller preview refines after interaction stops.
+At most 257 samples span a slab, so features between samples can be missed.
+Slabs disable physical measurements; choose **Thin plane** to measure again. **Clipping…** in 3D/MIP
 limits the projection to explicit LPS minimum/maximum coordinates in millimeters.
 Restore full source bounds or disable clipping to see the full volume again.
 

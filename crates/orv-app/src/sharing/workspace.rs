@@ -119,7 +119,7 @@ impl Workspace {
             return;
         }
         let mode = match &scene.reconstruction {
-            Some(Reconstruction::Oblique(_)) => ViewMode::Oblique,
+            Some(Reconstruction::Oblique(_) | Reconstruction::Slab(_)) => ViewMode::Oblique,
             Some(Reconstruction::Volume(_)) => ViewMode::Volume,
             None if scene.view.plane == Plane::Acquired => ViewMode::Acquired,
             None => ViewMode::Mpr,

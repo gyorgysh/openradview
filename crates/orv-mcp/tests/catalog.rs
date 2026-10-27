@@ -127,6 +127,7 @@ async fn color_series_keeps_consent_scope_and_refuses_scalar_operations() {
         center: 128.,
     };
     series.frames = vec![Arc::new(Frame {
+        slab: None,
         scalar: None,
         validity: None,
         color: None,
@@ -223,4 +224,52 @@ async fn color_series_keeps_consent_scope_and_refuses_scalar_operations() {
             .is_error,
         Some(true)
     );
+}
+
+#[tokio::test]
+async fn slab_sharing_requires_exact_approval_and_refuses_physical_measurement() {
+    use orv_core::{oblique::ObliquePlane, scene::Reconstruction, slab::*};
+    use orv_mcp::tools::{MeasureRequest, MeasurementKind, ViewerTools};
+    use rmcp::handler::server::wrapper::Parameters;
+    use std::sync::Arc;
+    let (session, mut scene) = common::session();
+    let source = session.authorize(&scene, Operation::Snapshot).unwrap();
+    scene.schema_version = 2;
+    scene.reformat_side = 32;
+    scene.reconstruction = Some(Reconstruction::Slab(SlabPlane {
+        plane: ObliquePlane::from_angles([127.5, 127.5, 2.], [0.; 3]).unwrap(),
+        slab: Slab {
+            projection: SlabProjection::Minimum,
+            thickness_mm: 4.,
+            intervals: 8,
+        },
+    }));
+    assert!(session.authorize(&scene, Operation::Snapshot).is_err());
+    session.approve_preview(&scene).unwrap();
+    let image = source.resolve(&scene, || false).unwrap();
+    let metadata = ImageMetadata::from_frame(&image);
+    assert!(metadata.geometry.is_none());
+    assert!(metadata.slab.is_some());
+    assert!(
+        source
+            .resolve_scene(&scene, || false)
+            .unwrap()
+            .image()
+            .is_err()
+    );
+    let tools = ViewerTools::new(session.clone(), Arc::new(|| {}));
+    let reply = tools
+        .measure(Parameters(MeasureRequest {
+            scene: Some(scene.clone()),
+            kind: MeasurementKind::Distance,
+            points: vec![[0., 0.], [1., 1.]],
+        }))
+        .await;
+    assert_eq!(reply.is_error, Some(true));
+    if let Some(Reconstruction::Slab(state)) = &mut scene.reconstruction {
+        state.slab.thickness_mm += 1.;
+    }
+    assert!(session.authorize(&scene, Operation::Snapshot).is_err());
+    session.revoke();
+    assert!(session.authorize(&scene, Operation::Metadata).is_err());
 }

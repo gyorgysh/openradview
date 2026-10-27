@@ -227,6 +227,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
                 })
         };
         frames.push(Arc::new(Frame {
+            slab: None,
             scalar: grayscale.get(frame_index as u32).cloned(),
             validity: validity.clone(),
             color: presentation.as_ref().map(|p| p.source.clone()),

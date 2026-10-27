@@ -35,7 +35,12 @@ impl MprSession {
             1 => ("CORONAL", 1),
             _ => ("SAGITTAL", 0),
         };
-        theme::eyebrow(&mut ui, name);
+        let heading = if snapshot.images[index].slab.is_some() {
+            format!("{name} · SLAB PROJECTION")
+        } else {
+            name.into()
+        };
+        theme::eyebrow(&mut ui, &heading);
         let size = Vec2::new(ui.available_width(), (ui.available_height() - 32.).max(30.));
         let (_, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
         if response.hovered() {

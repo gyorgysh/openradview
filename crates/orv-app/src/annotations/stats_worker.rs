@@ -122,6 +122,7 @@ mod tests {
             marks: vec![Mark {
                 id: 0,
                 image: ImageKey {
+                    slab: None,
                     size: [2, 2],
                     geometry: image.geometry.clone(),
                     frame: Some(0),

@@ -69,6 +69,14 @@ async fn exact_oblique_and_volume_requests_survive_desktop_review_and_deliver_id
     let session = workspace.sharing.live.as_ref().unwrap().session.clone();
     for reconstruction in [
         Reconstruction::Oblique(plane.clone()),
+        Reconstruction::Slab(orv_core::slab::SlabPlane {
+            plane: plane.clone(),
+            slab: orv_core::slab::Slab {
+                projection: orv_core::slab::SlabProjection::Minimum,
+                thickness_mm: 10.,
+                intervals: 20,
+            },
+        }),
         Reconstruction::Volume(volume_state),
         Reconstruction::Volume(preview_state),
     ] {
@@ -218,6 +226,14 @@ async fn selected_series_scope_includes_explicit_new_views_but_never_another_sou
     scene.output_size = [24, 16];
     for reconstruction in [
         Reconstruction::Volume(state),
+        Reconstruction::Slab(orv_core::slab::SlabPlane {
+            plane: plane.clone(),
+            slab: orv_core::slab::Slab {
+                projection: orv_core::slab::SlabProjection::Maximum,
+                thickness_mm: 10.,
+                intervals: 20,
+            },
+        }),
         Reconstruction::Oblique(plane),
     ] {
         scene.reformat_side = if matches!(reconstruction, Reconstruction::Volume(_)) {

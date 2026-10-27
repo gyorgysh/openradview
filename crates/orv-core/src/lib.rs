@@ -17,6 +17,7 @@ pub mod oblique;
 pub mod resources;
 pub mod scalar;
 pub mod scene;
+pub mod slab;
 pub mod spatial;
 pub mod study;
 mod vector;

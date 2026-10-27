@@ -64,7 +64,15 @@ pub fn draw(ui: &egui::Ui, response: &egui::Response, image: &Frame, view: &View
     {
         let value = match sample {
             inspection::Sample::Scalar(value) => {
-                format!("Value {}", crate::image_info::number(f64::from(value)))
+                format!(
+                    "{} {}",
+                    if image.slab.is_some() {
+                        "Projected value"
+                    } else {
+                        "Value"
+                    },
+                    crate::image_info::number(f64::from(value))
+                )
             }
             inspection::Sample::RgbCodes { values, bits } => {
                 format!("RGB{bits} · {}, {}, {}", values[0], values[1], values[2])
@@ -88,6 +96,9 @@ pub fn draw(ui: &egui::Ui, response: &egui::Response, image: &Frame, view: &View
 }
 
 fn scale_bar(rect: Rect, image: &Frame, view: &ViewState) -> Option<(f64, f32)> {
+    if image.slab.is_some() {
+        return None;
+    }
     let geometry = image.geometry.as_ref()?;
     geometry.validate().ok()?;
     let mapping = annotations::mapping(rect, image, view)?;

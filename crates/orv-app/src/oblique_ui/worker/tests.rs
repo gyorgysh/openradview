@@ -7,6 +7,7 @@ fn frames() -> Vec<Arc<Frame>> {
     (0..8)
         .map(|z| {
             Arc::new(Frame {
+                slab: None,
                 scalar: None,
                 validity: None,
                 color: None,
@@ -93,4 +94,38 @@ fn closing_idle_or_busy_worker_releases_source_and_does_not_lose_wakeup() {
 fn missing_geometry_is_explicit_and_never_replaced_by_a_fake_plane() {
     let worker = Worker::start(vec![], egui::Context::default());
     assert!(wait(&worker).is_err());
+}
+
+#[test]
+fn interactive_slabs_refine_after_quiet_and_drop_busy_private_sources() {
+    use orv_core::slab::*;
+    let worker = Worker::start(frames(), egui::Context::default());
+    let first = wait(&worker).unwrap();
+    let weak = Arc::downgrade(&first.volume);
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 8.,
+        intervals: 64,
+    };
+    worker.request_projection(first.plane.clone(), 512, Some(slab), true);
+    let mut saw_preview = false;
+    loop {
+        let snapshot = wait(&worker).unwrap();
+        if snapshot.preview {
+            saw_preview = true;
+            assert_eq!(snapshot.image.slab, Some(slab.preview()));
+        } else {
+            assert_eq!(snapshot.image.slab, Some(slab));
+            break;
+        }
+    }
+    assert!(saw_preview);
+    worker.request_projection(first.plane.clone(), 1024, Some(slab), true);
+    drop(first);
+    drop(worker);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while weak.upgrade().is_some() {
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
 }

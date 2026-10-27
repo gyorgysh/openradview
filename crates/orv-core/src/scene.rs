@@ -34,6 +34,7 @@ pub struct SceneState {
 #[serde(tag = "kind", content = "parameters", deny_unknown_fields)]
 pub enum Reconstruction {
     Oblique(ObliquePlane),
+    Slab(crate::slab::SlabPlane),
     Volume(VolumeView),
 }
 
@@ -66,6 +67,7 @@ impl SceneState {
                 Reconstruction::Oblique(plane) => {
                     plane.validate().map_err(|_| "Invalid oblique plane")
                 }
+                Reconstruction::Slab(state) => state.validate(),
                 Reconstruction::Volume(state) => {
                     if !self.view.transform.is_identity() {
                         return Err(
@@ -318,6 +320,14 @@ fn hash_validity(
 }
 
 fn hash_scalar(frame: &Frame, digest: &mut Sha256) {
+    if let Some(slab) = frame.slab {
+        digest.update(b"OpenRadView slab extrema v1\0");
+        digest.update([u8::from(
+            slab.projection == crate::slab::SlabProjection::Minimum,
+        )]);
+        digest.update(slab.thickness_mm.to_le_bytes());
+        digest.update(slab.intervals.to_le_bytes());
+    }
     if let Some(scalar) = &frame.scalar {
         digest.update(b"OpenRadView scalar presentation v1\0");
         digest.update(scalar.digest());
@@ -339,6 +349,8 @@ pub struct ImageGeometry {
 #[serde(deny_unknown_fields)]
 pub struct ImageMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slab: Option<SlabMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scalar: Option<crate::scalar::ScalarInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<crate::color::ColorInfo>,
@@ -351,9 +363,32 @@ pub struct ImageMetadata {
     pub geometry: Option<ImageGeometry>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SlabMetadata {
+    pub parameters: crate::slab::Slab,
+    pub sampling_grid: ImageGeometry,
+}
+
 impl ImageMetadata {
     pub fn from_frame(frame: &Frame) -> Self {
+        let sampling_grid = frame
+            .geometry
+            .as_ref()
+            .filter(|g| g.validate().is_ok())
+            .map(|g| ImageGeometry {
+                nifti_transform: g.nifti_transform,
+                position_mm: g.position,
+                orientation: g.orientation,
+                spacing_mm: g.spacing,
+            });
         Self {
+            slab: frame.slab.and_then(|parameters| {
+                sampling_grid.clone().map(|sampling_grid| SlabMetadata {
+                    parameters,
+                    sampling_grid,
+                })
+            }),
             scalar: frame.scalar.as_ref().map(|data| data.info()),
             color: frame.color.as_ref().map(|data| data.info.clone()),
             nifti: frame.nifti.clone(),
@@ -367,16 +402,11 @@ impl ImageMetadata {
                     .into()
             }),
             monochrome1: frame.monochrome1,
-            geometry: frame
-                .geometry
-                .as_ref()
-                .filter(|g| g.validate().is_ok())
-                .map(|g| ImageGeometry {
-                    nifti_transform: g.nifti_transform,
-                    position_mm: g.position,
-                    orientation: g.orientation,
-                    spacing_mm: g.spacing,
-                }),
+            geometry: if frame.slab.is_none() {
+                sampling_grid
+            } else {
+                None
+            },
         }
     }
 }

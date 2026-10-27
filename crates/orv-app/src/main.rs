@@ -29,6 +29,7 @@ mod series_browser;
 #[cfg(feature = "mcp")]
 mod sharing;
 mod single_view;
+mod slab_controls;
 mod startup;
 mod theme;
 mod toolbar;

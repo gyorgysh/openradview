@@ -122,7 +122,14 @@ reformatted pixels remain missing and are excluded from statistics. RGB maximum
 projection takes a separate maximum per channel, potentially from different
 depths. Color opacity uses linear-light brightness on a0–255 scale, without CT
 presets. Presentation uses RGBA8 even when source codes have16-bit precision.
-Scalar and color snapshots identify renderer version 7. Scalar manifests include
+Scalar MPR/oblique slabs support minimum/maximum of trilinear modality samples,
+0.001–2000 mm thickness and 3–257 evenly spaced samples including both boundaries
+and the center. The displayed sample count is explicit; bounded sampling can miss
+features between samples. Padding/outside samples are excluded, and an entirely
+missing ray stays missing. RGB slabs are not supported. Slab snapshots record the
+sampling grid separately from physical measurement geometry.
+
+Scalar and color snapshots identify renderer version 8. Scalar manifests include
 typed source precision/units/scaling; resampled outputs do not claim the first
 source frame's linear transform as their own. Source choices participate in both
 whole-source fingerprints and per-frame verification. The geometry-only agent

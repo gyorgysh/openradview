@@ -180,7 +180,7 @@ impl Pane {
             .truncate(),
         );
         let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(size.x, (size.y - 54.).max(40.)),
+            egui::vec2(size.x, (size.y - 64.).max(1.)),
             egui::Sense::click_and_drag(),
         );
         let interacted = activates_pane(ui, &response);
@@ -332,7 +332,8 @@ impl ComparisonSession {
         for pane in &mut self.panes {
             pane.poll();
         }
-        ui.weak("Local comparison · sharing is off. Select a pane, then choose its series in the sidebar.");
+        ui.weak("Local comparison · sharing is off")
+            .on_hover_text("Select a pane, then choose its series in the sidebar.");
         ui.horizontal_wrapped(|ui| {
             for index in 0..2 { ui.selectable_value(&mut self.active, index, if index == 0 { "Left pane" } else { "Right pane" }); }
             let compatible = self.compatible();
@@ -340,16 +341,18 @@ impl ComparisonSession {
         });
         self.link_status(ui);
         let before = self.panes.each_ref().map(|pane| pane.view.slice);
-        ui.push_id("comparison-controls", |ui| {
-            self.panes[self.active].controls(ui)
+        controls::display_panel(ui, "comparison-display-controls", |ui| {
+            ui.push_id("comparison-controls", |ui| {
+                self.panes[self.active].controls(ui)
+            });
         });
         let size = ui.available_size();
         let stacked = size.x < 640.;
         let gap = ui.spacing().item_spacing;
         let pane_size = if stacked {
-            egui::vec2(size.x, ((size.y - gap.y) / 2.).max(94.))
+            egui::vec2(size.x, ((size.y - gap.y) / 2.).max(0.))
         } else {
-            egui::vec2(((size.x - gap.x) / 2.).max(80.), size.y.max(94.))
+            egui::vec2(((size.x - gap.x) / 2.).max(80.), size.y.max(0.))
         };
         let layout = if stacked {
             egui::Layout::top_down(egui::Align::Min)

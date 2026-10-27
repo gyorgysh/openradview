@@ -74,7 +74,7 @@ fn production_volume_snapshot_matches_affine_rays_and_complete_provenance() {
         result.manifest.png_sha256,
         hex(&Sha256::digest(&result.png))
     );
-    assert_eq!(result.manifest.renderer_version, 7);
+    assert_eq!(result.manifest.renderer_version, 8);
     let encoded = serde_json::to_string(&result.manifest).unwrap();
     assert_eq!(
         serde_json::from_str::<SnapshotManifest>(&encoded).unwrap(),
@@ -135,4 +135,61 @@ fn oblique_snapshot_keeps_explicit_axes_and_physical_image_metadata() {
     assert_eq!(geometry.orientation[3..], plane.row_direction);
     assert!(snapshot.manifest.volume.is_none());
     assert!(renderer.capture_volume(volume, &scene, || false).is_err());
+}
+
+#[test]
+fn slab_gpu_snapshot_preserves_extrema_before_windowing_and_has_no_measurement_plane() {
+    use orv_core::slab::{Slab, SlabPlane, SlabProjection};
+    let volume = volume(None, true);
+    let plane =
+        orv_core::oblique::ObliquePlane::from_angles(volume.center(), [21., -17., 9.]).unwrap();
+    let normal = plane.normal_direction();
+    // Independent affine phantom in world coordinates; source x+10y+100z.
+    let slope = normal[0] + 10. * normal[1] / 1.5 + normal[2] * (50. - 0.125 - 5. / 3.);
+    let mut renderer = pollster::block_on(SnapshotRenderer::new()).expect("Real GPU required");
+    for projection in [SlabProjection::Maximum, SlabProjection::Minimum] {
+        let slab = Slab {
+            projection,
+            thickness_mm: 0.5,
+            intervals: 8,
+        };
+        let frame = volume.reformat_slab(&plane, slab, 37, || false).unwrap();
+        let mut scene = SceneState {
+            schema_version: 2,
+            source_sha256: "a".repeat(64),
+            series_index: 0,
+            view: ViewState {
+                window: frame.default_window,
+                ..Default::default()
+            },
+            crosshair_mm: None,
+            reformat_side: 37,
+            output_size: [31, 31],
+            reconstruction: Some(Reconstruction::Slab(SlabPlane {
+                plane: plane.clone(),
+                slab,
+            })),
+        };
+        let result = renderer.capture(&frame, &scene, || false).unwrap();
+        let png = image::load_from_memory(&result.png).unwrap().to_rgba8();
+        let extreme = 166.5
+            + if projection == SlabProjection::Maximum {
+                slope.abs() * 0.25
+            } else {
+                -slope.abs() * 0.25
+            };
+        let expected = (1. - f64::from(scene.view.window.normalize(extreme as f32))) * 255.;
+        assert_gray(&png.get_pixel(15, 15).0, expected);
+        let metadata = result.manifest.image.unwrap();
+        assert!(metadata.geometry.is_none());
+        assert_eq!(metadata.slab.unwrap().parameters, slab);
+        assert_eq!(result.manifest.scene_sha256, scene.hash().unwrap());
+        assert!(renderer.capture(&frame, &scene, || true).is_err());
+        if let Some(Reconstruction::Slab(state)) = &mut scene.reconstruction {
+            state.plane.center_mm[2] += 0.1;
+        }
+        assert!(renderer.capture(&frame, &scene, || false).is_err());
+        scene.reconstruction = Some(Reconstruction::Oblique(plane.clone()));
+        assert!(renderer.capture(&frame, &scene, || false).is_err());
+    }
 }

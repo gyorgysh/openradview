@@ -158,6 +158,7 @@ fn production_snapshot_png_matches_pixels_manifest_and_cancellation() {
     use orv_render::snapshot::{SnapshotManifest, SnapshotRenderer};
     use sha2::{Digest, Sha256};
     let frame = Frame {
+        slab: None,
         scalar: None,
         validity: None,
         color: None,
@@ -232,6 +233,7 @@ fn offscreen_scalar_golden_including_inversion() {
         pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))
             .unwrap();
     let frame = Frame {
+        slab: None,
         scalar: None,
         validity: None,
         color: None,
@@ -379,6 +381,7 @@ fn color_snapshot_png_manifest_and_pan_match_the_same_renderer() {
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 128, 64, 32, 255,
     ];
     let frame = Frame {
+        slab: None,
         scalar: None,
         validity: None,
         color: None,
@@ -441,6 +444,7 @@ fn color_interpolation_is_linear_light_and_missing_pixels_keep_the_background() 
     use orv_core::scene::SceneState;
     use orv_render::snapshot::SnapshotRenderer;
     let mut frame = Frame {
+        slab: None,
         scalar: None,
         validity: None,
         color: None,
@@ -483,7 +487,7 @@ fn color_interpolation_is_linear_light_and_missing_pixels_keep_the_background() 
     for value in &png.get_pixel(1, 1).0[..3] {
         assert!(value.abs_diff(188) <= 1);
     }
-    assert_eq!(snapshot.manifest.renderer_version, 7);
+    assert_eq!(snapshot.manifest.renderer_version, 8);
     frame.rgba = Some(
         vec![
             0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255,

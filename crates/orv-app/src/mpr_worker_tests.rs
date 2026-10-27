@@ -7,6 +7,7 @@ pub(crate) fn frames() -> Vec<Arc<Frame>> {
     (0..4)
         .map(|z| {
             Arc::new(Frame {
+                slab: None,
                 scalar: None,
                 validity: None,
                 color: None,
@@ -136,4 +137,47 @@ fn completed_preview_can_be_drawn_while_newer_input_is_queued_but_stale_full_res
     snapshot.preview = false;
     lock(&worker.shared.work).result = Some(Ok(snapshot));
     assert!(worker.take().is_none());
+}
+
+#[test]
+fn slab_worker_publishes_coherent_bounded_preview_then_exact_requested_sampling() {
+    use orv_core::slab::*;
+    let worker = MprWorker::start(frames(), egui::Context::default());
+    wait(&worker).unwrap();
+    let slab = Slab {
+        projection: SlabProjection::Minimum,
+        thickness_mm: 4.,
+        intervals: 40,
+    };
+    worker.request_slab([1., 2., 4.5], 512, Some(slab));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut preview = false;
+    loop {
+        let snapshot = wait(&worker).unwrap();
+        assert_eq!(snapshot.point, [1., 2., 4.5]);
+        for image in &snapshot.images {
+            assert_eq!(
+                image.slab,
+                Some(if snapshot.preview {
+                    slab.preview()
+                } else {
+                    slab
+                })
+            );
+            assert!(
+                image.width <= snapshot.reformat_side && image.height <= snapshot.reformat_side
+            );
+        }
+        if snapshot.preview {
+            preview = true;
+        } else {
+            assert!(preview);
+            break;
+        }
+        assert!(Instant::now() < deadline);
+    }
+    assert!(
+        worker.take().is_none(),
+        "Idle worker must not keep producing frames"
+    );
 }

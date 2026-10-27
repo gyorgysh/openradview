@@ -94,7 +94,8 @@ impl Volume {
             if cancelled() {
                 return Err(GeometryError::Cancelled);
             }
-            if frame.width != first.width
+            if frame.slab.is_some()
+                || frame.width != first.width
                 || frame.height != first.height
                 || !frame.valid_dimensions()
             {
@@ -370,7 +371,7 @@ impl Volume {
             ),
             Plane::Acquired => return Err(GeometryError::Orientation),
         };
-        self.resample(position, u, v, extent, max_side, cancel)
+        self.resample(position, u, v, extent, (max_side, None), cancel)
     }
     pub(crate) fn resample(
         &self,
@@ -378,10 +379,14 @@ impl Volume {
         u: V3,
         v: V3,
         extent: [f64; 2],
-        max_side: u32,
+        request: (u32, Option<crate::slab::Slab>),
         cancel: impl Fn() -> bool,
     ) -> Result<Arc<Frame>, GeometryError> {
-        if !(2..=2048).contains(&max_side) || extent.iter().any(|e| !e.is_finite() || *e <= 0.0) {
+        let (max_side, slab) = request;
+        if slab.is_some_and(|s| s.validate().is_err())
+            || !(2..=2048).contains(&max_side)
+            || extent.iter().any(|e| !e.is_finite() || *e <= 0.0)
+        {
             return Err(GeometryError::Limit);
         }
         let step = self
@@ -407,25 +412,47 @@ impl Volume {
         };
         geometry.validate()?;
         if self.is_color() {
+            if slab.is_some() {
+                return Err(GeometryError::Dimensions);
+            }
             return self.resample_color(geometry, dimensions, cancel);
         }
         let mut pixels = Vec::with_capacity(dimensions[0] as usize * dimensions[1] as usize);
         let origin = self.world_to_voxel(position);
         let du = self.world_vector_to_voxel(mul(u, spacing[0]));
         let dv = self.world_vector_to_voxel(mul(v, spacing[1]));
+        let normal = self.world_vector_to_voxel(cross(u, v));
         for y in 0..dimensions[1] {
             if cancel() {
                 return Err(GeometryError::Cancelled);
             }
             let row = add(origin, mul(dv, y as f64));
             for x in 0..dimensions[0] {
-                pixels.push(
-                    self.sample_voxel(add(row, mul(du, x as f64)))
-                        .unwrap_or(f32::NAN),
-                );
+                let center = add(row, mul(du, x as f64));
+                let value = if let Some(slab) = slab {
+                    let mut extreme: Option<f32> = None;
+                    for i in 0..=slab.intervals {
+                        if i % 16 == 0 && cancel() {
+                            return Err(GeometryError::Cancelled);
+                        }
+                        let distance =
+                            slab.thickness_mm * (f64::from(i) / f64::from(slab.intervals) - 0.5);
+                        if let Some(value) = self.sample_voxel(add(center, mul(normal, distance))) {
+                            extreme = Some(extreme.map_or(value, |old| match slab.projection {
+                                crate::slab::SlabProjection::Maximum => old.max(value),
+                                crate::slab::SlabProjection::Minimum => old.min(value),
+                            }));
+                        }
+                    }
+                    extreme
+                } else {
+                    self.sample_voxel(center)
+                };
+                pixels.push(value.unwrap_or(f32::NAN));
             }
         }
         Ok(Arc::new(Frame {
+            slab,
             scalar: self.frames[0].scalar.as_ref().map(|data| data.resampled()),
             validity: None,
             color: None,

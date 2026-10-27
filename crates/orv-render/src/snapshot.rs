@@ -88,6 +88,33 @@ impl SnapshotRenderer {
         if matches!(scene.reconstruction, Some(Reconstruction::Volume(_))) {
             return Err("A volume scene requires the volume snapshot path");
         }
+        let expected_slab = match &scene.reconstruction {
+            Some(Reconstruction::Slab(state)) => Some(state.slab),
+            _ => None,
+        };
+        if let Some(Reconstruction::Slab(state)) = &scene.reconstruction {
+            let g = frame
+                .geometry
+                .as_ref()
+                .ok_or("Slab sampling grid is missing")?;
+            let axes = [state.plane.column_direction, state.plane.row_direction].concat();
+            let offset: f64 = (0..3)
+                .map(|i| {
+                    (g.position[i] - state.plane.center_mm[i]) * state.plane.normal_direction()[i]
+                })
+                .sum();
+            if g.orientation
+                .iter()
+                .zip(axes)
+                .any(|(a, b)| (*a - b).abs() > 1e-9)
+                || offset.abs() > 1e-6
+            {
+                return Err("Snapshot slab sampling plane and scene do not match");
+            }
+        }
+        if frame.slab != expected_slab {
+            return Err("Snapshot projection and scene do not match");
+        }
         if cancelled() {
             return Err("Cancelled");
         }
@@ -154,7 +181,7 @@ fn finish(
     png: Vec<u8>,
 ) -> Result<Snapshot, &'static str> {
     let manifest = SnapshotManifest {
-        renderer_version: 7, // Display rotation/flips use the same native and snapshot mapping.
+        renderer_version: 8, // Physical clipping and scalar slab provenance.
         scene: scene.clone(),
         scene_sha256: scene.hash()?,
         png_sha256: hex(&Sha256::digest(&png)),

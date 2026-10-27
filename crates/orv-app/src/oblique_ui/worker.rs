@@ -17,11 +17,14 @@ pub(super) struct Snapshot {
     pub image: Arc<Frame>,
     pub generation: u64,
     pub reformat_side: u32,
+    pub preview: bool,
 }
 struct Request {
     plane: ObliquePlane,
     generation: u64,
     side: u32,
+    slab: Option<orv_core::slab::Slab>,
+    interactive: bool,
 }
 #[derive(Default)]
 struct Work {
@@ -68,23 +71,52 @@ impl Worker {
                     plane,
                     generation: 0,
                     side: 512,
+                    slab: None,
+                    interactive: false,
                 };
-                loop {
+                'requests: loop {
+                    if worker.cancelled.load(Ordering::Acquire) {
+                        return;
+                    }
+                    if request.interactive && request.side > 128 {
+                        let result = render(&volume, &request, 128, true, || {
+                            worker.cancelled.load(Ordering::Acquire)
+                        });
+                        if worker.cancelled.load(Ordering::Acquire) {
+                            return;
+                        }
+                        if !matches!(result, Err(GeometryError::Cancelled)) {
+                            lock(&worker.work).result = Some(result.map_err(|e| e.to_string()));
+                            ctx.request_repaint();
+                        }
+                        let mut work = lock(&worker.work);
+                        loop {
+                            if worker.cancelled.load(Ordering::Acquire) {
+                                return;
+                            }
+                            if let Some(next) = work.request.take() {
+                                request = next;
+                                continue 'requests;
+                            }
+                            let (next, timeout) = worker
+                                .changed
+                                .wait_timeout(work, std::time::Duration::from_millis(120))
+                                .unwrap_or_else(|p| p.into_inner());
+                            work = next;
+                            if timeout.timed_out() {
+                                break;
+                            }
+                        }
+                    }
                     let cancel = || {
                         worker.cancelled.load(Ordering::Acquire)
                             || worker.generation.load(Ordering::Acquire) != request.generation
                     };
-                    let image = volume.reformat_oblique(&request.plane, request.side, cancel);
+                    let image = render(&volume, &request, request.side, false, cancel);
                     let mut work = lock(&worker.work);
                     if !cancel() {
                         work.result = match image {
-                            Ok(image) => Some(Ok(Snapshot {
-                                volume: volume.clone(),
-                                plane: request.plane.clone(),
-                                image,
-                                generation: request.generation,
-                                reformat_side: request.side,
-                            })),
+                            Ok(snapshot) => Some(Ok(snapshot)),
                             Err(GeometryError::Cancelled) => None,
                             Err(error) => Some(Err(error.to_string())),
                         };
@@ -107,7 +139,17 @@ impl Worker {
         }
         Self { shared }
     }
+    #[cfg(test)]
     pub fn request(&self, plane: ObliquePlane, side: u32) {
+        self.request_projection(plane, side, None, false);
+    }
+    pub fn request_projection(
+        &self,
+        plane: ObliquePlane,
+        side: u32,
+        slab: Option<orv_core::slab::Slab>,
+        interactive: bool,
+    ) {
         let mut work = lock(&self.shared.work);
         let generation = self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1;
         work.result = None;
@@ -115,6 +157,8 @@ impl Worker {
             plane,
             generation,
             side,
+            slab,
+            interactive,
         });
         drop(work);
         self.shared.changed.notify_one();
@@ -126,7 +170,7 @@ impl Worker {
         let result = lock(&self.shared.work).result.take()?;
         if result
             .as_ref()
-            .is_ok_and(|s| s.generation != self.generation())
+            .is_ok_and(|s| !s.preview && s.generation != self.generation())
         {
             return None;
         }
@@ -140,4 +184,31 @@ impl Drop for Worker {
         self.shared.cancelled.store(true, Ordering::Release);
         self.shared.changed.notify_all();
     }
+}
+
+fn render(
+    volume: &Arc<Volume>,
+    request: &Request,
+    side: u32,
+    preview: bool,
+    cancel: impl Fn() -> bool,
+) -> Result<Snapshot, GeometryError> {
+    let image = if let Some(slab) = request.slab {
+        volume.reformat_slab(
+            &request.plane,
+            if preview { slab.preview() } else { slab },
+            side,
+            cancel,
+        )?
+    } else {
+        volume.reformat_oblique(&request.plane, side, cancel)?
+    };
+    Ok(Snapshot {
+        volume: volume.clone(),
+        plane: request.plane.clone(),
+        image,
+        generation: request.generation,
+        reformat_side: side,
+        preview,
+    })
 }

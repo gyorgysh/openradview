@@ -11,6 +11,7 @@ mod stats_worker;
 
 #[derive(Clone, Debug, PartialEq)]
 struct ImageKey {
+    slab: Option<orv_core::slab::Slab>,
     size: [u32; 2],
     geometry: Option<Geometry>,
     frame: Option<u32>,
@@ -129,6 +130,9 @@ impl Annotations {
         view: &ViewState,
         tool: Tool,
     ) {
+        if image.slab.is_some() {
+            return;
+        }
         self.poll();
         self.bind_image(image, view);
         if self.active_tool != Some(tool) {
@@ -213,6 +217,7 @@ impl Annotations {
 impl Annotations {
     fn key(&self, image: &Frame, view: &ViewState) -> ImageKey {
         ImageKey {
+            slab: image.slab,
             size: [image.width, image.height],
             geometry: image.geometry.clone(),
             frame: (!self.preserve_plane).then_some(view.slice),

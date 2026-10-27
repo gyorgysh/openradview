@@ -12,6 +12,19 @@ pub fn tools(
     scalar: bool,
     extra: impl FnOnce(&mut egui::Ui),
 ) -> bool {
+    tools_with_measurements(ui, tool, crosshair, scalar, true, extra)
+}
+pub fn tools_with_measurements(
+    ui: &mut egui::Ui,
+    tool: &mut Tool,
+    crosshair: bool,
+    scalar: bool,
+    measurements: bool,
+    extra: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    if !measurements && tool.measures() {
+        *tool = Tool::Pan;
+    }
     let previous = *tool;
     let mut fit = false;
     let narrow = ui.available_width() < if crosshair { 900. } else { 650. };
@@ -27,16 +40,19 @@ pub fn tools(
             ui.selectable_value(tool, Tool::Window, "Contrast [W]");
         });
         if !narrow {
-            measurement_tool(ui, tool);
+            ui.add_enabled_ui(measurements, |ui| measurement_tool(ui, tool));
         }
-        fit = ui.button("Fit [R]").clicked();
+        if !narrow {
+            fit = ui.button("Fit [R]").clicked();
+        }
         if !narrow && let Some(extra) = extra.take() {
             extra(ui);
         }
     });
     if narrow {
         crate::toolbar::row(ui, |ui| {
-            measurement_tool(ui, tool);
+            fit = ui.button("Fit [R]").clicked();
+            ui.add_enabled_ui(measurements, |ui| measurement_tool(ui, tool));
             if let Some(extra) = extra.take() {
                 extra(ui);
             }
@@ -251,4 +267,22 @@ pub fn orientation(ui: &mut egui::Ui, transform: &mut orv_core::DisplayTransform
         }
         ui.small("Display only · source coordinates stay unchanged");
     });
+}
+
+/// Compact windows retain an image area while the optional control panel scrolls.
+pub fn display_panel(ui: &mut egui::Ui, id: &str, contents: impl FnOnce(&mut egui::Ui)) {
+    if ui.available_height() < 400. {
+        egui::CollapsingHeader::new("Display and tools")
+            .id_salt(id)
+            .default_open(false)
+            .show(ui, |ui| {
+                let height = (ui.available_height() - 240.).max(80.);
+                egui::ScrollArea::vertical()
+                    .id_salt(id)
+                    .max_height(height)
+                    .show(ui, contents);
+            });
+    } else {
+        contents(ui);
+    }
 }

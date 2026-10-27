@@ -14,6 +14,21 @@ pub struct ObliquePlane {
     pub row_direction: [f64; 3],
 }
 impl ObliquePlane {
+    pub fn anatomical(plane: crate::Plane, center_mm: [f64; 3]) -> Result<Self, GeometryError> {
+        let (column_direction, row_direction) = match plane {
+            crate::Plane::Axial => ([1., 0., 0.], [0., 1., 0.]),
+            crate::Plane::Coronal => ([1., 0., 0.], [0., 0., -1.]),
+            crate::Plane::Sagittal => ([0., 1., 0.], [0., 0., -1.]),
+            crate::Plane::Acquired => return Err(GeometryError::Orientation),
+        };
+        let result = Self {
+            center_mm,
+            column_direction,
+            row_direction,
+        };
+        result.validate()?;
+        Ok(result)
+    }
     pub fn normal_direction(&self) -> [f64; 3] {
         cross(self.column_direction, self.row_direction)
     }
@@ -78,6 +93,14 @@ impl Volume {
         max_side: u32,
         cancel: impl Fn() -> bool,
     ) -> Result<Arc<Frame>, GeometryError> {
+        self.resample_oblique(plane, (max_side, None), cancel)
+    }
+    pub(crate) fn resample_oblique(
+        &self,
+        plane: &ObliquePlane,
+        request: (u32, Option<crate::slab::Slab>),
+        cancel: impl Fn() -> bool,
+    ) -> Result<Arc<Frame>, GeometryError> {
         plane.validate()?;
         let (u, v) = (plane.column_direction, plane.row_direction);
         let mut minimum = [f64::INFINITY; 2];
@@ -96,7 +119,7 @@ impl Volume {
             u,
             v,
             std::array::from_fn(|i| maximum[i] - minimum[i]),
-            max_side,
+            request,
             cancel,
         )
     }

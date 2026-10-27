@@ -25,6 +25,7 @@ struct Request {
     generation: u64,
     reformat_side: u32,
     interactive: bool,
+    slab: Option<orv_core::slab::Slab>,
 }
 #[derive(Default)]
 struct Work {
@@ -67,6 +68,7 @@ impl MprWorker {
                     generation: 0,
                     reformat_side: 512,
                     interactive: false,
+                    slab: None,
                 };
                 'requests: loop {
                     if worker.cancelled.load(Ordering::Relaxed) {
@@ -135,12 +137,27 @@ impl MprWorker {
     }
     #[cfg(any(test, feature = "mcp"))]
     pub fn request(&self, point: [f64; 3], reformat_side: u32) {
-        self.enqueue(point, reformat_side, false);
+        self.enqueue(point, reformat_side, false, None);
     }
+    #[cfg(test)]
     pub fn request_interactive(&self, point: [f64; 3], reformat_side: u32) {
-        self.enqueue(point, reformat_side, true);
+        self.enqueue(point, reformat_side, true, None);
     }
-    fn enqueue(&self, point: [f64; 3], reformat_side: u32, interactive: bool) {
+    pub fn request_slab(
+        &self,
+        point: [f64; 3],
+        reformat_side: u32,
+        slab: Option<orv_core::slab::Slab>,
+    ) {
+        self.enqueue(point, reformat_side, true, slab);
+    }
+    fn enqueue(
+        &self,
+        point: [f64; 3],
+        reformat_side: u32,
+        interactive: bool,
+        slab: Option<orv_core::slab::Slab>,
+    ) {
         let mut work = lock(&self.shared.work);
         let generation = self.shared.generation.fetch_add(1, Ordering::Relaxed) + 1;
         work.request = Some(Request {
@@ -148,6 +165,7 @@ impl MprWorker {
             generation,
             reformat_side,
             interactive,
+            slab,
         });
         drop(work);
         self.shared.changed.notify_one();
@@ -185,7 +203,19 @@ fn render(
 ) -> Result<MprSnapshot, GeometryError> {
     let images = PLANES
         .into_iter()
-        .map(|plane| volume.reformat(plane, request.point, side, &cancel))
+        .map(|plane| {
+            if let Some(slab) = request.slab {
+                let plane = orv_core::oblique::ObliquePlane::anatomical(plane, request.point)?;
+                volume.reformat_slab(
+                    &plane,
+                    if preview { slab.preview() } else { slab },
+                    side,
+                    &cancel,
+                )
+            } else {
+                volume.reformat(plane, request.point, side, &cancel)
+            }
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(MprSnapshot {
         volume: volume.clone(),

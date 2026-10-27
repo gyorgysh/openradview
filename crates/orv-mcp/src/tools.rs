@@ -261,6 +261,17 @@ impl ViewerTools {
             Ok(v) => v,
             Err(e) => return failure(e),
         };
+        if matches!(operation, Operation::Measurement)
+            && matches!(
+                scene.reconstruction,
+                Some(
+                    orv_core::scene::Reconstruction::Slab(_)
+                        | orv_core::scene::Reconstruction::Volume(_)
+                )
+            )
+        {
+            return failure("Projected views have no physical image plane; choose a thin plane");
+        }
         let permit = match self.busy.clone().try_acquire_owned() {
             Ok(v) => v,
             Err(_) => return failure("Viewer is busy; retry after the current request"),

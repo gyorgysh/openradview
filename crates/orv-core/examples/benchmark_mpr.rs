@@ -18,6 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(2)
         .unwrap_or_else(|| "512".into())
         .parse::<u32>()?;
+    let slab_mode = std::env::args().nth(4).as_deref() == Some("slab");
     let depth = side / 2;
     let padded = std::env::args().nth(3).as_deref() == Some("padding");
     let mask: Option<Arc<[u8]>> = padded.then(|| {
@@ -31,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frames = (0..depth)
         .map(|z| {
             Arc::new(Frame {
+                slab: None,
                 scalar: None,
                 validity: mask.clone(),
                 color: None,
@@ -68,7 +70,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut point = volume.center();
         point[2] += i as f64 * 0.1;
         for plane in [Plane::Axial, Plane::Coronal, Plane::Sagittal] {
-            let image = volume.reformat(plane, point, max_side, || false)?;
+            let image = if slab_mode {
+                let plane = orv_core::oblique::ObliquePlane::anatomical(plane, point)?;
+                let mut slab = orv_core::slab::Slab::for_volume(
+                    &volume,
+                    10.,
+                    orv_core::slab::SlabProjection::Maximum,
+                );
+                if max_side <= 128 {
+                    slab = slab.preview();
+                }
+                volume.reformat_slab(&plane, slab, max_side, || false)?
+            } else {
+                volume.reformat(plane, point, max_side, || false)?
+            };
             std::hint::black_box(&image);
             if i == 0 {
                 dimensions.push([image.width, image.height]);
@@ -81,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     timings.sort_by(f64::total_cmp);
     println!(
         "{}",
-        serde_json::json!({"profile":if cfg!(debug_assertions){"debug"}else{"release"},"padding_mask":padded,"source":[side,side,depth],"planes":dimensions,"reformat_side":max_side,"samples":timings.len(),"median_ms":timings[10],"p95_ms":timings[18],"maximum_ms":timings[19],"scope":"CPU three-plane resampling; excludes upload, UI and input-to-photon"})
+        serde_json::json!({"profile":if cfg!(debug_assertions){"debug"}else{"release"},"padding_mask":padded,"slab_10mm":slab_mode,"source":[side,side,depth],"planes":dimensions,"reformat_side":max_side,"samples":timings.len(),"median_ms":timings[10],"p95_ms":timings[18],"maximum_ms":timings[19],"scope":"CPU three-plane resampling; excludes upload, UI and input-to-photon"})
     );
     Ok(())
 }

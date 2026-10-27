@@ -9,6 +9,7 @@ fn labels() -> Arc<Labels> {
     let frames = (0..3)
         .map(|z| {
             Arc::new(Frame {
+                slab: None,
                 scalar: None,
                 validity: None,
                 color: None,

@@ -36,6 +36,7 @@ fn source(padding: bool) -> Result<Arc<Volume>> {
                 })
                 .collect::<Vec<_>>();
             Arc::new(Frame {
+                slab: None,
                 scalar: None,
                 validity: padding.then(|| {
                     pixels
