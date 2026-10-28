@@ -134,6 +134,22 @@ pub fn fingerprint_series(
     series: &Series,
     cancelled: impl Fn() -> bool,
 ) -> Result<SourceFingerprint, &'static str> {
+    fingerprint_series_impl(series, cancelled, false)
+}
+
+/// Compute identity from fresh source reads, bypassing the decoded-frame cache.
+pub fn fresh_series_fingerprint(
+    series: &Series,
+    cancelled: impl Fn() -> bool,
+) -> Result<String, &'static str> {
+    fingerprint_series_impl(series, cancelled, true).map(|f| f.source_sha256)
+}
+
+fn fingerprint_series_impl(
+    series: &Series,
+    cancelled: impl Fn() -> bool,
+    fresh: bool,
+) -> Result<SourceFingerprint, &'static str> {
     if series.frame_count() == 0 {
         return Err("The series has no images");
     }
@@ -152,9 +168,12 @@ pub fn fingerprint_series(
         .as_ref()
         .map(|_| Vec::with_capacity(series.frame_count()));
     for index in 0..series.frame_count() {
-        let frame = series
-            .read_frame(index, &cancelled)
-            .map_err(|_| "Source unavailable, changed or cancelled")?;
+        let frame = if fresh {
+            series.read_fresh_frame(index, &cancelled)
+        } else {
+            series.read_frame(index, &cancelled)
+        }
+        .map_err(|_| "Source unavailable, changed or cancelled")?;
         let mut pixels_hash = frame_sha256.as_ref().map(|_| Sha256::new());
         hash_scalar(&frame, &mut hash);
         if let Some(digest) = &mut pixels_hash {

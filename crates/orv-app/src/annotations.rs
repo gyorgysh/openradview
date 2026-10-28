@@ -6,6 +6,7 @@ use orv_core::{
     study::{Frame, Geometry},
     view_mapping::ImageMapping,
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 mod stats_worker;
 
@@ -17,6 +18,42 @@ struct ImageKey {
     frame: Option<u32>,
 }
 const MAX_MARKS: usize = 128;
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SavedTool {
+    Distance,
+    Angle,
+    Roi,
+}
+impl SavedTool {
+    fn tool(self) -> Tool {
+        match self {
+            Self::Distance => Tool::Distance,
+            Self::Angle => Tool::Angle,
+            Self::Roi => Tool::Roi,
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SavedMark {
+    pub frame: u32,
+    pub tool: SavedTool,
+    pub points: Vec<[f64; 2]>,
+}
+pub(crate) struct CapturedMark {
+    pub saved: SavedMark,
+    image: ImageKey,
+}
+impl CapturedMark {
+    pub fn matches(&self, frame: &Frame) -> bool {
+        self.image.slab.is_none()
+            && self.image.size == [frame.width, frame.height]
+            && self.image.geometry == frame.geometry
+            && self.image.frame == Some(self.saved.frame)
+    }
+}
 
 struct Mark {
     id: u64,
@@ -54,6 +91,94 @@ pub fn screen_at(rect: Rect, image: &Frame, view: &ViewState, pixel: [f64; 2]) -
 }
 
 impl Annotations {
+    pub(crate) fn capture(&self) -> Result<Vec<CapturedMark>, &'static str> {
+        if !self.pending.is_empty() {
+            return Err("Finish or cancel the current measurement before saving.");
+        }
+        self.marks
+            .iter()
+            .map(|mark| {
+                let tool = match mark.tool {
+                    Tool::Distance => SavedTool::Distance,
+                    Tool::Angle => SavedTool::Angle,
+                    Tool::Roi => SavedTool::Roi,
+                    _ => return Err("Unsupported measurement"),
+                };
+                Ok(CapturedMark {
+                    saved: SavedMark {
+                        frame: mark
+                            .image
+                            .frame
+                            .ok_or("Only source images can be saved in a comparison.")?,
+                        tool,
+                        points: mark.points.clone(),
+                    },
+                    image: mark.image.clone(),
+                })
+            })
+            .collect()
+    }
+    pub(crate) fn has_marks(&self) -> bool {
+        !self.marks.is_empty() || !self.pending.is_empty()
+    }
+    pub(crate) fn restore(
+        saved: &[SavedMark],
+        series: &orv_core::study::Series,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, &'static str> {
+        if saved.len() > MAX_MARKS {
+            return Err("Too many measurements in the comparison file.");
+        }
+        let mut annotations = Self::default();
+        for mark in saved {
+            if cancelled() {
+                return Err("Comparison operation cancelled.");
+            }
+            let tool = mark.tool.tool();
+            let expected = if tool == Tool::Angle { 3 } else { 2 };
+            if mark.points.len() != expected {
+                return Err("Invalid measurement points.");
+            }
+            let image = series
+                .read_fresh_frame(mark.frame as usize, &cancelled)
+                .map_err(|_| "A measurement image is unavailable or changed.")?;
+            if image.slab.is_some()
+                || mark.points.iter().any(|point| {
+                    !point[0].is_finite()
+                        || !point[1].is_finite()
+                        || point[0] < 0.
+                        || point[1] < 0.
+                        || point[0] > f64::from(image.width.saturating_sub(1))
+                        || point[1] > f64::from(image.height.saturating_sub(1))
+                        || !image.has_sample(
+                            point[1].round() as usize * image.width as usize
+                                + point[0].round() as usize,
+                        )
+                })
+            {
+                return Err("Measurement points are outside the verified image.");
+            }
+            let label = report(&image, &mark.points, tool, &cancelled)
+                .unwrap_or_else(|error| format!("Measurement unavailable: {error}"));
+            if cancelled() {
+                return Err("Comparison operation cancelled.");
+            }
+            let view = ViewState {
+                slice: mark.frame,
+                ..Default::default()
+            };
+            let id = annotations.next_id;
+            annotations.next_id += 1;
+            annotations.marks.push(Mark {
+                id,
+                image: annotations.key(&image, &view),
+                points: mark.points.clone(),
+                tool,
+                label,
+            });
+        }
+        Ok(annotations)
+    }
     pub fn for_reformats() -> Self {
         Self {
             preserve_plane: true,
@@ -259,10 +384,10 @@ impl Annotations {
             .ui(ui, |ui| {
                 ui.set_max_width(320.);
                 ui.weak(format!(
-                    "Temporary · {} / {MAX_MARKS} in memory",
+                    "Measurements · {} / {MAX_MARKS} in memory",
                     self.marks.len()
                 ));
-                ui.weak("Only this image / plane is listed. Nothing is saved.");
+                ui.weak("Only this image / plane is listed. Nothing is saved automatically.");
                 let mut selected = self.selected;
                 egui::ScrollArea::vertical()
                     .max_height(180.)

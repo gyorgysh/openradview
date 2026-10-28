@@ -171,3 +171,81 @@ fn source_replacement_cancels_old_work_and_closing_releases_all_image_references
         std::thread::sleep(Duration::from_millis(1));
     }
 }
+
+#[test]
+fn single_series_can_compare_a_separate_source_without_crossing_pane_identity() {
+    let ctx = egui::Context::default();
+    let original = Arc::new(orv_core::study::demo_study());
+    let mut other = orv_core::study::demo_study();
+    other.series[0].number = 99;
+    let other = Arc::new(other);
+    let mut session = ComparisonSession::start(original.clone(), 0, &ctx).unwrap();
+    assert!(session.open_right(other.clone(), &ctx));
+    wait(&mut session);
+    assert!(Arc::ptr_eq(session.active_study(), &other));
+    assert_eq!(session.active_source().number, 99);
+    session.panes[1].last_view = Some(session.panes[1].view.clone());
+    session.panes[1].picture_size = Some([300, 200]);
+    let (_, _, crate::export::Pixels::Image(image), _) = session.picture().unwrap() else {
+        panic!("The active source image should be exported");
+    };
+    assert!(Arc::ptr_eq(
+        &image,
+        &other.series[0].frames[session.panes[1].view.slice as usize]
+    ));
+    session.active = 0;
+    assert!(Arc::ptr_eq(session.active_study(), &original));
+    assert_ne!(session.active_source().number, 99);
+}
+
+#[test]
+fn unsaved_tracking_covers_measurements_and_views_after_saving() {
+    let ctx = egui::Context::default();
+    let mut session = ComparisonSession::start(study(), 0, &ctx).unwrap();
+    assert!(!session.unsaved());
+    session.add_test_measurement(0);
+    assert!(session.unsaved());
+    session.saved_marks[0] = session.panes[0]
+        .annotations
+        .capture()
+        .unwrap()
+        .into_iter()
+        .map(|m| m.saved)
+        .collect();
+    session.saved_views = Some(session.panes.each_ref().map(|pane| pane.view.clone()));
+    assert!(!session.unsaved());
+    session.panes[0].annotations.clear();
+    assert!(
+        session.unsaved(),
+        "Deleting a saved mark is an unsaved change"
+    );
+    session.add_test_measurement(0);
+    assert!(!session.unsaved());
+    session.panes[0].view.invert = true;
+    assert!(session.unsaved());
+    session.discard_marks();
+    assert!(!session.unsaved());
+    session.saved_views = Some(session.panes.each_ref().map(|pane| pane.view.clone()));
+    assert!(session.open_right(study(), &ctx));
+    assert!(
+        session.unsaved(),
+        "Replacing a saved source changes the comparison"
+    );
+}
+
+#[test]
+fn adopted_source_view_keeps_its_selected_frame_and_window_after_decode() {
+    let ctx = egui::Context::default();
+    let mut session = ComparisonSession::start(study(), 0, &ctx).unwrap();
+    let view = ViewState {
+        slice: 0,
+        invert: true,
+        window: orv_core::WindowLevel::BONE,
+        ..Default::default()
+    };
+    session.adopt_source_view(Annotations::default(), view.clone(), Tool::Angle, false);
+    wait(&mut session);
+    assert_eq!(session.panes[0].view, view);
+    assert_eq!(session.panes[0].image.as_ref().unwrap().0, 0);
+    assert_eq!(session.panes[0].tool, Tool::Angle);
+}

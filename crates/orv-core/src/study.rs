@@ -241,6 +241,18 @@ impl Series {
                 .ok_or(crate::load::LoadError::Unsupported)
         }
     }
+    /// Verify against backing files instead of a previously decoded cache entry.
+    pub fn read_fresh_frame(
+        &self,
+        index: usize,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Arc<Frame>, crate::load::LoadError> {
+        if let Some(source) = &self.source {
+            source.read_fresh_frame(index, cancelled)
+        } else {
+            self.read_frame(index, cancelled)
+        }
+    }
     pub fn volume_frames(
         &self,
         cancelled: impl Fn() -> bool,

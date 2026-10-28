@@ -95,8 +95,9 @@ Series previews use one idle-blocking worker, coalesce visible-row requests and
 reuse the decoded source cache. At most 32 small textures remain in RAM, with
 shared RAM/GPU reservations; closing the study cancels work and drops previews.
 
-Local two-series comparison owns independent latest-frame workers and pane state,
-sharing the original study/cache and process-wide admission pools. Optional slice
+Local two-series comparison owns independent latest-frame workers and pane state.
+Panes may use the original study/cache or a separately imported local source;
+all sources share process-wide admission pools. Optional slice
 linking validates header geometry on workers and uses a physical image-center
 point with nearest-plane lookup. Bounded navigation tables share prepared-source
 RAM admission; comparison does not materialize two volumes. The active pane owns
@@ -106,7 +107,17 @@ activate it; passive hover does not change its tools.
 Entering comparison revokes live and frozen grants, cancels review/shared work and
 removes agent composition. Dual-pane content is never published through MCP.
 Leaving comparison returns to its active series and requires fresh Allow to share.
-The layout, marks and previews have no persistence or restore path.
+If the original source has unsaved labels, it remains the active source before
+leaving comparison; a separate source cannot replace it until the labels are handled.
+An explicit comparison file stores source fingerprints, pane views and source
+frame/point measurements, without paths, pixels or raw tags. It is bounded and
+written without overwriting an existing file, with owner-only file permissions on
+Unix; other platforms use their normal destination-folder access controls. Reopening requires both
+series to be selected again in order. Cancellable workers bypass the decoded
+cache to fingerprint both sources, reject mismatches, and reconstruct marks and
+statistics against fresh frames before publishing either pane. Unsaved comparison
+measurements and changes to a saved view are protected on replacement or closure.
+The file may still be sensitive; previews and study history are not persisted.
 
 Quarter-turn/flip display transforms leave acquisition geometry and source pixels
 unchanged. The source-to-viewport map is shared by probes, measurements, label

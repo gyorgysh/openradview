@@ -146,6 +146,25 @@ fn indexed_sources_reject_mutation_traversal_and_cancellation() {
 }
 
 #[test]
+fn fresh_fingerprint_rejects_a_changed_file_even_when_its_frame_is_cached() {
+    let temp = Temp::new();
+    let path = temp.0.join("synthetic.dcm");
+    fs::write(&path, support::fixture(0., 1, false, false)).unwrap();
+    let study = index_paths(std::slice::from_ref(&path), || false, |_| {}).unwrap();
+    let series = &study.series[0];
+    series.read_frame(0, || false).unwrap();
+    assert!(crate::scene::fresh_series_fingerprint(series, || false).is_ok());
+    File::options()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(b"changed")
+        .unwrap();
+    assert!(series.read_frame(0, || false).is_ok());
+    assert!(crate::scene::fresh_series_fingerprint(series, || false).is_err());
+}
+
+#[test]
 fn four_gib_native_multiframe_is_lazy_random_access_and_cache_bounded() {
     let temp = Temp::new();
     let (path, _, _) = large::native(&temp.0);

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0 — 2026-10-28
+
+- Open a separate local source in the right comparison pane, including when the
+  first source has only one image. Choose series and controls independently;
+  comparison stays local.
+- Explicitly save comparison views and measurements in a path-free local file,
+  and restore them after both original series have been verified. No scan copies
+  or study history are created; unsaved measurements and changes to a saved
+  comparison are protected.
+- Keep source-image measurements and the current view when entering comparison;
+  cancelling a source replacement leaves existing measurements intact.
+
 ## 1.1.1 — 2026-10-27
 
 - Fix macOS update installation when verifying the signed application and

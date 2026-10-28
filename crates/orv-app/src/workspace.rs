@@ -25,6 +25,20 @@ pub(super) enum ViewMode {
     Compare,
 }
 
+struct ComparisonSource {
+    study: Arc<Study>,
+    browser: crate::series_browser::SeriesBrowser,
+}
+enum ComparisonAction {
+    Mode(ViewMode),
+    Close,
+    Begin(Source),
+    Select(usize),
+    OpenRight(Source),
+    ReturnLabels,
+    Quit,
+}
+
 #[derive(Default)]
 pub struct Workspace {
     pub(super) export: crate::export::PictureExport,
@@ -43,6 +57,12 @@ pub struct Workspace {
     pub(super) view: ViewState,
     pub(super) tool: Tool,
     pub(super) loading: Option<ImportTask>,
+    loading_comparison: bool,
+    right_replace_confirmed: bool,
+    comparison_source: Option<ComparisonSource>,
+    pending_comparison: Option<ComparisonAction>,
+    bypass_comparison_guard: bool,
+    allow_comparison_quit: bool,
     error: Option<String>,
     pub(super) scroll: f32,
     clear_gpu: bool,
@@ -67,16 +87,53 @@ impl Workspace {
             return;
         }
         if self.mode == ViewMode::Compare {
+            if !self.bypass_comparison_guard
+                && self
+                    .comparison
+                    .as_ref()
+                    .is_some_and(|comparison| comparison.unsaved())
+            {
+                self.pending_comparison = Some(ComparisonAction::Mode(mode));
+                return;
+            }
+            let external_active = self
+                .comparison
+                .as_ref()
+                .zip(self.comparison_source.as_ref())
+                .is_some_and(|(comparison, source)| {
+                    Arc::ptr_eq(comparison.active_study(), &source.study)
+                });
+            if external_active && (self.labels.dirty || self.labels.busy()) {
+                self.error = Some("Select the original source pane before leaving comparison; it has unsaved labels.".into());
+                return;
+            }
+            self.error = None;
+            if self.loading_comparison {
+                self.loading = None;
+                self.loading_comparison = false;
+                self.right_replace_confirmed = false;
+            }
+            if let (Some(comparison), Some(source)) = (&self.comparison, &self.comparison_source)
+                && Arc::ptr_eq(comparison.active_study(), &source.study)
+                && let Some(source) = self.comparison_source.take()
+            {
+                self.study = Some(source.study);
+                self.browser = source.browser;
+                self.demo = None;
+                self.labels = Default::default();
+            }
             let selected = self
                 .comparison
                 .as_ref()
                 .map_or(self.selected, |comparison| comparison.active_series());
             self.select(selected);
+            self.comparison_source = None;
         }
         self.export.close();
         self.image_info.close();
         self.labels.stop_painting();
         self.labels.open = false;
+        let previous_mode = self.mode;
         self.mode = mode;
         if mode == ViewMode::Compare {
             #[cfg(feature = "mcp")]
@@ -88,6 +145,16 @@ impl Workspace {
             self.comparison = self.study.as_ref().and_then(|study| {
                 crate::comparison::ComparisonSession::start(study.clone(), self.selected, ctx)
             });
+            if (previous_mode == ViewMode::Acquired || self.annotations.has_marks())
+                && let Some(comparison) = &mut self.comparison
+            {
+                comparison.adopt_source_view(
+                    std::mem::take(&mut self.annotations),
+                    self.view.clone(),
+                    self.tool,
+                    self.initialize_window,
+                );
+            }
             if self.comparison.is_none() {
                 self.mode = ViewMode::Acquired;
             }
@@ -124,6 +191,11 @@ impl Workspace {
             || self.labels.discard_question
             || self.discard_labels
             || self.show_demo_credits
+            || self.pending_comparison.is_some()
+            || self
+                .comparison
+                .as_ref()
+                .is_some_and(|comparison| comparison.busy())
     }
     pub(super) fn discard_inactive_views(&mut self) {
         self.pause_playback();
@@ -140,6 +212,15 @@ impl Workspace {
         if self.loading.is_some() {
             return;
         }
+        if !self.bypass_comparison_guard
+            && self
+                .comparison
+                .as_ref()
+                .is_some_and(|comparison| comparison.unsaved())
+        {
+            self.pending_comparison = Some(ComparisonAction::Begin(source));
+            return;
+        }
         if self.labels.dirty || self.labels.busy() {
             self.pending_source = Some(source);
             self.labels.discard_question = true;
@@ -152,6 +233,15 @@ impl Workspace {
     }
     pub(super) fn close(&mut self) {
         self.pause_playback();
+        if !self.bypass_comparison_guard
+            && self
+                .comparison
+                .as_ref()
+                .is_some_and(|comparison| comparison.unsaved())
+        {
+            self.pending_comparison = Some(ComparisonAction::Close);
+            return;
+        }
         if self.labels.dirty || self.labels.busy() {
             self.pending_close = true;
             self.labels.discard_question = true;
@@ -170,6 +260,7 @@ impl Workspace {
         self.volume = None;
         self.oblique = None;
         self.comparison = None;
+        self.comparison_source = None;
         self.annotations = Default::default();
         self.image_worker = None;
         self.decoded_image = None;
@@ -180,12 +271,21 @@ impl Workspace {
         self.study = None;
         self.demo = None;
         self.loading = None;
+        self.loading_comparison = false;
+        self.right_replace_confirmed = false;
+        self.pending_comparison = None;
+        self.allow_comparison_quit = false;
         self.clear_gpu = true;
         self.error = None;
         self.selected = 0;
         self.view = ViewState::default();
     }
     fn select(&mut self, index: usize) {
+        if self.loading_comparison {
+            self.loading = None;
+            self.loading_comparison = false;
+            self.right_replace_confirmed = false;
+        }
         self.export.close();
         self.picture_size = None;
         self.pause_playback();
@@ -199,6 +299,7 @@ impl Workspace {
         self.volume = None;
         self.oblique = None;
         self.comparison = None;
+        self.comparison_source = None;
         self.annotations = Default::default();
         self.clear_gpu = true;
         self.image_worker = None;
@@ -223,9 +324,49 @@ impl Workspace {
         }
     }
     fn poll(&mut self, ctx: &egui::Context) {
+        if self
+            .loading
+            .as_ref()
+            .is_some_and(|task| task.cancel.load(Ordering::Relaxed))
+        {
+            self.loading = None;
+            self.loading_comparison = false;
+            self.right_replace_confirmed = false;
+            return;
+        }
         let result = self.loading.as_ref().map(|task| task.receiver.try_recv());
         match result {
             Some(Ok(Ok(Some(study)))) => {
+                if self.loading_comparison {
+                    self.loading = None;
+                    self.loading_comparison = false;
+                    let confirmed = std::mem::take(&mut self.right_replace_confirmed);
+                    if !confirmed
+                        && self
+                            .comparison
+                            .as_ref()
+                            .is_some_and(|comparison| comparison.pane_unsaved(1))
+                    {
+                        self.error = Some("The right pane has unsaved measurements. Save them before replacing its source.".into());
+                        return;
+                    }
+                    let source = Arc::new(study.study);
+                    if let Some(comparison) = &mut self.comparison
+                        && comparison.open_right(source.clone(), ctx)
+                    {
+                        self.comparison_source = Some(ComparisonSource {
+                            browser: crate::series_browser::SeriesBrowser::new(
+                                study.catalog,
+                                source.clone(),
+                                ctx.clone(),
+                            ),
+                            study: source,
+                        });
+                        self.export.close();
+                        self.clear_gpu = true;
+                    }
+                    return;
+                }
                 self.demo = self.loading.as_ref().and_then(|task| task.demo);
                 self.loading = None;
                 self.labels = Default::default();
@@ -241,13 +382,19 @@ impl Workspace {
             }
             Some(Ok(Ok(None))) => {
                 self.loading = None;
+                self.loading_comparison = false;
+                self.right_replace_confirmed = false;
             }
             Some(Ok(Err(error))) => {
                 self.loading = None;
+                self.loading_comparison = false;
+                self.right_replace_confirmed = false;
                 self.error = Some(error.to_string());
             }
             Some(Err(TryRecvError::Disconnected)) => {
                 self.loading = None;
+                self.loading_comparison = false;
+                self.right_replace_confirmed = false;
                 self.error = Some("The import worker stopped. Try a smaller input.".into());
             }
             _ => {}
@@ -275,8 +422,14 @@ impl Workspace {
         let slice = self
             .current_image()
             .and_then(|(_, f)| self.labels.current.as_ref()?.slice_index(&f));
-        let other_modal =
-            self.sharing_modal_open() || self.labels.discard_question || self.discard_labels;
+        let other_modal = self.sharing_modal_open()
+            || self.labels.discard_question
+            || self.discard_labels
+            || self.pending_comparison.is_some()
+            || self
+                .comparison
+                .as_ref()
+                .is_some_and(|comparison| comparison.busy());
         if other_modal {
             self.image_info.close();
         }
@@ -304,6 +457,10 @@ impl Workspace {
         self.export.show(ui.ctx());
         crate::demos::credits(ui.ctx(), &mut self.show_demo_credits);
         self.label_discard_dialog(ui.ctx());
+        if let Some(comparison) = &mut self.comparison {
+            comparison.file_dialogs(ui.ctx());
+        }
+        self.comparison_discard_dialog(ui.ctx(), frame);
         if local_dialog_was_open && !self.local_dialog_open() {
             ui.ctx().request_repaint();
         }
@@ -402,7 +559,7 @@ impl Workspace {
                 ui.selectable_value(&mut mode, ViewMode::Volume, "3D / MIP");
                 ui.selectable_value(&mut mode, ViewMode::Oblique, "Oblique");
                 if ui.add_enabled(
-                    self.study.as_ref().is_some_and(|study| study.series.len() > 1),
+                    self.study.as_ref().is_some_and(|study| !study.series.is_empty()),
                     egui::Button::selectable(mode == ViewMode::Compare, "Compare series"),
                 ).clicked() { mode = ViewMode::Compare; }
                 if mode != self.mode { self.set_mode(mode, ui.ctx()); }
@@ -448,7 +605,9 @@ impl Workspace {
                 top: 16,
                 bottom: 10,
             }))
-            .show(ui, |ui| self.sidebar(ui, frame));
+            .show(ui, |ui| {
+                ui.add_enabled_ui(self.loading.is_none(), |ui| self.sidebar(ui, frame));
+            });
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(16.0))
             .show(ui, |ui| {
@@ -473,8 +632,14 @@ impl Workspace {
                         }
                         ViewMode::Acquired => self.image_ui(ui, frame),
                         ViewMode::Compare => {
-                            if let Some(comparison) = &mut self.comparison {
-                                comparison.ui(ui, frame);
+                            if let Some(comparison) = &mut self.comparison
+                                && let Some(source) = ui
+                                    .add_enabled_ui(self.loading.is_none(), |ui| {
+                                        comparison.ui(ui, frame, true)
+                                    })
+                                    .inner
+                            {
+                                self.open_comparison_right(source, &ctx);
                             }
                         }
                     }
@@ -486,8 +651,16 @@ impl Workspace {
     fn sidebar(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         theme::eyebrow(ui, "LOCAL SERIES");
         ui.add_space(12.0);
-        if let Some(study) = &self.study {
-            if let Some(demo) = self.demo {
+        if self.study.is_some() {
+            let secondary_active = self
+                .comparison
+                .as_ref()
+                .zip(self.comparison_source.as_ref())
+                .is_some_and(|(comparison, source)| {
+                    self.mode == ViewMode::Compare
+                        && Arc::ptr_eq(comparison.active_study(), &source.study)
+                });
+            if let Some(demo) = self.demo.filter(|_| !secondary_active) {
                 theme::eyebrow(ui, "PUBLIC RESEARCH DEMO");
                 ui.label(demo.title());
                 ui.small(demo.credit());
@@ -496,23 +669,36 @@ impl Workspace {
                 }
                 ui.add_space(12.0);
             }
-            if study.synthetic {
+            let active_study = if secondary_active {
+                self.comparison_source.as_ref().map(|source| &source.study)
+            } else {
+                self.study.as_ref()
+            };
+            if active_study.is_some_and(|study| study.synthetic) {
                 theme::eyebrow(ui, "SYNTHETIC DEMO · NO PATIENT DATA");
             }
+            let skipped_files = active_study.map_or(0, |study| study.skipped_files);
             let active_series = self
                 .comparison
                 .as_ref()
                 .filter(|_| self.mode == ViewMode::Compare)
                 .map_or(self.selected, |comparison| comparison.active_series());
-            let select = self
-                .browser
-                .ui(ui, active_series, frame.wgpu_render_state());
+            if secondary_active {
+                ui.weak("Right pane source");
+            } else if self.mode == ViewMode::Compare {
+                ui.weak("Original source");
+            }
+            let browser = match (secondary_active, &mut self.comparison_source) {
+                (true, Some(source)) => &mut source.browser,
+                _ => &mut self.browser,
+            };
+            let select = browser.ui(ui, active_series, frame.wgpu_render_state());
             ui.add_space(18.0);
-            if study.skipped_files > 0 {
+            if skipped_files > 0 {
                 ui.label(
                     RichText::new(format!(
                         "{} unsupported or non-image files skipped",
-                        study.skipped_files
+                        skipped_files
                     ))
                     .small()
                     .color(theme::SILVER),
@@ -522,8 +708,12 @@ impl Workspace {
                 if self.mode == ViewMode::Compare
                     && let Some(comparison) = &mut self.comparison
                 {
-                    comparison.select_active(index, ui.ctx(), frame);
-                    self.export.close();
+                    if comparison.active_series() != index && comparison.active_unsaved() {
+                        self.pending_comparison = Some(ComparisonAction::Select(index));
+                    } else {
+                        comparison.select_active(index, ui.ctx(), frame);
+                        self.export.close();
+                    }
                 } else {
                     self.select(index);
                 }
@@ -579,16 +769,101 @@ impl Workspace {
     pub(super) fn pause_playback(&mut self) {
         self.playback.pause();
     }
-    pub(super) fn protect_labels_on_quit(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested())
-            && (self.labels.dirty || self.labels.busy())
+    fn open_comparison_right(&mut self, source: Source, ctx: &egui::Context) {
+        if !self.bypass_comparison_guard
+            && self
+                .comparison
+                .as_ref()
+                .is_some_and(|comparison| comparison.pane_unsaved(1))
         {
+            self.pending_comparison = Some(ComparisonAction::OpenRight(source));
+            return;
+        }
+        self.error = None;
+        self.loading_comparison = true;
+        self.right_replace_confirmed = self.bypass_comparison_guard;
+        self.loading = Some(ImportTask::start(source, ctx.clone()));
+    }
+    fn comparison_discard_dialog(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        if self.pending_comparison.is_none() {
+            return;
+        }
+        let mut discard = false;
+        let mut cancel = false;
+        egui::Modal::new(egui::Id::new("keep-comparison-measurements")).show(ctx, |ui| {
+            ui.heading("Keep your comparison?");
+            ui.label("Some comparison changes have not been saved. Return to the comparison and choose Comparison → Save comparison to keep them.");
+            ui.horizontal(|ui| {
+                if ui.button("Return to comparison").clicked() { cancel = true; }
+                if ui.button("Discard and continue").clicked() { discard = true; }
+            });
+        });
+        if cancel {
+            self.pending_comparison = None;
+        }
+        if discard && let Some(action) = self.pending_comparison.take() {
+            self.bypass_comparison_guard = true;
+            match action {
+                ComparisonAction::Mode(mode) => self.set_mode(mode, ctx),
+                ComparisonAction::Close => self.close(),
+                ComparisonAction::Begin(source) => self.begin(source, ctx),
+                ComparisonAction::Select(index) => {
+                    if let Some(comparison) = &mut self.comparison {
+                        comparison.select_active(index, ctx, frame);
+                    }
+                    self.export.close();
+                }
+                ComparisonAction::OpenRight(source) => self.open_comparison_right(source, ctx),
+                ComparisonAction::ReturnLabels => self.return_to_labels(),
+                ComparisonAction::Quit => {
+                    self.allow_comparison_quit = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+            self.bypass_comparison_guard = false;
+        }
+    }
+    pub(super) fn protect_labels_on_quit(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.viewport().close_requested()) {
+            return;
+        }
+        if self
+            .comparison
+            .as_ref()
+            .is_some_and(|comparison| comparison.busy())
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            return;
+        }
+        let allow = self.allow_comparison_quit;
+        if !allow
+            && self
+                .comparison
+                .as_ref()
+                .is_some_and(|comparison| comparison.unsaved())
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.pending_comparison = Some(ComparisonAction::Quit);
+            return;
+        }
+        if self.labels.dirty || self.labels.busy() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.pending_quit = true;
             self.labels.discard_question = true;
+        } else {
+            self.allow_comparison_quit = false;
         }
     }
     fn return_to_labels(&mut self) {
+        if !self.bypass_comparison_guard
+            && self
+                .comparison
+                .as_ref()
+                .is_some_and(|comparison| comparison.unsaved())
+        {
+            self.pending_comparison = Some(ComparisonAction::ReturnLabels);
+            return;
+        }
         if self
             .study
             .as_ref()
@@ -601,7 +876,12 @@ impl Workspace {
     }
     #[cfg(feature = "updates")]
     pub(super) fn labels_need_saving(&self) -> bool {
-        self.labels.dirty || self.labels.busy()
+        self.labels.dirty
+            || self.labels.busy()
+            || self
+                .comparison
+                .as_ref()
+                .is_some_and(|comparison| comparison.unsaved() || comparison.busy())
     }
     fn label_discard_dialog(&mut self, ctx: &egui::Context) {
         if self.labels.discard_question {
@@ -617,6 +897,7 @@ impl Workspace {
             if !open || dismiss {
                 self.labels.discard_question = false;
                 if !self.discard_labels {
+                    self.allow_comparison_quit = false;
                     self.pending_source = None;
                     self.pending_close = false;
                     self.pending_quit = false;
@@ -642,6 +923,207 @@ impl Workspace {
 #[cfg(test)]
 mod label_safety_tests {
     use super::*;
+    #[test]
+    fn cancelled_import_never_publishes_a_result_that_arrived_before_cancellation() {
+        let ctx = egui::Context::default();
+        let original = Arc::new(orv_core::study::demo_study());
+        let mut workspace = Workspace {
+            study: Some(original.clone()),
+            ..Default::default()
+        };
+        workspace.set_mode(ViewMode::Compare, &ctx);
+        workspace
+            .comparison
+            .as_mut()
+            .unwrap()
+            .add_test_measurement(1);
+        let incoming = orv_core::study::demo_study();
+        let catalog = crate::series_browser::Catalog::build(&incoming, || false).unwrap();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        sender
+            .send(Ok(Some(crate::worker::ImportedStudy {
+                study: incoming,
+                catalog,
+            })))
+            .unwrap();
+        workspace.loading = Some(ImportTask {
+            demo: None,
+            receiver,
+            cancel: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            processed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            checked_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        });
+        workspace.loading_comparison = true;
+        workspace.right_replace_confirmed = true;
+        workspace.poll(&ctx);
+        assert!(workspace.loading.is_none());
+        assert!(workspace.comparison_source.is_none());
+        assert!(workspace.comparison.as_ref().unwrap().pane_unsaved(1));
+        assert!(Arc::ptr_eq(workspace.study.as_ref().unwrap(), &original));
+    }
+    #[test]
+    fn entering_comparison_preserves_source_measurements_and_view() {
+        use crate::annotations::{SavedMark, SavedTool};
+        let ctx = egui::Context::default();
+        let study = Arc::new(orv_core::study::demo_study());
+        let mark = SavedMark {
+            frame: 2,
+            tool: SavedTool::Angle,
+            points: vec![[0., 0.], [1., 1.], [2., 0.]],
+        };
+        let mut workspace = Workspace {
+            study: Some(study.clone()),
+            ..Default::default()
+        };
+        workspace.view.slice = 2;
+        workspace.view.invert = true;
+        workspace.tool = Tool::Angle;
+        workspace.annotations = Annotations::restore(&[mark], &study.series[0], || false).unwrap();
+        workspace.set_mode(ViewMode::Compare, &ctx);
+        assert!(!workspace.annotations.has_marks());
+        let comparison = workspace.comparison.as_ref().unwrap();
+        assert!(comparison.pane_unsaved(0));
+        workspace.set_mode(ViewMode::Acquired, &ctx);
+        assert_eq!(workspace.mode, ViewMode::Compare);
+        assert!(matches!(
+            workspace.pending_comparison,
+            Some(ComparisonAction::Mode(ViewMode::Acquired))
+        ));
+    }
+    #[test]
+    fn failed_right_import_after_discard_confirmation_keeps_existing_marks() {
+        let ctx = egui::Context::default();
+        let study = Arc::new(orv_core::study::demo_study());
+        let mut workspace = Workspace {
+            study: Some(study),
+            ..Default::default()
+        };
+        workspace.set_mode(ViewMode::Compare, &ctx);
+        workspace
+            .comparison
+            .as_mut()
+            .unwrap()
+            .add_test_measurement(1);
+        workspace.bypass_comparison_guard = true;
+        workspace.open_comparison_right(Source::Paths(vec![]), &ctx);
+        workspace.bypass_comparison_guard = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while workspace.loading.is_some() {
+            workspace.poll(&ctx);
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(workspace.comparison.as_ref().unwrap().pane_unsaved(1));
+    }
+    #[test]
+    fn comparison_changes_block_mode_close_and_native_quit_until_disposition() {
+        let ctx = egui::Context::default();
+        let mut workspace = Workspace {
+            study: Some(Arc::new(orv_core::study::demo_study())),
+            ..Default::default()
+        };
+        workspace.set_mode(ViewMode::Compare, &ctx);
+        workspace
+            .comparison
+            .as_mut()
+            .unwrap()
+            .add_test_measurement(0);
+        workspace.set_mode(ViewMode::Acquired, &ctx);
+        assert_eq!(workspace.mode, ViewMode::Compare);
+        assert!(matches!(
+            workspace.pending_comparison,
+            Some(ComparisonAction::Mode(ViewMode::Acquired))
+        ));
+        workspace.pending_comparison = None;
+        workspace.close();
+        assert!(workspace.study.is_some());
+        assert!(matches!(
+            workspace.pending_comparison,
+            Some(ComparisonAction::Close)
+        ));
+        workspace.pending_comparison = None;
+        let mut input = egui::RawInput::default();
+        input
+            .viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .events
+            .push(egui::ViewportEvent::Close);
+        let mut output = ctx.run_ui(input, |ui| workspace.protect_labels_on_quit(ui.ctx()));
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::CancelClose)
+        );
+        assert!(matches!(
+            workspace.pending_comparison,
+            Some(ComparisonAction::Quit)
+        ));
+        output.textures_delta.clear();
+    }
+    #[test]
+    fn comparison_import_keeps_the_original_source_and_opens_the_new_source() {
+        let ctx = egui::Context::default();
+        let original = Arc::new(orv_core::study::demo_study());
+        let mut workspace = Workspace {
+            study: Some(original.clone()),
+            ..Default::default()
+        };
+        workspace.set_mode(ViewMode::Compare, &ctx);
+        workspace.loading_comparison = true;
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/demos/covid-xray.zip");
+        workspace.loading = Some(ImportTask::start(Source::Paths(vec![path]), ctx.clone()));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while workspace.loading.is_some() {
+            workspace.poll(&ctx);
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Import did not complete"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(workspace.error.is_none());
+        assert!(Arc::ptr_eq(workspace.study.as_ref().unwrap(), &original));
+        let comparison = workspace.comparison.as_ref().unwrap();
+        let external = workspace.comparison_source.as_ref().unwrap();
+        assert!(Arc::ptr_eq(comparison.active_study(), &external.study));
+        assert!(!Arc::ptr_eq(&external.study, &original));
+        assert_eq!(external.study.series[0].frame_count(), 1);
+    }
+    #[test]
+    fn leaving_comparison_retains_active_external_source_and_protects_original_labels() {
+        let ctx = egui::Context::default();
+        let original = Arc::new(orv_core::study::demo_study());
+        let other = Arc::new(orv_core::study::demo_study());
+        let mut workspace = Workspace {
+            study: Some(original.clone()),
+            ..Default::default()
+        };
+        workspace.set_mode(ViewMode::Compare, &ctx);
+        assert!(
+            workspace
+                .comparison
+                .as_mut()
+                .unwrap()
+                .open_right(other.clone(), &ctx)
+        );
+        let catalog = crate::series_browser::Catalog::build(&other, || false).unwrap();
+        workspace.comparison_source = Some(ComparisonSource {
+            study: other.clone(),
+            browser: crate::series_browser::SeriesBrowser::new(catalog, other.clone(), ctx.clone()),
+        });
+        workspace.labels.dirty = true;
+        workspace.set_mode(ViewMode::Acquired, &ctx);
+        assert_eq!(workspace.mode, ViewMode::Compare);
+        assert!(Arc::ptr_eq(workspace.study.as_ref().unwrap(), &original));
+        assert!(workspace.labels.dirty);
+        workspace.labels.dirty = false;
+        workspace.set_mode(ViewMode::Acquired, &ctx);
+        assert_eq!(workspace.mode, ViewMode::Acquired);
+        assert!(Arc::ptr_eq(workspace.study.as_ref().unwrap(), &other));
+        assert!(workspace.comparison_source.is_none());
+    }
     #[test]
     fn returning_to_unsaved_labels_leaves_comparison_and_selects_their_source_series() {
         let ctx = egui::Context::default();

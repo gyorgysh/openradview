@@ -41,21 +41,42 @@ Slabs disable physical measurements; choose **Thin plane** to measure again. **C
 limits the projection to explicit LPS minimum/maximum coordinates in millimeters.
 Restore full source bounds or disable clipping to see the full volume again.
 
-**Compare series** opens two source-image panes from the loaded study. Choose
-**Left pane** or **Right pane**, then select that pane's series in the sidebar.
+**Compare series** opens two source-image panes, even for a single-image source.
+When entering from **2D image**, its view and source-image measurements move into
+the left pane.
+Choose **Open in right pane…**, then **Files or ZIP…** or **Folder…**, to load
+another local source. Choose **Left pane** or **Right pane**, then select
+that pane's series in the sidebar. Leaving comparison keeps the active pane's
+source. If the original source has unsaved labels, select its pane before leaving.
 Tools and picture export apply to the active pane, marked by a brighter border.
 Navigation and contrast stay independent. **Link physical slices** is available
 for compatible declared geometry; it follows physical image centers. It does not
 register anatomy. Entering comparison ends sharing; sharing after leaving needs
-a fresh Allow. The comparison layout stays in memory.
+a fresh Allow. Different positioning or projections can affect the appearance
+of images taken at different times.
+
+To keep the comparison, choose **Comparison… → Save comparison…** and choose a
+new local file name. The file contains view settings, measurement points and
+source fingerprints, but no image pixels, source paths or patient tags. It may
+still contain sensitive information; a cloud-synced folder may copy it elsewhere.
+Nothing is saved automatically, and the original images are not modified.
+
+To reopen it, first open the original sources and select the same series in the
+same left/right order, then choose **Comparison… → Open saved comparison…**.
+Both series are checked against their saved fingerprints before either pane is
+restored. If a source is missing, changed or does not match, reopen the correct
+source and try again. Checking large series can take time. The comparison file
+does not contain the scans, so keep the originals separately. The app prompts
+before discarding unsaved comparison measurements or changes to a saved view.
 
 **Measure** offers distance, angle and rectangle statistics when the displayed
 geometry supports them. **Image info…** shows dimensions, spacing, image context
 and histograms. Readouts and measurements are for exploration and can be wrong.
 No projection measurement is treated as a source-plane measurement.
 Marks stay in memory while browsing the same series. **Measurements…** selects,
-deletes or clears them; they are cleared when the series/view closes and are never
-saved automatically. Sidebar previews are generated for visible series in memory.
+deletes or clears them; outside comparison they are cleared when the series/view
+closes. They are never saved automatically. Sidebar previews are generated for
+visible series in memory.
 
 **Labels…** paints a local source-grid label map. It is not organ recognition or
 an AI model. Export a map explicitly if you want to keep it; changes remain in

@@ -3086,7 +3086,7 @@ dependencies = [
 
 [[package]]
 name = "orv-agents"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "image",
  "orv-core",
@@ -3099,7 +3099,7 @@ dependencies = [
 
 [[package]]
 name = "orv-app"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "base64",
  "dicom-core",
@@ -3114,6 +3114,7 @@ dependencies = [
  "orv-updates",
  "pollster 1.0.1",
  "rfd",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
@@ -3121,7 +3122,7 @@ dependencies = [
 
 [[package]]
 name = "orv-core"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "charls",
  "crc32fast",
@@ -3144,7 +3145,7 @@ dependencies = [
 
 [[package]]
 name = "orv-mcp"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "axum",
  "base64",
@@ -3171,7 +3172,7 @@ dependencies = [
 
 [[package]]
 name = "orv-render"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "bytemuck",
  "image",
@@ -3187,7 +3188,7 @@ dependencies = [
 
 [[package]]
 name = "orv-updates"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "base64",
  "ed25519-dalek",

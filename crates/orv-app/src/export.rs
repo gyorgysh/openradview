@@ -102,9 +102,9 @@ impl crate::workspace::Workspace {
                 return;
             };
             let Some(series) = self
-                .study
+                .comparison
                 .as_ref()
-                .and_then(|study| study.series.get(index))
+                .map(|comparison| comparison.active_source())
             else {
                 return;
             };
@@ -112,7 +112,7 @@ impl crate::workspace::Workspace {
                 return;
             };
             self.export.open(Input {
-                series: Arc::new(series.clone()),
+                series,
                 scene: SceneState {
                     schema_version: 1,
                     source_sha256: "0".repeat(64),

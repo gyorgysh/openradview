@@ -79,7 +79,7 @@ impl OpenRadView {
                     self.updates.request_restart();
                 }
                 if self.workspace.labels_need_saving() {
-                    ui.weak("Export or discard local labels before installing or restarting.");
+                    ui.weak("Save or discard comparison changes and export or discard labels before installing or restarting.");
                 }
                 if !package_managed {
                     ui.weak("When enabled, checks run about once a day. Download, installation and restart require your action. No telemetry or automatic installation.");

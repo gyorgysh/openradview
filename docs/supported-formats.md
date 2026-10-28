@@ -220,15 +220,19 @@ reformat marks bind to the exact plane and sampling grid. Each collection holds
 at most 128 marks. **Measurements…** lists marks on the current image/plane and
 offers selection, deletion and clearing. ROI statistics run in the background,
 one calculation per collection. Changing series or closing its view clears marks;
-restart restores none. They are excluded from image-only exports and agent snapshots.
+restart restores none automatically. Comparison marks can be explicitly saved in
+a local comparison file and restored only against matching source series. They
+are excluded from image-only exports and agent snapshots.
 
 ## Local series comparison
 
-**Compare series** shows two independently navigable source 2D series from the
-current study. It shares the indexed source cache and RAM/GPU ceilings, without
-preparing two dense volumes. Select a pane with its button or by interacting with
-its image/slider, then choose a series in the sidebar. Tools, contrast and explicit
-picture export apply to the active pane. Narrow layouts stack the panes vertically.
+**Compare series** shows two independently navigable source 2D series. The right
+pane can open a separate local file selection, folder or archive, including a
+single-image source. Each pane has its own source cache; process-wide RAM/GPU
+ceilings are shared, without preparing two dense volumes. Select a pane with its
+button or by interacting with its image/slider, then choose a series from that
+pane's source in the sidebar. Tools, contrast and explicit picture export apply
+to the active pane. Narrow layouts stack the panes vertically.
 
 Optional physical linking requires complete, regular parallel planes and the same
 declared spatial reference. Dimensions, spacing, source order and in-plane display
@@ -244,8 +248,10 @@ does not establish correspondence.
 
 Entering comparison revokes live/frozen sharing and cancels shared reviews/work.
 Agents cannot access the dual-pane layout. Return to a single series and review a
-fresh Allow before sharing. Marks, layout and previews stay in memory; no session,
-bookmark, study history or thumbnail files are created. Picture export captures
+fresh Allow before sharing. An explicit comparison file can retain views and marks;
+it has fingerprints but no source paths or pixels and may still be sensitive.
+Reopening requires the same sources in the same pane order and fresh verification.
+No study history or thumbnail files are created. Picture export captures
 only the active completed source pane through the existing explicit export path.
 
 ## Local playback and picture export

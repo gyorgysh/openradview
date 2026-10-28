@@ -260,6 +260,23 @@ impl IndexedSeries {
         }
         Ok(image)
     }
+    /// Worker-only read that bypasses decoded pixels retained in the cache.
+    pub fn read_fresh_frame(
+        &self,
+        index: usize,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Arc<Frame>, LoadError> {
+        let entry = self.frames.get(index).ok_or(LoadError::Unsupported)?;
+        let readers = self.lock_cache(&cancelled)?.readers.clone();
+        let mut reader = readers.acquire(entry.source.id, &cancelled)?;
+        decode::decode(
+            &entry.source,
+            &entry.header,
+            entry.frame,
+            &mut reader,
+            &cancelled,
+        )
+    }
     fn lock_cache(
         &self,
         cancelled: &impl Fn() -> bool,
