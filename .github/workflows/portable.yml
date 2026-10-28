@@ -72,7 +72,7 @@ jobs:
         run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }} --profile native-full
       - name: Linux GPU worker shutdown stress
         if: runner.os == 'Linux'
-        run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }} --stress-count 10 -E 'test(background_upload_cancel_releases_source_without_waiting_on_ui) or test(authenticated_tools_are_scoped_and_revoke_closes_the_listener)'
+        run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }} --stress-count 10 -E 'test(background_upload_cancel_releases_source_without_waiting_on_ui) or test(authenticated_tools_are_scoped_and_revoke_closes_the_listener) or test(local_series_comparison_revokes_sharing_and_cannot_publish_or_apply_shared_views) or test(real_mcp_request_drives_desktop_then_reviewed_png_matches_the_preview)'
       - name: Linux software OpenGL rendering and native idle smoke
         if: runner.os == 'Linux'
         run: |

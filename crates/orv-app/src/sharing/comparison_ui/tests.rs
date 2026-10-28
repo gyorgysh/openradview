@@ -118,4 +118,5 @@ async fn native_review_freezes_one_real_metal_image_for_both_clients_and_release
         );
         client.close().await;
     }
+    crate::sharing::preview::finish_test_workers();
 }

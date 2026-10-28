@@ -37,6 +37,27 @@ struct Shared {
 }
 pub(super) struct PreviewWorker {
     shared: Arc<Shared>,
+    #[cfg(all(test, feature = "gpu-tests"))]
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(all(test, feature = "gpu-tests"))]
+static TEST_WORKERS: Mutex<Vec<std::thread::JoinHandle<()>>> = Mutex::new(Vec::new());
+
+#[cfg(all(test, feature = "gpu-tests"))]
+pub(super) fn finish_test_workers() {
+    let workers = std::mem::take(&mut *TEST_WORKERS.lock().unwrap_or_else(|p| p.into_inner()));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    for worker in workers {
+        while !worker.is_finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(
+            worker.is_finished(),
+            "Preview worker did not finish cleanup"
+        );
+        worker.join().expect("Preview worker failed during cleanup");
+    }
 }
 
 impl PreviewWorker {
@@ -130,7 +151,11 @@ impl PreviewWorker {
             work.result = Some((0, Err("Could not start the preview worker")));
             fallback.request_repaint();
         }
-        Self { shared }
+        Self {
+            shared,
+            #[cfg(all(test, feature = "gpu-tests"))]
+            worker: spawn.ok(),
+        }
     }
     pub fn request(&self, spec: ViewSpec, size: [u32; 2]) {
         let mut work = self.shared.work.lock().unwrap_or_else(|p| p.into_inner());
@@ -160,8 +185,19 @@ impl PreviewWorker {
 }
 impl Drop for PreviewWorker {
     fn drop(&mut self) {
-        let _work = self.shared.work.lock().unwrap_or_else(|p| p.into_inner());
-        self.shared.cancel.store(true, Ordering::Relaxed);
-        self.shared.changed.notify_all();
+        {
+            let _work = self.shared.work.lock().unwrap_or_else(|p| p.into_inner());
+            self.shared.cancel.store(true, Ordering::Relaxed);
+            self.shared.changed.notify_all();
+        }
+        // Join cancelled workers after test UI interactions, without changing the
+        // desktop's nonblocking close and revocation behavior.
+        #[cfg(all(test, feature = "gpu-tests"))]
+        if let Some(worker) = self.worker.take() {
+            TEST_WORKERS
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push(worker);
+        }
     }
 }

@@ -136,4 +136,5 @@ fn inbound_approval_waits_for_local_dialogs_then_escape_denies_without_a_grant()
         );
         workspace.close();
     }
+    crate::sharing::preview::finish_test_workers();
 }

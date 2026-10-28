@@ -180,12 +180,14 @@ async fn authenticated_tools_are_scoped_and_revoke_closes_the_listener() {
     // Completed requests may have notified about view changes. After dropping
     // the server, await the worker's terminal notification and runtime cleanup.
     while notifications.try_recv().is_ok() {}
+    let monitor = server.status_monitor();
     drop(server);
     assert!(session.is_revoked());
     tokio::time::timeout(Duration::from_secs(3), notifications.recv())
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(monitor.status(), ServerStatus::Stopped);
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         match tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).await {

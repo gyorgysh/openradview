@@ -65,6 +65,7 @@ async fn exact_oblique_and_volume_requests_survive_desktop_review_and_deliver_id
     drop(volume);
     open(&mut workspace, &ctx);
     approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
     let mut client = client(&workspace).await;
     let session = workspace.sharing.live.as_ref().unwrap().session.clone();
     for reconstruction in [
@@ -190,6 +191,7 @@ async fn exact_oblique_and_volume_requests_survive_desktop_review_and_deliver_id
     }
     workspace.close();
     client.close().await;
+    wait_for_server(&monitor);
     let deadline = Instant::now() + Duration::from_secs(5);
     while weak.upgrade().is_some() {
         assert!(
@@ -198,6 +200,7 @@ async fn exact_oblique_and_volume_requests_survive_desktop_review_and_deliver_id
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
+    crate::sharing::preview::finish_test_workers();
 }
 
 #[tokio::test]
@@ -211,6 +214,7 @@ async fn selected_series_scope_includes_explicit_new_views_but_never_another_sou
     open(&mut workspace, &ctx);
     workspace.sharing.draft.as_mut().unwrap().full_series = true;
     approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
     let mut client = client(&workspace).await;
     let mut scene = workspace
         .sharing
@@ -268,4 +272,6 @@ async fn selected_series_scope_includes_explicit_new_views_but_never_another_sou
     assert_eq!(denied.is_error, Some(true));
     workspace.close();
     client.close().await;
+    wait_for_server(&monitor);
+    crate::sharing::preview::finish_test_workers();
 }

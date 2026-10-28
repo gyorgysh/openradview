@@ -51,6 +51,18 @@ pub enum ServerStatus {
     Failed(&'static str),
 }
 
+/// Read-only lifecycle state, which can outlive the server owner after revocation.
+#[derive(Clone)]
+pub struct ServerStatusMonitor(Arc<Mutex<ServerStatus>>);
+impl ServerStatusMonitor {
+    pub fn status(&self) -> ServerStatus {
+        self.0
+            .lock()
+            .map(|status| status.clone())
+            .unwrap_or(ServerStatus::Failed("Local transport status unavailable"))
+    }
+}
+
 /// Owned by the desktop UI. Dropping it revokes access, including cloned tools.
 /// Startup/polling never waits for GPU work, client requests or thread shutdown.
 pub struct LocalServer {
@@ -124,6 +136,9 @@ impl LocalServer {
             .lock()
             .map(|s| s.clone())
             .unwrap_or(ServerStatus::Failed("Local transport status unavailable"))
+    }
+    pub fn status_monitor(&self) -> ServerStatusMonitor {
+        ServerStatusMonitor(self.status.clone())
     }
     /// Use only in an explicit user copy/configuration action.
     pub fn token_for_configuration(&self) -> &str {

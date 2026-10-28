@@ -47,6 +47,28 @@ fn approve(workspace: &mut Workspace, ctx: &egui::Context) {
     draft.risk = true;
     workspace.sharing.allow(ctx).unwrap();
 }
+fn monitor_server(workspace: &Workspace) -> orv_mcp::http::ServerStatusMonitor {
+    workspace
+        .sharing
+        .live
+        .as_ref()
+        .unwrap()
+        .server
+        .status_monitor()
+}
+fn wait_for_server(monitor: &orv_mcp::http::ServerStatusMonitor) {
+    let until = Instant::now() + Duration::from_secs(10);
+    while !matches!(
+        monitor.status(),
+        ServerStatus::Stopped | ServerStatus::Failed(_)
+    ) {
+        assert!(
+            Instant::now() < until,
+            "Local server did not finish cleanup"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
 
 #[test]
 fn local_series_comparison_revokes_sharing_and_cannot_publish_or_apply_shared_views() {
@@ -58,6 +80,7 @@ fn local_series_comparison_revokes_sharing_and_cannot_publish_or_apply_shared_vi
     workspace.study = Some(Arc::new(source));
     open(&mut workspace, &ctx);
     approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
     let session = workspace.sharing.live.as_ref().unwrap().session.clone();
     let mut scene = session.current().unwrap();
     scene.view.slice = 3;
@@ -81,6 +104,8 @@ fn local_series_comparison_revokes_sharing_and_cannot_publish_or_apply_shared_vi
         "Returning to one series needs a fresh Allow"
     );
     workspace.close();
+    wait_for_server(&monitor);
+    super::preview::finish_test_workers();
 }
 
 #[test]
@@ -131,6 +156,7 @@ fn provider_warning_and_allow_remain_visible_without_scrolling_at_minimum_window
     }
     assert!(!workspace.sharing.is_active(), "Painting is never a grant");
     workspace.close();
+    super::preview::finish_test_workers();
 }
 
 #[test]
@@ -155,9 +181,11 @@ fn desktop_consent_requires_explicit_confirmation_and_close_revokes_without_reta
     draft.tools.snapshots = true;
     let source = Arc::downgrade(&draft.preview.as_ref().unwrap().data.source);
     approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
     let session = workspace.sharing.live.as_ref().unwrap().session.clone();
     assert!(workspace.sharing.is_active());
     workspace.close();
+    wait_for_server(&monitor);
     assert!(session.is_revoked());
     assert!(workspace.study.is_none());
     let until = Instant::now() + Duration::from_secs(3);
@@ -165,6 +193,7 @@ fn desktop_consent_requires_explicit_confirmation_and_close_revokes_without_reta
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(source.upgrade().is_none());
+    super::preview::finish_test_workers();
 }
 
 #[test]
@@ -173,6 +202,7 @@ fn acquired_and_mpr_requests_apply_and_publish_only_completed_physical_views() {
     let mut workspace = workspace();
     open(&mut workspace, &ctx);
     approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
     let session = workspace.sharing.live.as_ref().unwrap().session.clone();
     let mut scene = session.current().unwrap();
     scene.view.slice = 7;
@@ -225,6 +255,8 @@ fn acquired_and_mpr_requests_apply_and_publish_only_completed_physical_views() {
             .is_ok()
     );
     workspace.close();
+    wait_for_server(&monitor);
+    super::preview::finish_test_workers();
 }
 
 #[tokio::test]
@@ -233,6 +265,7 @@ async fn real_mcp_request_drives_desktop_then_reviewed_png_matches_the_preview()
     let mut workspace = workspace();
     open(&mut workspace, &ctx);
     approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
     let until = Instant::now() + Duration::from_secs(5);
     let port = loop {
         match workspace.sharing.live.as_ref().unwrap().server.status() {
@@ -318,6 +351,8 @@ async fn real_mcp_request_drives_desktop_then_reviewed_png_matches_the_preview()
     let denied = client.call("get_tags", Default::default()).await;
     assert!(denied.is_err() || denied.unwrap().is_error == Some(true));
     client.close().await;
+    wait_for_server(&monitor);
+    super::preview::finish_test_workers();
 }
 
 #[test]
@@ -349,4 +384,6 @@ fn failed_preview_worker_reports_errors_for_later_requests_instead_of_waiting_fo
     }
     worker.request(spec, [32, 32]);
     assert!(worker.take().is_some_and(|result| result.is_err()));
+    drop(worker);
+    super::preview::finish_test_workers();
 }
