@@ -58,15 +58,18 @@ fn monitor_server(workspace: &Workspace) -> orv_mcp::http::ServerStatusMonitor {
 }
 fn wait_for_server(monitor: &orv_mcp::http::ServerStatusMonitor) {
     let until = Instant::now() + Duration::from_secs(10);
-    while !matches!(
-        monitor.status(),
-        ServerStatus::Stopped | ServerStatus::Failed(_)
-    ) {
-        assert!(
-            Instant::now() < until,
-            "Local server did not finish cleanup"
-        );
-        std::thread::sleep(Duration::from_millis(5));
+    loop {
+        match monitor.status() {
+            ServerStatus::Stopped => return,
+            ServerStatus::Failed(error) => panic!("Local server failed: {error}"),
+            _ => {
+                assert!(
+                    Instant::now() < until,
+                    "Local server did not finish cleanup"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
     }
 }
 
