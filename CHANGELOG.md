@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep supplied segmentation object types out of ordinary image imports, including
+  label maps and height maps, and report their unsupported object type.
+
 - Preview and explicitly apply local seeded region growing, keep a selected label
   component or remove small islands. Use four neighbors on one source image or
   six across the volume, with missing samples and other IDs as barriers. No AI

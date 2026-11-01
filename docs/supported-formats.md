@@ -32,6 +32,10 @@ an unusable index, unpack it with your own archive tool and select that folder;
 the viewer does not extract files. Folder scanning can include supported images
 that were not listed by an index.
 
+Recognized segmentation, surface segmentation, label map and height map objects
+are excluded from ordinary image imports, even when they carry pixel data. They
+are reported as unsupported object types; supplied DICOM masks are not yet read.
+
 Import keeps reason counts for skipped inputs in memory. Known unsupported
 encodings and object families, missing paired files, malformed DICOM metadata
 and unrecognized inputs have separate categories. Other unsupported/invalid

@@ -16,7 +16,11 @@ rendering code remain independent of the UI.
 
 ## Input, memory and geometry
 
-Metadata-first indexing avoids decoding every image at import. Requested frames
+Metadata-first indexing avoids decoding every image at import. A bounded metadata
+prefix reader applies object-class admission before reading dataset values and
+stops at the pixel payload without allocating it. Image admission checks both file
+meta and the dataset SOP class, so supplied mask objects do not enter grayscale
+decoding through image-like pixel attributes. Requested frames
 share a bounded LRU; each indexed read checks source identity. Cached-entry locking
 is separate from slow I/O/decoding. At most four hot decompression readers are
 retained per study cache, with matching-stream reuse and cancellable contention. ZIP/gzip/deflate
