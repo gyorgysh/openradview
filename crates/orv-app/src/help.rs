@@ -36,6 +36,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
             });
             egui::CollapsingHeader::new("Local labels").show(ui, |ui| {
                 ui.label("2D image → Labels… creates a local label volume. Enable Brush, close the panel and draw; Escape stops painting. Erase, opacity, two-step undo and scalar threshold fill are in the panel. Labels have no automatic anatomical meaning.");
+                ui.label("Labels also appear on matching thin MPR and oblique planes. Open Labels… in those views to hide individual IDs, choose fill/outline/hatching, or inspect source voxel counts and label cell volume. Missing source samples stay separate. Reformatting and zoom do not change counts. Painting remains on 2D source images; slabs and 3D do not show labels.");
                 ui.label("Load a matching NIfTI integer map (0–255), or export labels as NIfTI-2 to a new filename. Dimensions, affine and spatial reference must match; check correspondence yourself. No registration, DICOM SEG, model inference or label overlays in agent snapshots. Labels stay in memory until export; save before closing or replacing the study.");
             });
             egui::CollapsingHeader::new("What are MPR and 3D / MIP?").show(ui, |ui| {

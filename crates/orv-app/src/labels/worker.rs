@@ -13,14 +13,12 @@ pub enum Operation {
     Export(Arc<Labels>),
     Paint(Arc<Labels>, usize, Vec<[f64; 2]>, u32, u8),
     Threshold(Arc<Labels>, Option<usize>, [f32; 2], u8),
-    Overlay(Arc<Labels>, usize),
 }
 pub enum Output {
     Start(Arc<Labels>),
     Change(Arc<Labels>),
     Saved,
     Cancelled,
-    Overlay(usize, egui::ColorImage),
 }
 pub struct Task {
     receiver: mpsc::Receiver<Result<Output, String>>,
@@ -120,13 +118,6 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
             let mut edited = (*current).clone();
             edited.threshold(slice, range, label, cancelled)?;
             Output::Change(Arc::new(edited))
-        }
-        Operation::Overlay(current, z) => {
-            let [w, h, _] = current.source().dimensions();
-            Output::Overlay(
-                z,
-                egui::ColorImage::from_rgba_unmultiplied([w, h], &current.plane_rgba(z)?),
-            )
         }
     };
     if cancelled() {

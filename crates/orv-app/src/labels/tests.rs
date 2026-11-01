@@ -5,7 +5,7 @@ use orv_core::{
     study::{Frame, Geometry},
     volume::Volume,
 };
-fn labels() -> Arc<Labels> {
+pub(super) fn labels() -> Arc<Labels> {
     let frames = (0..3)
         .map(|z| {
             Arc::new(Frame {
@@ -43,15 +43,9 @@ fn primary_click_paints_on_source_grid_and_keeps_undo_checkpoint() {
     let ctx = egui::Context::default();
     let current = labels();
     let image = current.source().frames()[1].clone();
-    let texture = ctx.load_texture(
-        "test-overlay",
-        egui::ColorImage::filled([8, 8], egui::Color32::TRANSPARENT),
-        egui::TextureOptions::NEAREST,
-    );
     let mut state = LabelUi {
         current: Some(current.clone()),
         paint: true,
-        texture: Some((1, texture)),
         ..Default::default()
     };
     let pos = egui::pos2(200., 200.);

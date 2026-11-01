@@ -8,7 +8,7 @@ impl LabelUi {
         &mut self,
         ui: &egui::Ui,
         response: &egui::Response,
-        image: &Frame,
+        image: &std::sync::Arc<Frame>,
         view: &ViewState,
         selected: usize,
     ) {
@@ -29,19 +29,14 @@ impl LabelUi {
             self.stroke.clear();
             self.stroke_slice = Some(z);
         }
-        if self.visible {
-            if let Some((slice, texture)) = &self.texture
-                && *slice == z
-            {
-                if let Some(mesh) =
-                    overlay_mesh(response.rect, image, view, texture.id(), self.opacity)
-                {
-                    ui.painter_at(response.rect).add(egui::Shape::mesh(mesh));
-                }
-            } else if self.task.is_none() {
-                self.start(Operation::Overlay(current.clone(), z), ui.ctx());
-            }
-        }
+        self.prepare_planes(
+            selected,
+            &current.source_arc(),
+            std::slice::from_ref(image),
+            super::OverlayView::Source,
+            ui.ctx(),
+        );
+        self.draw_plane(ui, response, image, view, 0);
         if self.task.is_some()
             || !self.painting(selected)
             || crate::viewport::navigation_override(ui, response)
@@ -89,7 +84,7 @@ impl LabelUi {
     }
 }
 
-fn overlay_mesh(
+pub(super) fn overlay_mesh(
     rect: egui::Rect,
     image: &Frame,
     view: &ViewState,

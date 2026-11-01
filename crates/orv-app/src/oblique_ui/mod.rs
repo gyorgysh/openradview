@@ -95,7 +95,13 @@ impl ObliqueSession {
             }
         }
     }
-    pub fn ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        frame: &eframe::Frame,
+        labels: &mut crate::labels::LabelUi,
+        selected: usize,
+    ) {
         let width = ui.available_width();
         self.poll();
         if let Some(error) = &self.error {
@@ -146,6 +152,9 @@ impl ObliqueSession {
                 snapshot.image.slab.is_none() && self.slab.is_none(),
                 |ui| {
                     controls::orientation(ui, &mut self.view.transform);
+                    if ui.button("Labels…").clicked() {
+                        labels.open = true;
+                    }
                     self.annotations.controls(ui);
                 },
             ) {
@@ -242,6 +251,17 @@ impl ObliqueSession {
             },
         );
         crate::image_overlay::draw(ui, &response, &snapshot.image, &self.view);
+        labels.prepare_planes(
+            selected,
+            &snapshot.volume,
+            std::slice::from_ref(&snapshot.image),
+            crate::labels::OverlayView::Oblique {
+                generation: snapshot.generation,
+                preview: snapshot.preview,
+            },
+            ui.ctx(),
+        );
+        labels.draw_plane(ui, &response, &snapshot.image, &self.view, 0);
         self.annotations
             .show(ui, &response, &snapshot.image, &self.view, self.tool);
         self.annotations

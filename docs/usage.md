@@ -106,6 +106,11 @@ visible series in memory.
 **Labels…** paints a local source-grid label map. It is not organ recognition or
 an AI model. Export a map explicitly if you want to keep it; changes remain in
 memory until then. Unsaved work is protected when replacing or closing it.
+The same map appears on matching thin MPR and oblique planes. Open **Labels…**
+there to choose fill, outline or hatching and hide individual numeric IDs.
+Counts use original source voxels and declared cell volume, with valid and missing
+samples kept separate; zoom and display resolution do not change them. Painting
+and threshold edits stay on source images. Slab projections and 3D omit labels.
 
 **Study → Export picture…** saves an image-only PNG and reproducible view settings
 in a new local folder. It omits UI annotations and label maps. Check for text

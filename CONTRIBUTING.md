@@ -35,6 +35,7 @@ Generate fresh local input without using patient files:
 cargo run -p orv-core --example generate_fixture -- test-data/synthetic
 cargo run -p orv-core --example generate_formats -- test-data/synthetic-formats
 cargo run -p orv-core --example generate_media -- test-data/generated-media
+cargo run -p orv-core --example generate_media -- test-data/generated-labels --label-phantom
 ```
 
 ## Design and review
