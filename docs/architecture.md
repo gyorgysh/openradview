@@ -205,6 +205,14 @@ Temporary marks are bounded per series/pane and keyed by source-frame ordinal
 or exact reformat geometry, independently of decoded allocation addresses.
 Completed marks retain coordinates/results without retaining source pixels.
 One cancellable ROI calculation per pane publishes to its original mark ID.
+Core region APIs also support bounded ellipses and simple polygons, with inclusive
+pixel-centre boundaries, conservative topology/degeneracy checks and cancellable
+visits without a dense mask. Scalar/RGB code reductions share stable moments;
+new wrappers separate continuous geometric area from valid sampled-pixel area.
+Physical area uses the validated plane basis; missing or nonrepresentable geometry
+keeps area unknown. Existing rectangle APIs and serialized statistics retain their
+fields. Native mark creation/editing and saved comparisons currently use the
+existing rectangle/distance/angle kinds.
 Series previews use one idle-blocking worker, coalesce visible-row requests and
 reuse the decoded source cache. At most 32 small textures remain in RAM, with
 shared RAM/GPU reservations; closing the study cancels work and drops previews.

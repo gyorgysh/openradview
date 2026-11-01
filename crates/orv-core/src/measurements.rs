@@ -3,9 +3,15 @@
 use crate::{study::Frame, vector::*};
 use serde::{Deserialize, Serialize};
 mod color;
+mod reduction;
+mod shape;
 pub use color::{
-    ChannelStats, ColorRoiDomain, ColorRoiStats, color_roi_stats, color_roi_stats_cancellable,
+    ChannelStats, ColorRegionStats, ColorRoiDomain, ColorRoiStats, color_roi_shape_stats,
+    color_roi_shape_stats_cancellable, color_roi_stats, color_roi_stats_cancellable,
 };
+pub use shape::{MAX_POLYGON_VERTICES, RoiShape};
+#[cfg(test)]
+mod shape_tests;
 
 pub fn distance_mm(a: V3, b: V3) -> Result<f64, &'static str> {
     if !finite(a) || !finite(b) {
@@ -49,6 +55,25 @@ pub fn roi_stats_cancellable(
     corners: [[f64; 2]; 2],
     cancelled: impl Fn() -> bool,
 ) -> Result<RoiStats, &'static str> {
+    roi_shape_stats_cancellable(frame, RoiShape::Rectangle(corners), cancelled)
+        .map(|stats| stats.samples)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegionStats {
+    pub samples: RoiStats,
+    /// Continuous region area, independent of sampled pixel count and missing data.
+    pub geometric_area_mm2: Option<f64>,
+}
+pub fn roi_shape_stats(frame: &Frame, shape: RoiShape<'_>) -> Result<RegionStats, &'static str> {
+    roi_shape_stats_cancellable(frame, shape, || false)
+}
+/// Worker-only scalar reduction over included pixel centres, without allocating a mask.
+pub fn roi_shape_stats_cancellable(
+    frame: &Frame,
+    region: RoiShape<'_>,
+    cancelled: impl Fn() -> bool,
+) -> Result<RegionStats, &'static str> {
     if cancelled() {
         return Err("Cancelled");
     }
@@ -58,56 +83,38 @@ pub fn roi_stats_cancellable(
     if frame.rgba.is_some() {
         return Err("ROI statistics need scalar images; color channels are not modality values");
     }
-    if frame.width == 0
-        || frame.height == 0
-        || frame.width as usize * frame.height as usize != frame.pixels.len()
-        || corners.iter().flatten().any(|v| !v.is_finite())
+    let count = (frame.width as usize)
+        .checked_mul(frame.height as usize)
+        .filter(|n| *n > 0)
+        .ok_or("ROI coordinates or image are invalid")?;
+    if frame.pixels.len() != count
+        || frame
+            .validity
+            .as_ref()
+            .is_some_and(|mask| mask.len() != count)
     {
         return Err("ROI coordinates or image are invalid");
     }
-    let min: [f64; 2] = std::array::from_fn(|i| corners[0][i].min(corners[1][i]));
-    let max: [f64; 2] = std::array::from_fn(|i| corners[0][i].max(corners[1][i]));
-    if min[0] < 0.0
-        || min[1] < 0.0
-        || max[0] > (frame.width - 1) as f64
-        || max[1] > (frame.height - 1) as f64
-    {
-        return Err("ROI must lie inside the image");
-    }
-    let mut stats = RoiStats {
-        count: 0,
-        min: f64::INFINITY,
-        max: f64::NEG_INFINITY,
-        mean: 0.0,
-        standard_deviation: 0.0,
-        area_mm2: None,
-    };
-    let mut m2 = 0.0;
-    for y in min[1].ceil() as u32..=max[1].floor() as u32 {
-        if cancelled() {
-            return Err("Cancelled");
+    let region = region.prepare([frame.width, frame.height], &cancelled)?;
+    let mut moments = reduction::Moments::default();
+    region.visit(frame.width, &cancelled, |index| {
+        if frame.has_sample(index) {
+            moments.add(f64::from(frame.pixels[index]));
         }
-        for x in min[0].ceil() as u32..=max[0].floor() as u32 {
-            let value = frame.pixels[(y * frame.width + x) as usize] as f64;
-            if !frame.has_sample((y * frame.width + x) as usize) {
-                continue;
-            }
-            stats.count += 1;
-            let delta = value - stats.mean;
-            stats.mean += delta / stats.count as f64;
-            m2 += delta * (value - stats.mean);
-            stats.min = stats.min.min(value);
-            stats.max = stats.max.max(value);
-        }
-    }
-    if stats.count == 0 {
+        Ok(())
+    })?;
+    if moments.count == 0 {
         return Err("The ROI contains no scalar samples");
     }
-    stats.standard_deviation = (m2 / stats.count as f64).max(0.0).sqrt();
-    stats.area_mm2 = frame
-        .geometry
-        .as_ref()
-        .filter(|g| g.validate().is_ok())
-        .map(|g| stats.count as f64 * g.spacing[0] * g.spacing[1]);
-    Ok(stats)
+    Ok(RegionStats {
+        samples: RoiStats {
+            count: moments.count,
+            min: moments.min,
+            max: moments.max,
+            mean: moments.mean,
+            standard_deviation: moments.standard_deviation(),
+            area_mm2: shape::area_mm2(frame, moments.count as f64),
+        },
+        geometric_area_mm2: shape::area_mm2(frame, region.area_pixels),
+    })
 }
