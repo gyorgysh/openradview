@@ -73,6 +73,7 @@ fn measurement_tool(ui: &mut egui::Ui, tool: &mut Tool) {
             Tool::Roi => "ROI stats",
             Tool::EllipseRoi => "Ellipse ROI",
             Tool::PolygonRoi => "Polygon ROI",
+            Tool::EditMarks => "Edit measurements",
             _ => "Measure",
         })
         .show_ui(ui, |ui| {
@@ -82,6 +83,7 @@ fn measurement_tool(ui: &mut egui::Ui, tool: &mut Tool) {
                 (Tool::Roi, "Rectangle ROI · 2 corners"),
                 (Tool::EllipseRoi, "Ellipse ROI · 2 corners"),
                 (Tool::PolygonRoi, "Polygon ROI · Enter to finish"),
+                (Tool::EditMarks, "Edit measurements · select a vertex"),
             ] {
                 if ui.selectable_value(tool, value, label).clicked() {
                     ui.close();

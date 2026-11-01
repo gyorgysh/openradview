@@ -220,6 +220,13 @@ accepts worker validation for the exact image and tool. Context changes discard
 drafts, and reformats admit interaction only on the matching settled thin plane.
 Each collection has 128 marks, 4096 total points and 256 vertices per polygon, with
 1 MiB of admitted metadata storage retained through pending worker inputs.
+Vertex gestures and numeric proposals leave the original mark intact until
+worker validation and exact owner/base-revision acceptance. No per-drag sample
+scan runs. The 16-entry undo/redo history stores admitted, fallible coordinate and
+validated-report pairs by mark ID, without frames or copied source metadata.
+Reports travel with their already validated geometry on the unchanged source;
+fresh monotonically assigned revisions reject late worker results on undo/redo.
+Deletion/clear invalidates history, and source/view closure releases it.
 Series previews use one idle-blocking worker, coalesce visible-row requests and
 reuse the decoded source cache. At most 32 small textures remain in RAM, with
 shared RAM/GPU reservations; closing the study cancels work and drops previews.

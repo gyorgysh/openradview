@@ -6,6 +6,9 @@
   Report scalar/RGB statistics with sampled area separate from continuous shape
   area. Explicitly saved comparisons preserve the new shapes; earlier comparison
   files remain readable. Drafts cancel when their image or view changes.
+- Adjust measurement vertices by dragging handles or entering source coordinates.
+  Validate a change before replacing the mark, cancel without losing the original,
+  and undo or redo up to 16 geometry edits in memory.
 
 - Explicitly load matching local BINARY DICOM segmentation masks on source,
   thin MPR and oblique planes. Preserve overlapping segments and sparse coverage,
