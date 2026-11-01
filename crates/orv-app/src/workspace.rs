@@ -514,13 +514,14 @@ impl Workspace {
             ui.spacing_mut().button_padding = egui::vec2(10., 5.);
             if ui
                 .add_enabled(self.loading.is_none(), egui::Button::new("Open files"))
-                .on_hover_text("DICOM, NIfTI or ZIP · Cmd/Ctrl+O")
+                .on_hover_text("DICOM, DICOMDIR, NIfTI or ZIP · Cmd/Ctrl+O")
                 .clicked()
             {
                 self.begin(Source::Files, &ctx);
             }
             if ui
                 .add_enabled(self.loading.is_none(), egui::Button::new("Open folder"))
+                .on_hover_text("Scan supported files directly, independently of a DICOMDIR index")
                 .clicked()
             {
                 self.begin(Source::Folder, &ctx);

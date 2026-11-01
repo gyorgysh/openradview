@@ -32,6 +32,24 @@ remain explicitly unsupported-or-invalid; cancellation, changed sources and hard
 resource limits remain failures rather than skipped inputs. Reports create no
 automatic files and add no agent scope.
 
+DICOMDIR parsing is a bounded, read-only Basic Directory subset. Record offsets
+are checked against actual Item boundaries in original file bytes, then traversed
+with cycle, hierarchy and depth checks. IMAGE references are hints: the existing
+header index verifies the object's own SOP class/instance, transfer syntax, study
+and series before accepting it. No patient/study free text reaches the catalogue.
+Temporary study numbers preserve declared grouping without exporting identifiers;
+unknown study declarations remain ungrouped. Series debug output omits internal
+keys and identifying frame geometry.
+
+Local file-set sources retain one shared `cap-std` directory capability. Validated
+relative File IDs resolve with unique case matching; later reads reject links and
+source replacement and remain inside that original handle even if ambient parent
+paths change. There is no canonicalize-then-ambient-open fallback. ZIP references
+use a validated, unambiguous member map rooted at the directory index's archive
+subdirectory; no extraction or ambient file lookup occurs. Open folder deliberately
+scans files independently of indexes, providing an explicit fallback. All paths,
+directory records and grouping identifiers remain private core state in RAM.
+
 RAM-only slice-cache entries, prepared CPU volumes and GPU resources use
 process-wide reservation pools with physical-memory-based ceilings. The policy
 keeps headroom for the OS/transients and accounts for CPU/GPU competition on

@@ -161,7 +161,7 @@ impl Frame {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Series {
     pub(crate) acquisition: Option<[u8; 32]>,
     pub(crate) part: u32,
@@ -173,6 +173,16 @@ pub struct Series {
     pub frames: Vec<Arc<Frame>>,
     /// Indexed local backing; decoded pixels are acquired on cancellable workers.
     pub source: Option<Arc<crate::index::IndexedSeries>>,
+}
+impl std::fmt::Debug for Series {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Series")
+            .field("modality", &self.modality)
+            .field("number", &self.number)
+            .field("image_count", &self.frame_count())
+            .field("indexed", &self.source.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Series {

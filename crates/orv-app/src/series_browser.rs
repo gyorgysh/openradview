@@ -22,12 +22,16 @@ impl Catalog {
         }
         let mut bytes = 0usize;
         let mut entries = Vec::with_capacity(study.series.len());
+        let groups = orv_core::inspection::study_groups(study, &cancelled)?;
         for (index, series) in study.series.iter().enumerate() {
             if index % 256 == 0 && cancelled() {
                 return Err(LoadError::Cancelled);
             }
             let count = series.frame_count();
-            let title = series.label();
+            let title = match groups[index] {
+                Some(group) => format!("Study {group} · {}", series.label()),
+                None => series.label(),
+            };
             let text = format!(
                 "{}\n{} {}",
                 title,

@@ -11,6 +11,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 mod color;
+mod dicomdir;
 mod enhanced;
 mod formats;
 mod import_report;

@@ -12,6 +12,25 @@ that an image, orientation, reconstruction or measurement is correct for care.
 | Embedded color profile | DICOM RGB input ICC v2/v4 (scnr, XYZ/Lab PCS), converted to sRGB with relative colorimetric intent | Max 1 MiB profile, bounded CLUT/TRCs; no fetching. Invalid/unsupported profiles fail rather than silently assuming sRGB. Absent profile assumes sRGB. This is profile conversion, not monitor calibration or a calibrated-display guarantee. |
 | NIfTI-1/2 | Single-file `.nii`/`.nii.gz` and paired `.hdr`/`.img` (either member may be gzipped), little/big endian; uint8/int8, uint16/int16, uint32/int32, uint64/int64, float32/float64, complex64/complex128. Time, vector/tensor and higher axes become separately labelled scalar subseries; complex views are magnitude, phase in radians, real and imaginary. | Up to 4,096 subseries and one million displayed frames per import. No RGB/RGBA, binary, float128/complex256 or Analyze. Components are viewed individually, without vector/tensor reorientation, tractography or temporal analysis. Values become f32 and may lose integer/f64 precision. Enabled nonfinite scaling or voxel values are refused. Header descriptions/extensions are ignored. |
 | Local sources | Files, folders, ZIP and ZIP64 with stored/deflated members; supported NIfTI including gzip and same-directory pairs can be inside ZIP | No extraction, uploads or pixel disk cache. ZIP/gzip integrity and expanded length are checked on a cancellable background worker. Selected files must remain available. |
+| DICOMDIR | Select a local `DICOMDIR` alone, or a ZIP containing one file-set index. Explicit-VR little-endian Basic Directory; direct IMAGE references under PATIENT/STUDY/SERIES records. Defined/undefined sequence and item lengths, file-relative record offsets, extensionless files and unique case-insensitive names are supported. | Read-only subset: no indirect/MRDR references or directory writing. Non-image records are counted as unsupported. Cycles, orphan active records, contradictory hierarchy, duplicate files/instances, unsafe paths, links/reparse points and ambiguous names are refused. At most 16 MiB, 50,000 records and 16 hierarchy levels. |
+
+A media index selects only its referenced images. Each accepted image's own SOP
+class/instance, transfer syntax, study and series must match its record. Missing
+files and conflicting identities are counted separately; directory descriptions
+and patient/study free text are not shown. Study labels use temporary generated
+numbers. Missing study identifiers are not inferred or combined into a study.
+Local File IDs have one to eight components of one to eight ASCII letters,
+digits or underscores. Resolution is confined to the selected directory handle,
+including later pixel reads; changed files are refused. ZIP references stay
+inside the index's archive subdirectory and never resolve to local files. A ZIP
+with multiple indexes is refused rather than choosing a file-set.
+
+**Open folder** explicitly scans supported image files independently of any
+DICOMDIR, including ZIP members encountered during that scan. Use it on the
+containing folder when the media index is incomplete or unusable. For a ZIP with
+an unusable index, unpack it with your own archive tool and select that folder;
+the viewer does not extract files. Folder scanning can include supported images
+that were not listed by an index.
 
 Import keeps reason counts for skipped inputs in memory. Known unsupported
 encodings and object families, missing paired files, malformed DICOM metadata

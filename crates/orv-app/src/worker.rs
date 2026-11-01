@@ -57,10 +57,10 @@ impl ImportTask {
                 } else {
                     let paths = match source {
                         Source::Files => rfd::FileDialog::new()
-                            .set_title("Open local DICOM, NIfTI or ZIP")
+                            .set_title("Open local DICOM, DICOMDIR, NIfTI or ZIP")
                             .pick_files(),
                         Source::Folder => rfd::FileDialog::new()
-                            .set_title("Open local image folder")
+                            .set_title("Scan local image folder")
                             .pick_folder()
                             .map(|p| vec![p]),
                         Source::Paths(paths) => Some(paths),

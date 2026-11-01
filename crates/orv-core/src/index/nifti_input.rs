@@ -58,6 +58,7 @@ pub(super) fn read(
         let guarded = Source {
             id: data.id,
             path: data.path.clone(),
+            scope: data.scope.clone(),
             stamp: data.stamp.clone(),
             offset: 0,
             length: data.length,

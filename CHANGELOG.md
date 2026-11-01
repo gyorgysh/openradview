@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Open a local DICOMDIR or a ZIP with one media index, validate referenced image
+  identities, and show missing/conflicting references with generated study groups.
+  Constrain file-set reads to their selected folder or archive. Open folder scans
+  supported files directly when an index is unusable.
 - Show selected-series regular geometry, label-grid size, decoded-size estimate
   and declared lossy/derived image counts in Image info without decoding the
   whole series. Keep geometry readiness separate from pixel and device admission.
