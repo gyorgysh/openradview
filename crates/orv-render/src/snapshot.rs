@@ -2,6 +2,7 @@
 //! Explicit, bounded offscreen readback. Never used by interactive viewports.
 use crate::slice::SliceRenderer;
 use orv_core::{
+    resources::{MemoryBudget, Reservation},
     scene::{ImageMetadata, Reconstruction, SceneState, VolumeMetadata, hex},
     study::Frame,
 };
@@ -38,6 +39,46 @@ pub struct ProjectionMetadata {
 pub struct Snapshot {
     pub png: Vec<u8>,
     pub manifest: SnapshotManifest,
+}
+
+/// A bounded worker-owned RGBA8 target, without a snapshot/consent manifest.
+/// Local compositors may paint into its view before encoding. Ordinary snapshots
+/// finish the untouched base target and continue to exclude all UI overlays.
+pub struct SliceImage {
+    texture: wgpu::Texture,
+    size: [u32; 2],
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    _gpu: Reservation,
+}
+impl SliceImage {
+    pub fn size(&self) -> [u32; 2] {
+        self.size
+    }
+    pub fn view(&self) -> wgpu::TextureView {
+        self.texture.create_view(&Default::default())
+    }
+    pub fn png(&self, cancelled: impl Fn() -> bool) -> Result<Vec<u8>, &'static str> {
+        readback::capture(
+            &self.device,
+            &self.queue,
+            &self.texture,
+            self.size,
+            &cancelled,
+        )
+    }
+}
+
+fn slice_target_admission(
+    size: [u32; 2],
+    budget: &Arc<MemoryBudget>,
+) -> Result<Reservation, &'static str> {
+    if size.contains(&0) || size.iter().any(|n| *n > 1024) {
+        return Err("The slice image exceeds the bounded output dimensions");
+    }
+    budget
+        .reserve(u64::from(size[0]) * u64::from(size[1]) * 4)
+        .ok_or("Not enough GPU allowance for the offscreen image")
 }
 
 /// Create and call on a worker. Reuse the device; serialize captures per instance.
@@ -84,6 +125,19 @@ impl SnapshotRenderer {
         scene: &SceneState,
         cancelled: impl Fn() -> bool,
     ) -> Result<Snapshot, &'static str> {
+        let image = self.render_slice_image(frame, scene, &cancelled)?;
+        let png = image.png(cancelled)?;
+        finish(scene, Some(ImageMetadata::from_frame(frame)), None, png)
+    }
+
+    /// Render the same validated base slice as `capture`, without labeling a
+    /// subsequently composed local illustration as an image-only snapshot.
+    pub fn render_slice_image(
+        &mut self,
+        frame: &Frame,
+        scene: &SceneState,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<SliceImage, &'static str> {
         scene.validate()?;
         if matches!(scene.reconstruction, Some(Reconstruction::Volume(_))) {
             return Err("A volume scene requires the volume snapshot path");
@@ -119,6 +173,7 @@ impl SnapshotRenderer {
             return Err("Cancelled");
         }
         let [width, height] = scene.output_size;
+        let gpu = slice_target_admission(scene.output_size, &MemoryBudget::gpu())?;
         self.engine.upload(&self.device, &self.queue, frame)?;
         self.engine.set_view(
             &self.queue,
@@ -163,14 +218,13 @@ impl SnapshotRenderer {
             self.engine.paint(&mut pass);
         }
         self.queue.submit([encoder.finish()]);
-        let png = readback::capture(
-            &self.device,
-            &self.queue,
-            &target,
-            scene.output_size,
-            &cancelled,
-        )?;
-        finish(scene, Some(ImageMetadata::from_frame(frame)), None, png)
+        Ok(SliceImage {
+            texture: target,
+            size: scene.output_size,
+            device: self.device.clone(),
+            queue: self.queue.clone(),
+            _gpu: gpu,
+        })
     }
 }
 
@@ -190,4 +244,25 @@ fn finish(
         includes_ui_overlays: false,
     };
     Ok(Snapshot { png, manifest })
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    #[test]
+    fn offscreen_slice_targets_keep_existing_caps_and_release_their_admission() {
+        let budget = MemoryBudget::new(31);
+        assert!(slice_target_admission([4, 2], &budget).is_err());
+        assert_eq!(budget.used(), 0);
+        budget.set_limit(32);
+        let admitted = slice_target_admission([4, 2], &budget).unwrap();
+        assert_eq!(budget.used(), 32);
+        assert!(slice_target_admission([1, 1], &budget).is_err());
+        drop(admitted);
+        assert_eq!(budget.used(), 0);
+        for size in [[0, 1], [1, 0], [1025, 1], [1, 1025], [u32::MAX, u32::MAX]] {
+            assert!(slice_target_admission(size, &budget).is_err());
+        }
+        assert_eq!(budget.used(), 0);
+    }
 }

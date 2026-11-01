@@ -4,6 +4,80 @@ use orv_core::{ViewState, WindowLevel, study::Frame};
 use orv_render::slice::SliceRenderer;
 
 #[test]
+fn local_slice_target_can_be_composed_without_relabeling_an_ordinary_snapshot() {
+    use orv_core::scene::SceneState;
+    use orv_render::snapshot::SnapshotRenderer;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: orv_render::configured_backends().unwrap(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+        .expect("Real GPU required");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))
+            .unwrap();
+    let mut renderer = SnapshotRenderer::with_device(device.clone(), queue.clone());
+    let mut frame = (*orv_core::study::demo_study().series[0].frames[0]).clone();
+    frame.width = 2;
+    frame.height = 2;
+    frame.geometry = None;
+    frame.scalar = None;
+    frame.pixels = vec![0., 64., 128., 255.].into();
+    frame.rgba = None;
+    frame.validity = None;
+    let scene = SceneState {
+        schema_version: 1,
+        source_sha256: "0".repeat(64),
+        series_index: 0,
+        view: ViewState::default(),
+        crosshair_mm: None,
+        reformat_side: 2,
+        output_size: [2, 2],
+        reconstruction: None,
+    };
+    let ordinary = renderer.capture(&frame, &scene, || false).unwrap();
+    let target = renderer
+        .render_slice_image(&frame, &scene, || false)
+        .unwrap();
+    assert_eq!(target.size(), [2, 2]);
+    assert_eq!(target.png(|| false).unwrap(), ordinary.png);
+    assert!(target.png(|| true).is_err());
+    let view = target.view();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("local test composition"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::RED),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+    }
+    queue.submit([encoder.finish()]);
+    let composed = image::load_from_memory(&target.png(|| false).unwrap())
+        .unwrap()
+        .to_rgba8();
+    assert!(composed.pixels().all(|p| p.0 == [255, 0, 0, 255]));
+    let separate = renderer.capture(&frame, &scene, || false).unwrap();
+    assert_eq!(separate.png, ordinary.png);
+    assert!(!separate.manifest.includes_ui_overlays);
+    assert!(
+        renderer
+            .render_slice_image(&frame, &scene, || true)
+            .is_err()
+    );
+}
+
+#[test]
 fn quarter_turns_and_flips_match_known_scalar_color_and_missing_pixel_layouts() {
     use orv_core::{DisplayTransform, scene::SceneState};
     use orv_render::snapshot::SnapshotRenderer;
