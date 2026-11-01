@@ -73,7 +73,7 @@ impl<I: Send + 'static, O: Send + 'static> Worker<I, O> {
                     }
                 }
             })
-            .map_err(|_| "Could not start the local label worker. Try again.".to_owned())?;
+            .map_err(|_| "Could not start the local worker. Try again.".to_owned())?;
         Ok(Self { shared })
     }
     pub fn submit(&self, input: I) -> u64 {

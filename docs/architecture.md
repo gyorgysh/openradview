@@ -204,7 +204,10 @@ screen distance. Projections cannot masquerade as measurement planes.
 Temporary marks are bounded per series/pane and keyed by source-frame ordinal
 or exact reformat geometry, independently of decoded allocation addresses.
 Completed marks retain coordinates/results without retaining source pixels.
-One cancellable ROI calculation per pane publishes to its original mark ID.
+One coalescing ROI worker per pane publishes to its original mark ID and geometry
+revision. Replaced/cancelled jobs cannot publish, and an older completed result
+cannot overwrite a revised mark. The shared idle-blocking job helper also serves
+label counts, supplied-mask import and categorical overlay preparation.
 Core region APIs also support bounded ellipses and simple polygons, with inclusive
 pixel-centre boundaries, conservative topology/degeneracy checks and cancellable
 visits without a dense mask. Scalar/RGB code reductions share stable moments;

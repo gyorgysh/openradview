@@ -57,6 +57,7 @@ impl CapturedMark {
 
 struct Mark {
     id: u64,
+    revision: u64,
     image: ImageKey,
     points: Vec<[f64; 2]>,
     tool: Tool,
@@ -64,13 +65,14 @@ struct Mark {
 }
 #[derive(Default)]
 pub struct Annotations {
-    calculation: Option<(u64, stats_worker::Calculation)>,
+    calculation: stats_worker::Calculations,
     image: Option<ImageKey>,
     active_tool: Option<Tool>,
     pending: Vec<[f64; 2]>,
     marks: Vec<Mark>,
     selected: Option<u64>,
     next_id: u64,
+    next_revision: u64,
     preserve_plane: bool,
 }
 pub fn mapping(rect: Rect, image: &Frame, view: &ViewState) -> Option<ImageMapping> {
@@ -171,12 +173,14 @@ impl Annotations {
             annotations.next_id += 1;
             annotations.marks.push(Mark {
                 id,
+                revision: id,
                 image: annotations.key(&image, &view),
                 points: mark.points.clone(),
                 tool,
                 label,
             });
         }
+        annotations.next_revision = annotations.next_id;
         Ok(annotations)
     }
     pub fn for_reformats() -> Self {
@@ -221,7 +225,7 @@ impl Annotations {
             });
     }
     pub fn clear(&mut self) {
-        self.calculation = None;
+        self.calculation.clear();
         self.pending.clear();
         self.marks.clear();
         self.selected = None;
@@ -236,7 +240,7 @@ impl Annotations {
         if self.marks.len() == MAX_MARKS {
             return format!("{MAX_MARKS} measurements in memory. Delete or clear to add more.");
         }
-        if tool == Tool::Roi && self.calculation.is_some() {
+        if tool == Tool::Roi && self.calculation.is_busy() {
             return "A rectangle is still being calculated. Other measurement tools remain available.".into();
         }
         match tool {
@@ -266,7 +270,7 @@ impl Annotations {
         }
         if tool.measures()
             && self.marks.len() < MAX_MARKS
-            && (tool != Tool::Roi || self.calculation.is_none())
+            && (tool != Tool::Roi || !self.calculation.is_busy())
             && !crate::viewport::navigation_override(ui, response)
             && response.clicked_by(egui::PointerButton::Primary)
             && let Some(pos) = response.interact_pointer_pos()
@@ -280,22 +284,27 @@ impl Annotations {
                 if self.pending.len() == needed {
                     let id = self.next_id;
                     self.next_id = self.next_id.wrapping_add(1);
+                    let revision = self.next_revision;
+                    self.next_revision = self.next_revision.wrapping_add(1);
                     let label = if tool == Tool::Roi {
-                        self.calculation = Some((
+                        match self.calculation.start(
                             id,
-                            stats_worker::Calculation::start(
-                                image.clone(),
-                                self.pending.clone(),
-                                ui.ctx().clone(),
-                            ),
-                        ));
-                        "Calculating local rectangle statistics…".into()
+                            revision,
+                            image.clone(),
+                            self.pending.clone(),
+                            tool,
+                            ui.ctx(),
+                        ) {
+                            Ok(()) => "Calculating local rectangle statistics…".into(),
+                            Err(error) => format!("Measurement unavailable: {error}"),
+                        }
                     } else {
                         report(image, &self.pending, tool, || false)
                             .unwrap_or_else(|error| format!("Measurement unavailable: {error}"))
                     };
                     self.marks.push(Mark {
                         id,
+                        revision,
                         image: self.image.clone().unwrap_or_else(|| self.key(image, view)),
                         points: std::mem::take(&mut self.pending),
                         tool,
@@ -368,9 +377,7 @@ impl Annotations {
     fn delete_selected(&mut self) {
         if let Some(id) = self.selected.take() {
             self.marks.retain(|mark| mark.id != id);
-            if self.calculation.as_ref().is_some_and(|task| task.0 == id) {
-                self.calculation = None;
-            }
+            self.calculation.cancel_for(id);
             self.selected = self.visible_marks().last().map(|mark| mark.id);
         }
     }
@@ -427,23 +434,13 @@ impl Annotations {
             });
     }
     fn poll(&mut self) {
-        if let Some(result) =
-            self.calculation
-                .as_ref()
-                .and_then(|(id, task)| match task.result.try_recv() {
-                    Ok(result) => Some((*id, result)),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => None,
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        Some((*id, Err("The rectangle statistics worker stopped".into())))
-                    }
-                })
+        if let Some((id, revision, result)) = self.calculation.poll()
+            && let Some(mark) = self
+                .marks
+                .iter_mut()
+                .find(|mark| mark.id == id && mark.revision == revision)
         {
-            self.calculation = None;
-            if let Some(mark) = self.marks.iter_mut().find(|mark| mark.id == result.0) {
-                mark.label = result
-                    .1
-                    .unwrap_or_else(|error| format!("Measurement unavailable: {error}"));
-            }
+            mark.label = result.unwrap_or_else(|error| format!("Measurement unavailable: {error}"));
         }
     }
 }
