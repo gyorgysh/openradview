@@ -271,7 +271,7 @@ mod tests {
     use std::time::{Duration, Instant};
     fn filled() -> Arc<Labels> {
         let original = crate::labels::tests::labels();
-        let mut labels = (*original).clone();
+        let mut labels = original.try_clone(|| false).unwrap();
         labels.threshold(None, [20., 20.], 1, || false).unwrap();
         Arc::new(labels)
     }
@@ -440,7 +440,7 @@ mod tests {
             std::thread::yield_now();
         }
         let other_image = Arc::new((*images[0]).clone());
-        let other_map = Arc::new((*labels).clone());
+        let other_map = Arc::new(labels.try_clone(|| false).unwrap());
         assert!(
             overlays
                 .texture(0, &other_image, &labels, &display)

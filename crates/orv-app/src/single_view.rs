@@ -140,11 +140,14 @@ impl Workspace {
         }
         if self.labels.painting(self.selected) {
             ui.horizontal(|ui| {
-                ui.weak("Label brush active · Escape to stop");
-                if ui.small_button("Stop brush").clicked() {
+                ui.weak(self.labels.pointer_hint());
+                if ui.small_button("Stop label tool").clicked() {
                     self.labels.stop_painting();
                 }
             });
+        }
+        if self.labels.region_preview_visible() {
+            ui.weak("Connected edit preview only · Open Labels… to Apply or Discard");
         }
         let size = Vec2::new(content_width, (ui.available_height() - 62.0).max(60.0));
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
@@ -277,7 +280,7 @@ impl Workspace {
             crate::playback::Step::Idle => (),
         }
         if self.labels.painting(self.selected) {
-            ui.weak("Brush: draw labels · Wheel / pinch: zoom · Right / Space drag: move · ↑↓: images · Escape: stop");
+            ui.weak(self.labels.pointer_controls());
         } else {
             controls::navigation_hint(ui, self.tool);
         }

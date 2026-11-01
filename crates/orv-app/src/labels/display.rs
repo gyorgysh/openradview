@@ -23,10 +23,11 @@ impl LabelUi {
             self.overlays.clear();
             return;
         }
-        let Some(labels) = self.current.clone() else {
+        let Some(current) = self.current.as_ref() else {
             self.overlays.clear();
             return;
         };
+        let labels = self.regions.displayed(current).clone();
         self.overlays
             .prepare(labels, source, images, view, &self.display, ctx);
     }
@@ -41,7 +42,8 @@ impl LabelUi {
         if !self.visible {
             return;
         }
-        let Some(labels) = &self.current else { return };
+        let Some(current) = &self.current else { return };
+        let labels = self.regions.displayed(current);
         if let Some(texture) = self.overlays.texture(index, image, labels, &self.display)
             && let Some(mesh) =
                 super::canvas::overlay_mesh(response.rect, image, view, texture, self.opacity)

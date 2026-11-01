@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use eframe::egui;
-use orv_core::{labels::Labels, study::Series};
+use orv_core::{
+    labels::{Labels, SelectionRequest},
+    study::Series,
+};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -13,10 +16,12 @@ pub enum Operation {
     Export(Arc<Labels>),
     Paint(Arc<Labels>, usize, Vec<[f64; 2]>, u32, u8),
     Threshold(Arc<Labels>, Option<usize>, [f32; 2], u8),
+    Preview(Arc<Labels>, SelectionRequest, u64),
 }
 pub enum Output {
     Start(Arc<Labels>),
     Change(Arc<Labels>),
+    Preview(Box<super::regions::Preview>),
     Saved,
     Cancelled,
 }
@@ -49,7 +54,11 @@ impl Task {
     }
     pub fn poll(&self) -> Option<Result<Output, String>> {
         match self.receiver.try_recv() {
-            Ok(result) => Some(result),
+            Ok(result) => Some(if self.cancel.load(Ordering::Acquire) {
+                Ok(Output::Cancelled)
+            } else {
+                result
+            }),
             Err(mpsc::TryRecvError::Empty) => None,
             Err(mpsc::TryRecvError::Disconnected) => Some(Err("Label worker stopped".into())),
         }
@@ -62,12 +71,11 @@ impl Drop for Task {
 }
 pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
     let cancelled = || flag.load(Ordering::Relaxed);
+    orv_core::resources::refresh_memory_policy();
     let result = match op {
         Operation::Start(series) => {
+            label_dimensions(&series, &cancelled)?;
             let volume = series.volume(cancelled)?;
-            if volume.dimensions()[0] * volume.dimensions()[1] > 4 * 1024 * 1024 {
-                return Err("Label editing is limited to four million pixels per slice".into());
-            }
             Output::Start(Arc::new(Labels::empty(volume)?))
         }
         Operation::Import(current) => {
@@ -85,8 +93,13 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
                     "Choose one scalar NIfTI label volume without time or component axes".into(),
                 );
             }
-            let volume = study.series[0].volume(cancelled)?;
             let source = current.source_arc();
+            if label_dimensions(&study.series[0], &cancelled)? != source.dimensions() {
+                return Err(
+                    "Label dimensions must match the source; resampling is not performed".into(),
+                );
+            }
+            let volume = study.series[0].volume(cancelled)?;
             Output::Change(Arc::new(Labels::import(source, &volume, cancelled)?))
         }
         Operation::Export(current) => {
@@ -110,19 +123,57 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
             Output::Saved
         }
         Operation::Paint(current, z, points, radius, label) => {
-            let mut edited = (*current).clone();
+            let mut edited = current.try_clone(cancelled)?;
             edited.paint(z, &points, radius, label, cancelled)?;
             Output::Change(Arc::new(edited))
         }
         Operation::Threshold(current, slice, range, label) => {
-            let mut edited = (*current).clone();
+            let mut edited = current.try_clone(cancelled)?;
             edited.threshold(slice, range, label, cancelled)?;
             Output::Change(Arc::new(edited))
+        }
+        Operation::Preview(current, request, epoch) => {
+            let selection = current.select_region(request, cancelled)?;
+            let summary = selection.summary();
+            let labels = Arc::new(selection.apply(cancelled)?);
+            Output::Preview(Box::new(super::regions::Preview {
+                base: current,
+                labels,
+                request,
+                summary,
+                epoch,
+            }))
         }
     };
     if cancelled() {
         Ok(Output::Cancelled)
     } else {
         Ok(result)
+    }
+}
+
+fn label_dimensions(series: &Series, cancelled: &dyn Fn() -> bool) -> Result<[usize; 3], String> {
+    let info = orv_core::inspection::series_info(series, cancelled).map_err(|e| e.to_string())?;
+    let grid = info.geometry.map_err(|e| e.to_string())?;
+    Labels::check_dimensions(grid.dimensions)?;
+    Ok(grid.dimensions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn cancellation_after_completion_suppresses_a_queued_private_edit() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender
+            .send(Ok(Output::Change(crate::labels::tests::labels())))
+            .ok()
+            .unwrap();
+        let task = Task {
+            receiver,
+            cancel: Arc::new(AtomicBool::new(false)),
+        };
+        task.cancel();
+        assert!(matches!(task.poll(), Some(Ok(Output::Cancelled))));
     }
 }

@@ -56,7 +56,7 @@ mod tests {
     fn cached_counts_follow_map_changes_and_release_the_old_map() {
         let ctx = egui::Context::default();
         let original = crate::labels::tests::labels();
-        let mut filled = (*original).clone();
+        let mut filled = original.try_clone(|| false).unwrap();
         filled.threshold(None, [20., 20.], 1, || false).unwrap();
         let first = Arc::new(filled);
         let key = Arc::downgrade(&first);

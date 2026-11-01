@@ -112,6 +112,23 @@ Counts use original source voxels and declared cell volume, with valid and missi
 samples kept separate; zoom and display resolution do not change them. Painting
 and threshold edits stay on source images. Slab projections and 3D omit labels.
 
+In **Labels… → Connected regions**, choose **Grow from seed**, an inclusive
+scalar interval and either the current source image (four neighbors) or the whole
+volume (six neighbors). **Pick seed on source image** closes the panel; click once
+and it reopens. Rotation/flips affect the display, while the seed stays on the
+source grid. You can also enter a 1-based column/row and use that typed seed.
+**Preview connected edit** shows the proposed map. Close the panel to inspect it,
+then reopen Labels and **Apply connected edit** or **Discard preview**. Counts and
+exports use the applied map. Changing the source/map, interval, scope, label or
+seed invalidates the proposal. Changing view mode also discards the preview.
+
+**Keep seeded component** removes other valid components of that ID within scope.
+**Remove small islands** removes components strictly smaller than the chosen cell
+count; equal-size components remain. Diagonal contacts do not connect. Missing
+samples and other IDs are barriers; cleanup preserves labels stored on missing
+samples. These tools use values and connectivity, with no AI model or anatomical
+recognition. Applying is one undoable edit; export explicitly to keep it.
+
 **Study → Export picture…** saves an image-only PNG and reproducible view settings
 in a new local folder. It omits UI annotations and label maps. Check for text
 burned into pixels before sharing. Original files stay unchanged.
