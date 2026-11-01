@@ -132,11 +132,22 @@ pub(super) fn read_header_detailed(
     })
 }
 
-fn read_header_inner(
+pub(super) struct MetadataPrefix {
+    pub object: DefaultDicomObject,
+    pub syntax: String,
+    pub deflated_at: Option<u64>,
+    pub pixel_offset: u64,
+    pub pixel_length: Option<u64>,
+}
+
+/// Bounded metadata only. The class policy runs before dataset values are read.
+/// The reader is left at the pixel payload; no pixel value is allocated here.
+pub(super) fn read_prefix(
     reader: &mut impl Read,
     cancelled: &impl Fn() -> bool,
     reason: &mut SkipReason,
-) -> Result<Header, LoadError> {
+    class_allowed: impl Fn(&str) -> bool,
+) -> Result<MetadataPrefix, LoadError> {
     let mut first = [0u8; 132];
     reader
         .read_exact(&mut first[..4])
@@ -181,17 +192,7 @@ fn read_header_inner(
     let mut meta = FileMetaTable::from_reader(Cursor::new(&prefix[start..]))
         .map_err(|_| LoadError::Unsupported)?;
     let class = meta.media_storage_sop_class_uid();
-    if class == "1.2.840.10008.1.3.10"
-        || class.starts_with("1.2.840.10008.5.1.4.1.1.88.")
-        || class.starts_with("1.2.840.10008.5.1.4.1.1.11.")
-        || class.starts_with("1.2.840.10008.5.1.4.1.1.104.")
-        || matches!(
-            class,
-            "1.2.840.10008.5.1.4.1.1.66.4"
-                | "1.2.840.10008.5.1.4.1.1.481.3"
-                | "1.2.840.10008.5.1.4.1.1.481.5"
-        )
-    {
+    if !class_allowed(class) {
         *reason = SkipReason::UnsupportedObject;
         return Err(LoadError::Unsupported);
     }
@@ -301,6 +302,33 @@ fn read_header_inner(
             .from_reader(Cursor::new(&prefix))
             .map_err(|_| LoadError::Unsupported)?
     };
+    Ok(MetadataPrefix {
+        object,
+        syntax,
+        deflated_at,
+        pixel_offset: position.get(),
+        pixel_length,
+    })
+}
+
+fn read_header_inner(
+    reader: &mut impl Read,
+    cancelled: &impl Fn() -> bool,
+    reason: &mut SkipReason,
+) -> Result<Header, LoadError> {
+    let MetadataPrefix {
+        object,
+        syntax,
+        deflated_at,
+        pixel_offset,
+        pixel_length,
+    } = read_prefix(reader, cancelled, reason, |class| {
+        !crate::dicom_codec::non_image_class(class)
+    })?;
+    if crate::dicom_codec::non_image_object(&object) {
+        *reason = SkipReason::UnsupportedObject;
+        return Err(LoadError::Unsupported);
+    }
     *reason = SkipReason::UnsupportedOrInvalid;
     let width = crate::load::integer(&object, "Columns").ok_or(LoadError::Unsupported)?;
     let height = crate::load::integer(&object, "Rows").ok_or(LoadError::Unsupported)?;
@@ -350,7 +378,7 @@ fn read_header_inner(
     Ok(Header {
         offsets: OnceLock::new(),
         deflated_at,
-        offset: position.get(),
+        offset: pixel_offset,
         pixel_length,
         width: width as u32,
         height: height as u32,

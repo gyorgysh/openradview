@@ -7,7 +7,33 @@ mod rle;
 #[cfg(test)]
 mod security_tests;
 
+pub(crate) fn non_image_class(class: &str) -> bool {
+    class == "1.2.840.10008.1.3.10"
+        || class.starts_with("1.2.840.10008.5.1.4.1.1.88.")
+        || class.starts_with("1.2.840.10008.5.1.4.1.1.11.")
+        || class.starts_with("1.2.840.10008.5.1.4.1.1.104.")
+        || matches!(
+            class,
+            "1.2.840.10008.5.1.4.1.1.66.4"
+                | "1.2.840.10008.5.1.4.1.1.66.5"
+                | "1.2.840.10008.5.1.4.1.1.66.7"
+                | "1.2.840.10008.5.1.4.1.1.66.8"
+                | "1.2.840.10008.5.1.4.1.1.481.3"
+                | "1.2.840.10008.5.1.4.1.1.481.5"
+        )
+}
+pub(crate) fn non_image_object(object: &DefaultDicomObject) -> bool {
+    non_image_class(object.meta().media_storage_sop_class_uid())
+        || object
+            .element(dicom_core::Tag(0x0008, 0x0016))
+            .ok()
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|class| non_image_class(class.trim()))
+}
 pub(crate) fn validate(object: &DefaultDicomObject) -> Result<(), LoadError> {
+    if non_image_object(object) {
+        return Err(LoadError::Unsupported);
+    }
     let uid = object.meta().transfer_syntax();
     if uid == "1.2.840.10008.1.2.5" {
         return rle::validate(object);

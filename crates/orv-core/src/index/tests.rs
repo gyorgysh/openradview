@@ -16,6 +16,7 @@ mod enhanced;
 mod formats;
 mod import_report;
 mod large;
+mod metadata_prefix;
 mod nifti;
 mod nifti_expanded;
 mod padding;
