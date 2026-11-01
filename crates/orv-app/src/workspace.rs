@@ -823,7 +823,11 @@ impl Workspace {
         let mut cancel = false;
         egui::Modal::new(egui::Id::new("keep-comparison-measurements")).show(ctx, |ui| {
             ui.heading("Keep your comparison?");
-            ui.label("Some comparison changes have not been saved. Return to the comparison and choose Comparison → Save comparison to keep them.");
+            ui.label(if self.comparison.as_ref().is_some_and(|comparison| comparison.temporary_panes()) {
+                "Some comparison changes have not been saved. Four-pane views stay in memory. Return to the comparison to save pictures or illustrations; close the extra panes before saving a two-pane comparison. Continuing discards the affected views and measurements."
+            } else {
+                "Some comparison changes have not been saved. Return to the comparison and choose Comparison → Save comparison to keep them."
+            });
             ui.horizontal(|ui| {
                 if ui.button("Return to comparison").clicked() { cancel = true; }
                 if ui.button("Discard and continue").clicked() { discard = true; }

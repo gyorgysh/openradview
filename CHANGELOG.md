@@ -14,6 +14,10 @@
 - Link physical pan, physical zoom and compatible scalar windows separately in
   comparison. Pending actions wait for their requested images and cancel when
   view ownership or context changes; inversion remains per pane.
+- Compare four local source panes in a two-by-two grid. Choose one pair for links
+  and reference lines; each pane keeps its own tools, marks and image export.
+  Extra panes stay in memory and require confirmation before closing. Return to
+  two panes to open another study or save/open a comparison file.
 
 - Review an explicit current-pane illustration before saving, with selected completed
   measurement outlines and applied manual/supplied masks on source/thin reformat

@@ -212,7 +212,9 @@ fn unsaved_tracking_covers_measurements_and_views_after_saving() {
         .into_iter()
         .map(|m| m.saved)
         .collect();
-    session.saved_views = Some(session.panes.each_ref().map(|pane| pane.view.clone()));
+    session.saved_views = Some(std::array::from_fn(|index| {
+        session.panes[index].view.clone()
+    }));
     assert!(!session.unsaved());
     session.panes[0].annotations.clear();
     assert!(
@@ -225,7 +227,9 @@ fn unsaved_tracking_covers_measurements_and_views_after_saving() {
     assert!(session.unsaved());
     session.discard_marks();
     assert!(!session.unsaved());
-    session.saved_views = Some(session.panes.each_ref().map(|pane| pane.view.clone()));
+    session.saved_views = Some(std::array::from_fn(|index| {
+        session.panes[index].view.clone()
+    }));
     assert!(session.open_right(study(), &ctx));
     assert!(
         session.unsaved(),

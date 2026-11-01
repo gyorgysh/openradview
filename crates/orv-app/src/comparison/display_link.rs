@@ -62,7 +62,7 @@ struct Pending {
     mask: Mask,
 }
 impl Pending {
-    fn context_matches(&self, panes: &[Pane; 2], active: usize, selection: Selection) -> bool {
+    fn context_matches(&self, panes: [&Pane; 2], active: usize, selection: Selection) -> bool {
         self.from == active
             && self.selection == selection
             && panes.iter().enumerate().all(|(index, pane)| {
@@ -71,12 +71,12 @@ impl Pending {
             })
             && self.views[1 - active] == panes[1 - active].view
     }
-    fn matches(&self, panes: &[Pane; 2], active: usize, selection: Selection) -> bool {
+    fn matches(&self, panes: [&Pane; 2], active: usize, selection: Selection) -> bool {
         self.context_matches(panes, active, selection) && self.views[active] == panes[active].view
     }
 }
 pub(super) struct Input<'a> {
-    pub panes: &'a [Pane; 2],
+    pub panes: [&'a Pane; 2],
     pub before: &'a [ViewState; 2],
     pub before_aspects: [Option<f64>; 2],
     pub active: usize,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Temporary local two-series viewing. Agent composition deliberately stays separate.
+//! Temporary local source panes. Agent composition deliberately stays separate.
 mod display_link;
+mod layout;
 mod navigation;
 mod reference_ui;
 mod saved;
@@ -54,12 +55,20 @@ struct Pane {
 impl Pane {
     fn new(study: Arc<Study>, series: usize, ctx: &egui::Context) -> Option<Self> {
         let source = Arc::new(study.series.get(series)?.clone());
+        Some(Self::from_source(study, series, source, ctx))
+    }
+    fn from_source(
+        study: Arc<Study>,
+        series: usize,
+        source: Arc<Series>,
+        ctx: &egui::Context,
+    ) -> Self {
         let index = source.frame_count() / 2;
         let view = ViewState {
             slice: index as u32,
             ..Default::default()
         };
-        Some(Self {
+        Self {
             series,
             study,
             view,
@@ -78,7 +87,7 @@ impl Pane {
             scroll: 0.,
             tool: Tool::Pan,
             initialize_window: true,
-        })
+        }
     }
     fn poll(&mut self) {
         if let Some(result) = self.worker.take() {
@@ -147,6 +156,15 @@ impl Pane {
                 );
             }
         }
+    }
+    fn input(&mut self, ui: &egui::Ui) {
+        let color = self
+            .image
+            .as_ref()
+            .is_some_and(|(_, image)| image.rgba.is_some());
+        if color && self.tool == Tool::Window {
+            self.tool = Tool::Pan;
+        }
         crate::actions::tool_input(ui, &mut self.tool, !color, false, true);
         if crate::actions::pressed(ui, crate::actions::Action::Next) {
             self.view.slice = self
@@ -176,16 +194,18 @@ impl Pane {
         reference_lines: bool,
     ) -> (bool, Option<reference_ui::Target>) {
         let mut reference = None;
-        ui.add(
-            egui::Label::new(format!(
-                "{} · {}",
-                if pane == 0 { "LEFT" } else { "RIGHT" },
-                self.source.label()
-            ))
-            .truncate(),
+        let title = ui.add(
+            egui::Label::new(format!("PANE {} · {}", pane + 1, self.source.label())).truncate(),
         );
+        let footer =
+            ui.spacing().interact_size.y.max(
+                ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().button_padding.y * 2.,
+            );
         let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(size.x, (size.y - 64.).max(1.)),
+            egui::vec2(
+                size.x,
+                (size.y - title.rect.height() - footer - ui.spacing().item_spacing.y * 2.).max(1.),
+            ),
             egui::Sense::click_and_drag(),
         );
         let interacted = activates_pane(ui, &response);
@@ -271,8 +291,12 @@ impl Pane {
     }
 }
 pub(crate) struct ComparisonSession {
-    panes: [Pane; 2],
+    panes: Vec<Pane>,
     active: usize,
+    pair: [usize; 2],
+    close_extra_question: bool,
+    clear_extra_slots: bool,
+    show_display: bool,
     linked: bool,
     reference_lines: bool,
     reference_status: reference_ui::Status,
@@ -304,11 +328,15 @@ impl ComparisonSession {
             0
         };
         Some(Self {
-            panes: [
+            panes: vec![
                 Pane::new(study.clone(), series, ctx)?,
                 Pane::new(study, other, ctx)?,
             ],
             active: 0,
+            pair: [0, 1],
+            close_extra_question: false,
+            clear_extra_slots: false,
+            show_display: false,
             linked: false,
             reference_lines: false,
             reference_status: reference_ui::Status::Off,
@@ -346,6 +374,10 @@ impl ComparisonSession {
         self.panes[self.active].source.clone()
     }
     pub fn open_right(&mut self, study: Arc<Study>, ctx: &egui::Context) -> bool {
+        if self.temporary_panes() {
+            self.file_notice = Some("Return to two panes before opening another study.");
+            return false;
+        }
         let Some(pane) = Pane::new(study, 0, ctx) else {
             return false;
         };
@@ -375,9 +407,11 @@ impl ComparisonSession {
             && let Some(pane) = Pane::new(self.active_study().clone(), series, ctx)
         {
             self.panes[self.active] = pane;
-            self.saved_marks[self.active].clear();
-            self.composition_dirty |= self.saved_views.is_some();
-            self.saved_views = None;
+            if let Some(marks) = self.saved_marks.get_mut(self.active) {
+                marks.clear();
+                self.composition_dirty |= self.saved_views.is_some();
+                self.saved_views = None;
+            }
             self.linked = false;
             self.display_links = display_link::Group::default();
             self.reference_status = if self.reference_lines {
@@ -404,23 +438,29 @@ impl ComparisonSession {
         Some((pane.series, spec, crate::export::Pixels::Image(image), size))
     }
     pub fn busy(&self) -> bool {
-        self.file_task.is_some() || self.restore_question
+        self.file_task.is_some() || self.restore_question || self.close_extra_question
     }
     pub fn pane_unsaved(&self, index: usize) -> bool {
         let pane = &self.panes[index];
         if self
             .saved_views
             .as_ref()
-            .is_some_and(|views| views[index] != pane.view)
+            .and_then(|views| views.get(index))
+            .is_some_and(|view| *view != pane.view)
         {
             return true;
         }
         pane.annotations.capture().map_or(true, |marks| {
-            marks.into_iter().map(|mark| mark.saved).collect::<Vec<_>>() != self.saved_marks[index]
+            marks.into_iter().map(|mark| mark.saved).collect::<Vec<_>>()
+                != self
+                    .saved_marks
+                    .get(index)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
         })
     }
     pub fn unsaved(&self) -> bool {
-        self.composition_dirty || self.pane_unsaved(0) || self.pane_unsaved(1)
+        self.composition_dirty || (0..self.panes.len()).any(|index| self.pane_unsaved(index))
     }
     pub fn active_unsaved(&self) -> bool {
         self.pane_unsaved(self.active)
@@ -435,6 +475,12 @@ impl ComparisonSession {
         self.composition_dirty = false;
     }
     fn begin_save(&mut self, ctx: &egui::Context) {
+        if self.panes.len() != 2 {
+            self.file_notice = Some(
+                "Return to two panes before saving a comparison. Extra panes stay in memory only.",
+            );
+            return;
+        }
         let capture = |pane: &Pane| -> Result<saved::Capture, &'static str> {
             let (index, image) = pane
                 .image
@@ -463,6 +509,10 @@ impl ComparisonSession {
     }
     fn begin_open(&mut self, ctx: &egui::Context) {
         self.restore_question = false;
+        if self.panes.len() != 2 {
+            self.file_notice = Some("Return to two panes before opening a saved comparison.");
+            return;
+        }
         if self.panes.iter().any(|pane| {
             pane.image
                 .as_ref()
@@ -473,11 +523,14 @@ impl ComparisonSession {
         }
         self.file_notice = None;
         self.file_task = Some(saved::Task::start(
-            saved::Action::Open(self.panes.each_ref().map(|pane| pane.source.clone())),
+            saved::Action::Open(std::array::from_fn(|index| {
+                self.panes[index].source.clone()
+            })),
             ctx.clone(),
         ));
     }
     pub fn file_dialogs(&mut self, ctx: &egui::Context) {
+        self.layout_question(ctx);
         if let Some(result) = self.file_task.as_ref().and_then(saved::Task::poll) {
             self.file_task = None;
             match result {
@@ -497,7 +550,8 @@ impl ComparisonSession {
                         self.saved_marks[index] = restored.marks;
                     }
                     self.active = active;
-                    self.saved_views = Some(self.panes.each_ref().map(|pane| pane.view.clone()));
+                    self.saved_views =
+                        Some(std::array::from_fn(|index| self.panes[index].view.clone()));
                     self.composition_dirty = false;
                     self.linked = false;
                     self.display_links = display_link::Group::default();
@@ -532,13 +586,22 @@ impl ComparisonSession {
         }
     }
     fn compatible(&self) -> bool {
-        match (&self.panes[0].geometry, &self.panes[1].geometry) {
+        match (
+            &self.panes[self.pair[0]].geometry,
+            &self.panes[self.pair[1]].geometry,
+        ) {
             (Some(left), Some(right)) => left.compatible(right),
             _ => false,
         }
     }
     fn synchronize(&mut self, from: usize) {
-        let target = 1 - from;
+        let target = if from == self.pair[0] {
+            self.pair[1]
+        } else if from == self.pair[1] {
+            self.pair[0]
+        } else {
+            return;
+        };
         let index = self.panes[from]
             .geometry
             .as_ref()
@@ -559,96 +622,121 @@ impl ComparisonSession {
         frame: &eframe::Frame,
         can_open: bool,
     ) -> Option<crate::worker::Source> {
+        if std::mem::take(&mut self.clear_extra_slots) {
+            viewport::clear_slot(frame, 10);
+            viewport::clear_slot(frame, 11);
+        }
         for pane in &mut self.panes {
             pane.poll();
         }
-        let before_views = self.panes.each_ref().map(|pane| pane.view.clone());
-        let before_aspects = self.panes.each_ref().map(|pane| pane.canvas_aspect);
+        let before_views: Vec<_> = self.panes.iter().map(|pane| pane.view.clone()).collect();
+        let before_aspects: Vec<_> = self.panes.iter().map(|pane| pane.canvas_aspect).collect();
         let previous_active = self.active;
-        ui.weak("Local comparison · sharing is off")
-            .on_hover_text("Select a pane, then choose its series in the sidebar.");
         let mut open = None;
-        ui.horizontal_wrapped(|ui| {
-            for index in 0..2 { ui.selectable_value(&mut self.active, index, if index == 0 { "Left pane" } else { "Right pane" }); }
+        let mut reconfigured = false;
+        crate::toolbar::row(ui, |ui| {
+            for index in 0..self.panes.len() {
+                ui.selectable_value(&mut self.active, index, format!("Pane {}", index + 1));
+            }
+            ui.add_enabled_ui(can_open, |ui| self.layout_controls(ui));
+            ui.toggle_value(&mut self.show_display, "Display and tools");
+        });
+        crate::toolbar::row(ui, |ui| {
             ui.add_enabled_ui(can_open, |ui| {
-                ui.menu_button("Open in right pane…", |ui| {
-                    if ui.button("Files or ZIP…").clicked() {
-                        open = Some(crate::worker::Source::Files);
-                        ui.close();
-                    }
-                    if ui.button("Folder…").clicked() {
-                        open = Some(crate::worker::Source::Folder);
-                        ui.close();
-                    }
-                });
+                ui.add_enabled_ui(!self.temporary_panes(), |ui| {
+                    ui.menu_button("Open in pane 2…", |ui| {
+                        if ui.button("Files or ZIP…").clicked() {
+                            open = Some(crate::worker::Source::Files);
+                            ui.close();
+                        }
+                        if ui.button("Folder…").clicked() {
+                            open = Some(crate::worker::Source::Folder);
+                            ui.close();
+                        }
+                    });
+                }).response.on_disabled_hover_text("Return to two panes before opening another study.");
                 ui.menu_button("Comparison…", |ui| {
                     ui.label("Save views and measurements locally, without images or paths. The file may still be sensitive.");
                     ui.label("To reopen, select the original series in the same left/right order first.");
-                    if ui.button("Save comparison…").clicked() { self.begin_save(ui.ctx()); ui.close(); }
-                    if ui.button("Open saved comparison…").clicked() {
+                    if self.temporary_panes() { ui.label("Four-pane views stay in memory. Return to two panes to save or open a comparison file."); }
+                    if ui.add_enabled(!self.temporary_panes(), egui::Button::new("Save comparison…")).clicked() { self.begin_save(ui.ctx()); ui.close(); }
+                    if ui.add_enabled(!self.temporary_panes(), egui::Button::new("Open saved comparison…")).clicked() {
                         if self.unsaved() || self.panes.iter().any(|pane| pane.annotations.has_marks()) { self.restore_question = true; }
                         else { self.begin_open(ui.ctx()); }
                         ui.close();
                     }
                 });
             });
-            let compatible = self.compatible();
-            if ui.add_enabled(compatible, egui::Checkbox::new(&mut self.linked, "Link physical slices")).on_hover_text("Requires regular parallel planes in the same declared spatial reference. Uses physical image centers; does not register anatomy or link contrast/pan/zoom.").changed() && self.linked { self.synchronize(self.active); }
-        });
-        let mut reconfigured = false;
-        ui.horizontal_wrapped(|ui| {
-            let response = ui.checkbox(&mut self.reference_lines, "Reference lines")
-                .on_hover_text("Finite intersections of both declared thin-image footprints; no registration. Image exports and snapshots omit these lines.");
-            ui.ctx().accesskit_node_builder(response.id, |node| node.set_description(self.reference_status.text()));
-            if response.changed() { self.reference_status = if self.reference_lines { reference_ui::Status::Pending } else { reference_ui::Status::Off }; }
-            reconfigured = self.display_links.controls(ui, self.panes.iter().all(|pane| !pane.initialize_window));
-        });
-        self.link_status(ui);
-        reference_ui::status(ui, self.reference_status);
-        self.display_links.status(ui);
-        let before = self.panes.each_ref().map(|pane| pane.view.slice);
-        controls::display_panel(ui, "comparison-display-controls", |ui| {
-            ui.push_id("comparison-controls", |ui| {
-                self.panes[self.active].controls(ui)
+            egui::containers::menu::MenuButton::new(format!("Links and reference · {} + {}", self.pair[0] + 1, self.pair[1] + 1))
+            .config(egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside))
+            .ui(ui, |ui| {
+                ui.set_max_width(420.);
+                egui::ScrollArea::vertical().id_salt("comparison-links-menu").max_height(ui.available_height().min(460.)).show(ui, |ui| {
+                    ui.weak("Local comparison · sharing is off");
+                    self.pair_controls(ui);
+                    let compatible = self.compatible() && self.pair.contains(&self.active);
+                    if ui.add_enabled(compatible, egui::Checkbox::new(&mut self.linked, "Link physical slices"))
+                        .on_hover_text("Requires regular parallel planes in the same declared spatial reference; no registration.")
+                        .changed() && self.linked { self.synchronize(self.active); }
+                    let response = ui.checkbox(&mut self.reference_lines, "Reference lines")
+                        .on_hover_text("Finite thin-plane intersections for the chosen pair; exports and snapshots omit them.");
+                    ui.ctx().accesskit_node_builder(response.id, |node| node.set_description(self.reference_status.text()));
+                    if response.changed() { self.reference_status = if self.reference_lines { reference_ui::Status::Pending } else { reference_ui::Status::Off }; }
+                    reconfigured = self.display_links.controls(ui, self.pair.contains(&self.active) && self.pair.iter().all(|index| !self.panes[*index].initialize_window));
+                    reference_ui::status(ui, self.reference_status);
+                    self.display_links.status(ui);
+                    crate::dialogs::reveal_focus(ui);
+                });
             });
         });
+        self.link_status(ui);
+        let before: Vec<_> = self.panes.iter().map(|pane| pane.view.slice).collect();
+        if self.show_display {
+            let height = (ui.available_height() - 240.).max(80.);
+            egui::ScrollArea::vertical()
+                .id_salt("comparison-display-controls")
+                .max_height(height)
+                .show(ui, |ui| {
+                    ui.push_id("comparison-controls", |ui| {
+                        self.panes[self.active].controls(ui)
+                    });
+                    crate::dialogs::reveal_focus(ui);
+                });
+        }
+        self.panes[self.active].input(ui);
         let size = ui.available_size();
-        let stacked = size.x < 640.;
-        let gap = ui.spacing().item_spacing;
-        let pane_size = if stacked {
-            egui::vec2(size.x, ((size.y - gap.y) / 2.).max(0.))
-        } else {
-            egui::vec2(((size.x - gap.x) / 2.).max(80.), size.y.max(0.))
-        };
-        let layout = if stacked {
-            egui::Layout::top_down(egui::Align::Min)
-        } else {
-            egui::Layout::left_to_right(egui::Align::Min)
-        };
+        let grid = layout::grid(self.panes.len(), size, ui.spacing().item_spacing);
+        let pane_size = grid.pane;
         let mut interacted = None;
-        let mut reference_targets = [None, None];
-        ui.with_layout(layout, |ui| {
-            for (index, target) in reference_targets.iter_mut().enumerate() {
-                let active = self.active == index;
-                ui.push_id(index, |ui| {
-                    ui.allocate_ui_with_layout(
-                        pane_size,
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| {
-                            let (changed, reference) = self.panes[index].canvas(
-                                ui,
-                                frame,
-                                index,
+        let mut reference_targets: [Option<reference_ui::Target>; 4] =
+            std::array::from_fn(|_| None);
+        ui.vertical(|ui| {
+            for row in 0..grid.rows {
+                ui.horizontal_top(|ui| {
+                    for column in 0..grid.columns {
+                        let index = row * grid.columns + column;
+                        let active = self.active == index;
+                        ui.push_id(index, |ui| {
+                            ui.allocate_ui_with_layout(
                                 pane_size,
-                                active,
-                                self.reference_lines,
+                                egui::Layout::top_down(egui::Align::Min),
+                                |ui| {
+                                    let (changed, reference) = self.panes[index].canvas(
+                                        ui,
+                                        frame,
+                                        index,
+                                        pane_size,
+                                        active,
+                                        self.reference_lines && self.pair.contains(&index),
+                                    );
+                                    reference_targets[index] = reference;
+                                    if changed {
+                                        interacted = Some(index);
+                                    }
+                                },
                             );
-                            *target = reference;
-                            if changed {
-                                interacted = Some(index);
-                            }
-                        },
-                    );
+                        });
+                    }
                 });
             }
         });
@@ -658,7 +746,10 @@ impl ComparisonSession {
             self.active = index;
             ui.ctx().request_repaint();
         }
-        let changed = (0..2).find(|index| self.panes[*index].view.slice != before[*index]);
+        let changed = self
+            .pair
+            .into_iter()
+            .find(|index| self.panes[*index].view.slice != before[*index]);
         if self.linked
             && self.compatible()
             && let Some(index) = changed
@@ -666,16 +757,31 @@ impl ComparisonSession {
             self.synchronize(index);
         }
         let display_update = self.display_links.update(display_link::Input {
-            panes: &self.panes,
-            before: &before_views,
-            before_aspects,
-            active: self.active,
-            previous_active,
+            panes: self.pair.map(|index| &self.panes[index]),
+            before: &self.pair.map(|index| {
+                before_views
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| self.panes[index].view.clone())
+            }),
+            before_aspects: self
+                .pair
+                .map(|index| before_aspects.get(index).copied().flatten()),
+            active: self
+                .pair
+                .iter()
+                .position(|index| *index == self.active)
+                .unwrap_or(0),
+            previous_active: self
+                .pair
+                .iter()
+                .position(|index| *index == previous_active)
+                .unwrap_or(1),
             reconfigured,
-            enabled: ui.is_enabled(),
+            enabled: ui.is_enabled() && self.pair.contains(&self.active),
         });
         if let Some((target, view)) = display_update.view {
-            self.panes[target].view = view;
+            self.panes[self.pair[target]].view = view;
             ui.ctx().request_repaint();
         }
         if display_update.status_changed {
@@ -683,8 +789,9 @@ impl ComparisonSession {
         }
         let status = if self.reference_lines {
             reference_ui::paint_pair(
-                reference_targets.each_ref().map(Option::as_ref),
-                self.panes.each_ref().map(|pane| {
+                self.pair.map(|index| reference_targets[index].as_ref()),
+                self.pair.map(|index| {
+                    let pane = &self.panes[index];
                     pane.image
                         .as_ref()
                         .map(|(index, image)| (*index, image, &pane.view))
@@ -712,10 +819,10 @@ impl ComparisonSession {
         };
         let text = file_notice.or(self.notice).unwrap_or_else(|| {
             if self.compatible() { "Physical slice linking is available. Display links have separate controls; no registration is performed." }
-            else if self.panes.iter().any(|pane| pane.geometry_task.is_some()) { "Checking geometry for optional slice linking…" }
+            else if self.pair.iter().any(|index| self.panes[*index].geometry_task.is_some()) { "Checking geometry for optional slice linking…" }
             else { "Physical slice linking needs regular parallel planes and the same spatial reference." }
         });
-        let height = ui.text_style_height(&egui::TextStyle::Small) * 2. + 4.;
+        let height = ui.text_style_height(&egui::TextStyle::Small) + 4.;
         let (rect, _) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), height),
             egui::Sense::hover(),
@@ -723,15 +830,12 @@ impl ComparisonSession {
         let mut child = ui.new_child(egui::UiBuilder::new().id_salt("link-status").max_rect(rect));
         child.set_clip_rect(ui.clip_rect().intersect(rect));
         child
-            .add(egui::Label::new(egui::RichText::new(text).small().weak()).wrap())
+            .add(egui::Label::new(egui::RichText::new(text).small().weak()).truncate())
             .on_hover_ui(|ui| {
                 ui.weak(text);
-                for (index, pane) in self.panes.iter().enumerate() {
-                    if let Some(error) = &pane.geometry_error {
-                        ui.weak(format!(
-                            "{}: {error}",
-                            if index == 0 { "Left" } else { "Right" }
-                        ));
+                for index in self.pair {
+                    if let Some(error) = &self.panes[index].geometry_error {
+                        ui.weak(format!("Pane {}: {error}", index + 1));
                     }
                 }
             });
