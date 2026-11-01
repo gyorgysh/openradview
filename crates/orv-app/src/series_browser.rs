@@ -13,6 +13,7 @@ struct Entry {
 #[derive(Default)]
 pub struct Catalog {
     entries: Arc<[Entry]>,
+    acquisitions: orv_core::acquisition::NiftiCatalog,
 }
 impl Catalog {
     /// Build on the import worker. Limit text separately from decoded images.
@@ -47,6 +48,7 @@ impl Catalog {
         }
         Ok(Self {
             entries: entries.into(),
+            acquisitions: orv_core::acquisition::NiftiCatalog::prepare(study, cancelled)?,
         })
     }
 }
@@ -59,6 +61,7 @@ pub struct SeriesBrowser {
     generation: u64,
     pending: bool,
     thumbnails: thumbnails::Thumbnails,
+    axes: crate::acquisition_ui::Controls,
 }
 impl SeriesBrowser {
     pub fn new(catalog: Catalog, study: Arc<Study>, ctx: egui::Context) -> Self {
@@ -80,6 +83,7 @@ impl SeriesBrowser {
         selected: usize,
         render: Option<&eframe::egui_wgpu::RenderState>,
     ) -> Option<usize> {
+        let axis_choice = self.axes.show(ui, &self.catalog.acquisitions, selected);
         self.thumbnails.poll(ui, render);
         if let Some(search) = &self.search
             && let Some((generation, rows)) = search.take()
@@ -170,7 +174,7 @@ impl SeriesBrowser {
         if count == 0 {
             ui.weak("No matching series. Clear the filter to see all series.");
         }
-        choice
+        axis_choice.or(choice)
     }
 }
 
@@ -295,7 +299,10 @@ mod tests {
             .collect::<Vec<_>>()
             .into();
         let mut browser = SeriesBrowser {
-            catalog: Catalog { entries },
+            catalog: Catalog {
+                entries,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let ctx = egui::Context::default();

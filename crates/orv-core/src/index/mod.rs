@@ -162,8 +162,11 @@ impl IndexedSeries {
         Ok(volume)
     }
     pub fn nifti_view(&self) -> Option<&crate::nifti_view::NiftiView> {
+        Some(self.nifti_axes()?.view())
+    }
+    pub fn nifti_axes(&self) -> Option<&crate::acquisition::NiftiAxes> {
         match &self.frames.first()?.header.format {
-            header::Format::Nifti(nifti) => Some(&nifti.view),
+            header::Format::Nifti(nifti) => Some(&nifti.axes),
             _ => None,
         }
     }
