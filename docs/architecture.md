@@ -46,6 +46,19 @@ An independent coalescing count worker recomputes only on map changes. Both wait
 on condition variables when idle; shutdown changes the predicate under the wait
 mutex to avoid a lost wakeup. No label data enters ordinary snapshots or tools.
 
+Seeded label operations traverse source-grid face neighbors with an admitted byte
+mask and u32 queue, bounded by the existing label-grid limits. Missing samples and
+other IDs stop traversal; cleanup preserves missing stored cells. Queue storage
+is transient and the proposal mask retains its reservation. Every immutable label
+map owns its own CPU-pool reservation; fallible cancellable checkpoints replace
+unbudgeted deep clones. Header-only grid checks precede dense preparation/import.
+Native previews bind exact map/source, operation parameters and an invalidation
+epoch; source-plane picking uses the inverse display transform. The worker also
+prepares the proposed immutable map. Explicit Apply only swaps that map and adds
+one undo checkpoint, so no voxel scan occurs on the UI thread. Replaced/cancelled
+results cannot publish after input invalidation. Current counts/exports remain
+applied-map operations and ordinary agent snapshot contracts do not include labels.
+
 Import reports retain category counts and at most 64 generated item ordinals in
 RAM, without filenames, paths, raw tags or parser messages. Detailed errors retain
 the report even when no supported image loads. Uncertain representation failures

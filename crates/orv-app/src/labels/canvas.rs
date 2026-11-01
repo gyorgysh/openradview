@@ -22,9 +22,9 @@ impl LabelUi {
             return;
         };
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.paint = false;
-            self.stroke.clear();
+            self.stop_painting();
         }
+        self.regions.sync(&current, self.label, Some(z));
         if self.stroke_slice != Some(z) {
             self.stroke.clear();
             self.stroke_slice = Some(z);
@@ -41,6 +41,20 @@ impl LabelUi {
             || !self.painting(selected)
             || crate::viewport::navigation_override(ui, response)
         {
+            return;
+        }
+        if self.regions.picking {
+            if response.clicked()
+                && let Some(position) = response.interact_pointer_pos()
+                && let Some(point) = pixel_at(response.rect, image, view, position)
+            {
+                let [x, y] = point.map(|v| (v + 0.5).floor());
+                if x >= 0. && y >= 0. && x < image.width as f64 && y < image.height as f64 {
+                    self.regions.pick([x as usize, y as usize, z]);
+                    self.regions.sync(&current, self.label, Some(z));
+                    self.open = true;
+                }
+            }
             return;
         }
         if (response.hovered() || response.dragged_by(egui::PointerButton::Primary))

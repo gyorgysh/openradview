@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Preview and explicitly apply local seeded region growing, keep a selected label
+  component or remove small islands. Use four neighbors on one source image or
+  six across the volume, with missing samples and other IDs as barriers. No AI
+  model or anatomical recognition is used; edits remain undoable and unsaved.
+
 - Inspect local labels on thin MPR and oblique planes, with per-ID visibility,
   fill/outline/hatching and source voxel counts. Keep missing samples separate
   and derive label cell volume from the source affine. Painting stays on source

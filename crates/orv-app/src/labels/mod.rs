@@ -5,6 +5,7 @@ mod counts;
 mod display;
 mod jobs;
 mod overlay;
+mod regions;
 pub(crate) use overlay::OverlayView;
 #[cfg(test)]
 mod tests;
@@ -33,6 +34,7 @@ pub struct LabelUi {
     overlays: overlay::Overlays,
     counts: counts::Counts,
     display: overlay::Display,
+    regions: regions::Regions,
     stroke: Vec<[f64; 2]>,
     pub discard_question: bool,
     stroke_slice: Option<usize>,
@@ -58,6 +60,7 @@ impl Default for LabelUi {
             overlays: Default::default(),
             counts: Default::default(),
             display: Default::default(),
+            regions: regions::Regions::new(),
             stroke: Vec::new(),
             discard_question: false,
             stroke_slice: None,
@@ -75,15 +78,20 @@ impl LabelUi {
                 self.message = "Blank labels ready. Paint on the 2D source image.".into();
             }
             Ok(Output::Change(labels)) => {
-                if let Some(old) = self.current.replace(labels) {
-                    self.undo.push_back(old);
+                self.commit_change(labels);
+            }
+            Ok(Output::Preview(preview)) => {
+                if self
+                    .current
+                    .as_ref()
+                    .is_some_and(|map| self.regions.accept(&preview, map))
+                {
+                    self.regions.preview = Some(*preview);
+                    // The proposal section owns its status; it vanishes when inputs change.
+                    self.message.clear();
+                } else {
+                    self.message = "Selection inputs changed. Request a new preview.".into();
                 }
-                while self.undo.len() > 2 {
-                    self.undo.pop_front();
-                }
-                self.overlays.clear();
-                self.dirty = true;
-                self.message = "Labels changed in memory. Export to keep them.".into();
             }
             Ok(Output::Saved) => {
                 self.dirty = false;
@@ -96,8 +104,24 @@ impl LabelUi {
             Err(error) => self.message = error,
         }
     }
+    fn commit_change(&mut self, labels: Arc<Labels>) {
+        if let Some(old) = self.current.replace(labels) {
+            self.undo.push_back(old);
+        }
+        while self.undo.len() > 2 {
+            self.undo.pop_front();
+        }
+        self.regions.invalidate();
+        self.regions.picking = false;
+        self.overlays.clear();
+        self.dirty = true;
+        self.message = "Labels changed in memory. Export to keep them.".into();
+    }
     fn start(&mut self, op: Operation, ctx: &egui::Context) {
         if self.task.is_none() {
+            if !matches!(&op, Operation::Preview(..)) {
+                self.regions.invalidate();
+            }
             self.stroke.clear();
             self.task = Some(Task::start(op, ctx.clone()));
         }
@@ -113,9 +137,14 @@ impl LabelUi {
     pub fn stop_painting(&mut self) {
         self.paint = false;
         self.stroke.clear();
+        self.regions.picking = false;
+        self.regions.invalidate();
     }
     pub fn painting(&self, selected: usize) -> bool {
-        self.paint && self.current.is_some() && self.series == selected && !self.open
+        (self.paint || self.regions.picking)
+            && self.current.is_some()
+            && self.series == selected
+            && !self.open
     }
     pub fn window(
         &mut self,
@@ -125,6 +154,13 @@ impl LabelUi {
         slice: Option<usize>,
     ) {
         self.poll();
+        if let Some(map) = &self.current {
+            self.regions.sync(
+                map,
+                self.label,
+                if selected == self.series { slice } else { None },
+            );
+        }
         let mut open = self.open;
         crate::dialogs::window("Local labels",ctx).open(&mut open).default_width(500.).default_height(620.).vscroll(true).show(ctx,|ui| {
             ui.label("Draw or load your own labels. No model or anatomical inference is used.");
@@ -140,17 +176,18 @@ impl LabelUi {
                 if selected!=self.series {ui.label(format!("Labels belong to series {} in the list. Return there to edit or export them, or remove this map.",self.series+1));return;}
                 ui.horizontal(|ui| {ui.checkbox(&mut self.visible,"Show overlay");ui.add(egui::Slider::new(&mut self.opacity,0.05..=0.9).text("Opacity"));});
                 if slice.is_some() {
-                ui.horizontal(|ui| {if ui.checkbox(&mut self.paint,"Brush enabled").changed() && self.paint {self.visible=true;}ui.checkbox(&mut self.erase,"Erase");});
+                ui.horizontal(|ui| {if ui.checkbox(&mut self.paint,"Brush enabled").changed() && self.paint {self.visible=true;self.regions.picking=false;self.regions.invalidate();}ui.checkbox(&mut self.erase,"Erase");});
                 ui.label("Close this panel to paint. Escape turns the brush off. Right-drag pans; wheel zooms.");
                 ui.horizontal(|ui| {ui.add(egui::DragValue::new(&mut self.label).range(1..=255).prefix("Label "));ui.add(egui::DragValue::new(&mut self.radius).range(1..=64).prefix("Radius ").suffix(" px"));});
-                } else {ui.weak("Return to 2D image to paint or apply a source-slice threshold.");}
-                if ui.add_enabled(!self.undo.is_empty(),egui::Button::new("Undo last edit")).clicked() && let Some(previous)=self.undo.pop_back() {self.current=Some(previous);self.overlays.clear();self.dirty=true;}
+                } else {ui.weak("Return to 2D image for painting, threshold fill or connected-region previews.");}
+                if ui.add_enabled(!self.undo.is_empty(),egui::Button::new("Undo last edit")).clicked() && let Some(previous)=self.undo.pop_back() {self.current=Some(previous);self.regions.invalidate();self.overlays.clear();self.dirty=true;}
                 if slice.is_some() {ui.collapsing("Threshold fill (scalar images)",|ui| {
                     ui.label("Replace this label within a value range; preserve other labels. Values follow the selected source representation.");
                     ui.horizontal(|ui| {ui.add(egui::DragValue::new(&mut self.range[0]).prefix("From "));ui.add(egui::DragValue::new(&mut self.range[1]).prefix("To "));});
                     ui.checkbox(&mut self.all_slices,"All source slices");
                     if ui.add_enabled(slice.is_some() && self.current.as_ref().is_some_and(|l|!l.source().is_color()),egui::Button::new("Apply threshold")).clicked() && let Some(current)=self.current.clone(){self.start(Operation::Threshold(current,if self.all_slices{None}else{slice},self.range,self.label),ctx);}
                 });}
+                self.region_controls(ui,slice,ctx);
                 self.display_controls(ui,ctx);
                 ui.separator();
                 ui.label("Import requires matching dimensions, affine and spatial reference. Matching numbers do not prove the same anatomy; verify the overlay yourself. Import does not register or resample the map.");
@@ -162,6 +199,6 @@ impl LabelUi {
             });
             if !self.message.is_empty(){ui.separator();ui.label(&self.message);}
         });
-        self.open = open;
+        self.open = open && !self.regions.picking;
     }
 }

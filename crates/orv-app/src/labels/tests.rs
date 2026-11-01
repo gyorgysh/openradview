@@ -105,3 +105,30 @@ fn cancelled_edit_does_not_change_the_approved_source_or_labels() {
     assert!(current.values().iter().all(|v| *v == 0));
     assert_eq!(current.source().frames()[0].pixels[0], 20.);
 }
+
+#[test]
+fn oversized_label_grids_are_refused_from_metadata_before_invalid_pixels_are_prepared() {
+    for (width, height, depth, reason) in [
+        (2049, 2048, 2, "four million pixels per slice"),
+        (1024, 1024, 33, "32 million voxels"),
+    ] {
+        let mut series = orv_core::study::demo_study().series[0].clone();
+        series.source = None;
+        let original = labels();
+        series.frames = (0..depth)
+            .map(|z| {
+                let mut frame = (*original.source().frames()[0]).clone();
+                frame.width = width;
+                frame.height = height;
+                frame.pixels = Vec::new().into();
+                frame.geometry.as_mut().unwrap().position[2] = z as f64;
+                Arc::new(frame)
+            })
+            .collect();
+        let result = worker::run(
+            Operation::Start(Arc::new(series)),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        assert!(matches!(result, Err(error) if error.contains(reason)));
+    }
+}

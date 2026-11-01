@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Deterministic user labels. No anatomical inference, persistence or network access.
-use crate::{study::Frame, volume::Volume};
+use crate::{
+    resources::{MemoryBudget, Reservation},
+    study::Frame,
+    volume::Volume,
+};
 use std::sync::Arc;
 mod export;
+mod regions;
 mod sampling;
 mod statistics;
+pub use regions::{
+    LabelScope, LabelSelection, RegionOperation, SelectionRequest, SelectionSummary,
+};
 pub use sampling::{LabelPlane, MAX_PLANE_PIXELS};
 pub use statistics::{LabelCount, LabelStatistics};
 #[cfg(test)]
@@ -14,22 +22,62 @@ mod tests;
 
 pub const MAX_VOXELS: usize = 32 * 1024 * 1024;
 
-#[derive(Clone)]
 pub struct Labels {
     source: Arc<Volume>,
     values: Vec<u8>,
+    _reservation: Reservation,
 }
 impl Labels {
+    /// Header-only admission can call this before preparing or decoding a volume.
+    pub fn check_dimensions(dimensions: [usize; 3]) -> Result<usize, &'static str> {
+        let plane = dimensions[0]
+            .checked_mul(dimensions[1])
+            .filter(|n| *n > 0 && *n <= MAX_PLANE_PIXELS)
+            .ok_or("Label editing is limited to four million pixels per slice")?;
+        plane
+            .checked_mul(dimensions[2])
+            .filter(|n| *n > 0 && *n <= MAX_VOXELS)
+            .ok_or("Label maps are limited to 32 million voxels")
+    }
     pub fn empty(source: Arc<Volume>) -> Result<Self, &'static str> {
-        let count = source
-            .dimensions()
-            .iter()
-            .try_fold(1usize, |a, b| a.checked_mul(*b))
-            .filter(|n| *n <= MAX_VOXELS)
-            .ok_or("Label maps are limited to 32 million voxels")?;
+        let count = Self::check_dimensions(source.dimensions())?;
+        let reservation = MemoryBudget::volumes()
+            .reserve(count as u64)
+            .ok_or("Not enough memory for labels")?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(count)
+            .map_err(|_| "Not enough memory for labels")?;
+        values.resize(count, 0);
         Ok(Self {
             source,
-            values: vec![0; count],
+            values,
+            _reservation: reservation,
+        })
+    }
+    /// Worker-only private checkpoint. Each retained map owns its allocation charge.
+    pub fn try_clone(&self, cancelled: impl Fn() -> bool) -> Result<Self, &'static str> {
+        if cancelled() {
+            return Err("Cancelled");
+        }
+        let count = Self::check_dimensions(self.source.dimensions())?;
+        let reservation = MemoryBudget::volumes()
+            .reserve(count as u64)
+            .ok_or("Not enough memory for a label checkpoint")?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(count)
+            .map_err(|_| "Not enough memory for a label checkpoint")?;
+        for chunk in self.values.chunks(4096) {
+            if cancelled() {
+                return Err("Cancelled");
+            }
+            values.extend_from_slice(chunk);
+        }
+        Ok(Self {
+            source: self.source.clone(),
+            values,
+            _reservation: reservation,
         })
     }
     pub fn source(&self) -> &Volume {

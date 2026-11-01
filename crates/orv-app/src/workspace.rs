@@ -281,6 +281,7 @@ impl Workspace {
         self.view = ViewState::default();
     }
     fn select(&mut self, index: usize) {
+        self.labels.stop_painting();
         if self.loading_comparison {
             self.loading = None;
             self.loading_comparison = false;

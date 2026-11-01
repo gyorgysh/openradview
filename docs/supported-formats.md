@@ -208,6 +208,26 @@ these counts or the original map. Labels are excluded from renderer/MCP snapshot
 permission was added. Label maps can themselves contain sensitive information;
 export is a user-chosen local save, not an anonymization guarantee.
 
+Connected selection uses an inclusive scalar interval with explicit four-neighbor
+source-image or six-neighbor whole-volume connectivity. A seed must be in scope,
+on a valid source sample, in range and on background or the selected ID. Growing
+adds connected background cells and preserves existing labels. Cleanup keeps a
+seeded selected-ID component or removes components strictly smaller than an
+explicit cell cutoff. Missing samples are barriers and their stored labels remain
+unchanged. Other IDs are never overwritten. No diagonal connectivity, anatomical
+inference, registration or model is provided.
+
+Selection and its proposed map are prepared privately on workers. Preview is
+bound to exact map/source identity, source seed, interval, scope, label and edit
+kind. A changed input or view mode invalidates it. Apply swaps one immutable
+checkpoint into the current map with the existing two-step undo/unsaved guard.
+Cancel/admission failure cannot partly change the current map. Source counts and
+exports continue using applied labels. The preview does not enter agent snapshots.
+Grid limits are checked from metadata before dense preparation; every retained
+map/checkpoint is charged to the CPU volume pool. Traversal admits up to one byte
+of mask and four bytes of queue per cell in scope before allocation. The queue is
+released after computation; the mask is private until a proposed map is prepared.
+
 ## Local inspection
 
 The selected series' header summary checks regular volume geometry with the same
