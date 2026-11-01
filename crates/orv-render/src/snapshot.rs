@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+pub mod mosaic;
 mod readback;
 mod volume;
 pub const RENDERER_VERSION: u32 = 8;
@@ -58,6 +59,17 @@ impl SliceImage {
     }
     pub fn view(&self) -> wgpu::TextureView {
         self.texture.create_view(&Default::default())
+    }
+    /// Copy at most1024² RGBA8 pixels on a worker. The caller must admit retained
+    /// bytes separately; the readback working reservations end when this returns.
+    pub fn rgba(&self, cancelled: impl Fn() -> bool) -> Result<Vec<u8>, &'static str> {
+        readback::rgba(
+            &self.device,
+            &self.queue,
+            &self.texture,
+            self.size,
+            &cancelled,
+        )
     }
     pub fn png(&self, cancelled: impl Fn() -> bool) -> Result<Vec<u8>, &'static str> {
         readback::capture(
