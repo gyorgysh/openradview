@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Temporary local two-series viewing. Agent composition deliberately stays separate.
+mod display_link;
 mod navigation;
 mod reference_ui;
 mod saved;
@@ -39,7 +40,9 @@ struct Pane {
     image: Option<(usize, Arc<Frame>)>,
     last_view: Option<ViewState>,
     picture_size: Option<[u32; 2]>,
+    canvas_aspect: Option<f64>,
     error: Option<String>,
+    error_index: Option<usize>,
     geometry_task: Option<navigation::Task>,
     geometry: Option<NavigationStack>,
     geometry_error: Option<String>,
@@ -66,7 +69,9 @@ impl Pane {
             image: None,
             last_view: None,
             picture_size: None,
+            canvas_aspect: None,
             error: None,
+            error_index: None,
             geometry: None,
             geometry_error: None,
             annotations: Annotations::default(),
@@ -85,8 +90,12 @@ impl Pane {
                     }
                     self.image = Some((result.index, image));
                     self.error = None;
+                    self.error_index = None;
                 }
-                Err(error) => self.error = Some(error.to_string()),
+                Err(error) => {
+                    self.error_index = Some(result.index);
+                    self.error = Some(error.to_string());
+                }
             }
         }
         if let Some(result) = self.geometry_task.as_ref().and_then(navigation::Task::take) {
@@ -180,6 +189,8 @@ impl Pane {
             egui::Sense::click_and_drag(),
         );
         let interacted = activates_pane(ui, &response);
+        self.canvas_aspect = (rect.width() > 0. && rect.height() > 0.)
+            .then(|| f64::from(rect.width()) / f64::from(rect.height()));
         viewport::interact(
             ui,
             &response,
@@ -265,6 +276,7 @@ pub(crate) struct ComparisonSession {
     linked: bool,
     reference_lines: bool,
     reference_status: reference_ui::Status,
+    display_links: display_link::Group,
     notice: Option<&'static str>,
     file_task: Option<saved::Task>,
     file_notice: Option<&'static str>,
@@ -300,6 +312,7 @@ impl ComparisonSession {
             linked: false,
             reference_lines: false,
             reference_status: reference_ui::Status::Off,
+            display_links: display_link::Group::default(),
             notice: None,
             file_task: None,
             file_notice: None,
@@ -342,6 +355,7 @@ impl ComparisonSession {
         self.saved_views = None;
         self.active = 1;
         self.linked = false;
+        self.display_links = display_link::Group::default();
         self.reference_status = if self.reference_lines {
             reference_ui::Status::Pending
         } else {
@@ -365,6 +379,7 @@ impl ComparisonSession {
             self.composition_dirty |= self.saved_views.is_some();
             self.saved_views = None;
             self.linked = false;
+            self.display_links = display_link::Group::default();
             self.reference_status = if self.reference_lines {
                 reference_ui::Status::Pending
             } else {
@@ -485,6 +500,7 @@ impl ComparisonSession {
                     self.saved_views = Some(self.panes.each_ref().map(|pane| pane.view.clone()));
                     self.composition_dirty = false;
                     self.linked = false;
+                    self.display_links = display_link::Group::default();
                     self.reference_status = if self.reference_lines {
                         reference_ui::Status::Pending
                     } else {
@@ -546,6 +562,9 @@ impl ComparisonSession {
         for pane in &mut self.panes {
             pane.poll();
         }
+        let before_views = self.panes.each_ref().map(|pane| pane.view.clone());
+        let before_aspects = self.panes.each_ref().map(|pane| pane.canvas_aspect);
+        let previous_active = self.active;
         ui.weak("Local comparison · sharing is off")
             .on_hover_text("Select a pane, then choose its series in the sidebar.");
         let mut open = None;
@@ -576,14 +595,17 @@ impl ComparisonSession {
             let compatible = self.compatible();
             if ui.add_enabled(compatible, egui::Checkbox::new(&mut self.linked, "Link physical slices")).on_hover_text("Requires regular parallel planes in the same declared spatial reference. Uses physical image centers; does not register anatomy or link contrast/pan/zoom.").changed() && self.linked { self.synchronize(self.active); }
         });
+        let mut reconfigured = false;
         ui.horizontal_wrapped(|ui| {
             let response = ui.checkbox(&mut self.reference_lines, "Reference lines")
                 .on_hover_text("Finite intersections of both declared thin-image footprints; no registration. Image exports and snapshots omit these lines.");
             ui.ctx().accesskit_node_builder(response.id, |node| node.set_description(self.reference_status.text()));
             if response.changed() { self.reference_status = if self.reference_lines { reference_ui::Status::Pending } else { reference_ui::Status::Off }; }
+            reconfigured = self.display_links.controls(ui, self.panes.iter().all(|pane| !pane.initialize_window));
         });
         self.link_status(ui);
         reference_ui::status(ui, self.reference_status);
+        self.display_links.status(ui);
         let before = self.panes.each_ref().map(|pane| pane.view.slice);
         controls::display_panel(ui, "comparison-display-controls", |ui| {
             ui.push_id("comparison-controls", |ui| {
@@ -643,6 +665,22 @@ impl ComparisonSession {
         {
             self.synchronize(index);
         }
+        let display_update = self.display_links.update(display_link::Input {
+            panes: &self.panes,
+            before: &before_views,
+            before_aspects,
+            active: self.active,
+            previous_active,
+            reconfigured,
+            enabled: ui.is_enabled(),
+        });
+        if let Some((target, view)) = display_update.view {
+            self.panes[target].view = view;
+            ui.ctx().request_repaint();
+        }
+        if display_update.status_changed {
+            ui.ctx().request_repaint();
+        }
         let status = if self.reference_lines {
             reference_ui::paint_pair(
                 reference_targets.each_ref().map(Option::as_ref),
@@ -673,9 +711,9 @@ impl ComparisonSession {
             other => other,
         };
         let text = file_notice.or(self.notice).unwrap_or_else(|| {
-            if self.compatible() { "Physical slice linking is available. Contrast, pan and zoom remain independent." }
+            if self.compatible() { "Physical slice linking is available. Display links have separate controls; no registration is performed." }
             else if self.panes.iter().any(|pane| pane.geometry_task.is_some()) { "Checking geometry for optional slice linking…" }
-            else { "Independent navigation: slice linking needs regular parallel planes and the same spatial reference." }
+            else { "Physical slice linking needs regular parallel planes and the same spatial reference." }
         });
         let height = ui.text_style_height(&egui::TextStyle::Small) * 2. + 4.;
         let (rect, _) = ui.allocate_exact_size(

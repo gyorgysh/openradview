@@ -11,6 +11,9 @@
 - Optionally show finite reference-plane intersections in local comparison.
   Lines require matching completed thin images and known spatial references,
   follow display transforms, and stay outside picture exports and snapshots.
+- Link physical pan, physical zoom and compatible scalar windows separately in
+  comparison. Pending actions wait for their requested images and cancel when
+  view ownership or context changes; inversion remains per pane.
 
 - Review an explicit current-pane illustration before saving, with selected completed
   measurement outlines and applied manual/supplied masks on source/thin reformat

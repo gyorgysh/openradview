@@ -297,6 +297,17 @@ centre. Candidates preserve other view fields and reject reference, orientation
 or range mismatches. Scalar-window compatibility additionally requires known
 units, matching scalar representation/mapping and lookup-table identities.
 
+Independent desktop pan, zoom and scalar-window opt-ins forward typed user changes
+once. A single pending generation keeps weak source capabilities, expected views
+and exact canvas aspects, without retaining pixels. Matching requested images must
+complete first. Ownership, source, target, settings or viewport changes cancel the
+pending action; decoded failure indices stay bound to their request. Changes from
+the same source coalesce their action masks. Canvas size changes start a fresh
+physical-link action for the new layout, preserving physical association. Physical and scalar groups can refuse
+independently. Linked target changes do not become input on the following pass.
+Replacing a source or restoring views clears these RAM-only opt-ins; saved
+comparison schemas and agent scope stay unchanged. Inversion stays per pane.
+
 Entering comparison revokes live and frozen grants, cancels review/shared work and
 removes agent composition. Dual-pane content is never published through MCP.
 Leaving comparison returns to its active series and requires fresh Allow to share.
