@@ -6,6 +6,34 @@ use crate::study::{Frame, Geometry};
 pub use histogram::{ChannelHistogram, Histogram, histogram};
 pub use series::{Declarations, RegularGrid, SeriesInfo, series_info};
 
+/// Ephemeral one-based study groups for a local catalogue. No identifying text
+/// leaves the core; missing declarations remain ungrouped.
+pub fn study_groups(
+    study: &crate::study::Study,
+    cancelled: impl Fn() -> bool,
+) -> Result<Vec<Option<usize>>, crate::load::LoadError> {
+    if study.series.len() > 200_000 {
+        return Err(crate::load::LoadError::Limit);
+    }
+    let mut identifiers = std::collections::HashMap::new();
+    let mut groups = Vec::with_capacity(study.series.len());
+    for series in &study.series {
+        if cancelled() {
+            return Err(crate::load::LoadError::Cancelled);
+        }
+        let group = series
+            .source
+            .as_ref()
+            .and_then(|source| source.study_identifier())
+            .map(|identifier| {
+                let next = identifiers.len() + 1;
+                *identifiers.entry(identifier).or_insert(next)
+            });
+        groups.push(group);
+    }
+    Ok(groups)
+}
+
 /// LPS directions outside the left, right, top and bottom image edges.
 /// Small (<0.0001) direction components are suppressed as rounding noise.
 pub fn edge_directions(geometry: &Geometry) -> Option<[String; 4]> {

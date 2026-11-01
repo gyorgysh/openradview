@@ -5,6 +5,7 @@ use std::{
     fs::{self, File, Metadata},
     io::{Read, Seek, SeekFrom},
     path::PathBuf,
+    sync::Arc,
     time::SystemTime,
 };
 
@@ -48,6 +49,8 @@ pub(super) enum Encoding {
 pub(super) struct Source {
     pub id: u64,
     pub path: PathBuf,
+    /// A selected file-set retains its directory handle for every subsequent read.
+    pub scope: Option<Arc<cap_std::fs::Dir>>,
     pub stamp: Stamp,
     pub offset: u64,
     pub length: u64,
@@ -63,6 +66,43 @@ pub(super) struct Stream {
 pub(super) struct ReadState {
     pub stream: Option<Stream>,
 }
+pub(super) fn is_link(metadata: &cap_std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use cap_std::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return true;
+        }
+    }
+    metadata.file_type().is_symlink()
+}
+pub(super) fn scoped_open(
+    root: &cap_std::fs::Dir,
+    path: &std::path::Path,
+) -> Result<File, LoadError> {
+    let mut prefix = PathBuf::new();
+    for component in path.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err(LoadError::Changed);
+        }
+        prefix.push(component);
+        let metadata = root
+            .symlink_metadata(&prefix)
+            .map_err(|_| LoadError::Changed)?;
+        if is_link(&metadata) {
+            return Err(LoadError::Changed);
+        }
+        if prefix == path && !metadata.is_file() {
+            return Err(LoadError::Changed);
+        }
+    }
+    // Capability lookup also contains symlinks substituted between these checks.
+    let file = root.open(path).map_err(|_| LoadError::Changed)?.into_std();
+    if !file.metadata().map_err(|_| LoadError::Io)?.is_file() {
+        return Err(LoadError::Changed);
+    }
+    Ok(file)
+}
 impl Source {
     pub fn assign_id(&mut self, id: u64) {
         self.id = id;
@@ -74,6 +114,10 @@ impl Source {
         if let Encoding::Paired { header, .. } = &self.encoding {
             header.check()?;
         }
+        if let Some(scope) = &self.scope {
+            let file = scoped_open(scope, &self.path)?;
+            return self.check_stamp(&file);
+        }
         let metadata = fs::symlink_metadata(&self.path).map_err(|_| LoadError::Io)?;
         if !metadata.is_file()
             || metadata.file_type().is_symlink()
@@ -84,14 +128,26 @@ impl Source {
         Ok(())
     }
     fn open(&self) -> Result<File, LoadError> {
+        if let Some(scope) = &self.scope {
+            let file = scoped_open(scope, &self.path)?;
+            self.check_stamp(&file)?;
+            return Ok(file);
+        }
         self.check()?;
         let file = File::open(&self.path).map_err(|_| LoadError::Io)?;
+        self.check_stamp(&file)?;
+        Ok(file)
+    }
+    fn check_stamp(&self, file: &File) -> Result<(), LoadError> {
         if Stamp::new(&file.metadata().map_err(|_| LoadError::Io)?) != self.stamp {
             return Err(LoadError::Changed);
         }
-        Ok(file)
+        Ok(())
     }
-    fn reader(&self, cancelled: &impl Fn() -> bool) -> Result<Box<dyn Read + Send>, LoadError> {
+    pub(super) fn reader(
+        &self,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Box<dyn Read + Send>, LoadError> {
         match &self.encoding {
             Encoding::Paired { data, .. } => data.reader(cancelled),
             Encoding::Stored | Encoding::Deflated => {
@@ -130,6 +186,7 @@ impl Source {
         let output = Self {
             id: self.id,
             path: self.path.clone(),
+            scope: self.scope.clone(),
             stamp: self.stamp.clone(),
             offset: 0,
             length: 0,
@@ -150,6 +207,7 @@ impl Source {
         let output = Self {
             id: self.id,
             path: self.path.clone(),
+            scope: self.scope.clone(),
             stamp: self.stamp.clone(),
             offset: 0,
             length: 0,

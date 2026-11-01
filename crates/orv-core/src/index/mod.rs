@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Metadata-first local study index with ZIP64 and a shared bounded decoded cache.
 mod decode;
+mod dicomdir;
 mod encapsulated;
+mod fileset;
 mod header;
 mod import;
 mod nifti;
@@ -110,6 +112,12 @@ impl std::fmt::Debug for IndexedSeries {
     }
 }
 impl IndexedSeries {
+    pub(crate) fn study_identifier(&self) -> Option<String> {
+        let object = self.frames.first()?.header.dicom().ok()?;
+        crate::load::identifier(object, "StudyInstanceUID")
+            .ok()
+            .flatten()
+    }
     /// Worker-only shared preparation. A weak cache never keeps a closed view alive.
     pub fn volume(&self, cancelled: impl Fn() -> bool) -> Result<Arc<Volume>, String> {
         crate::resources::refresh_memory_policy();

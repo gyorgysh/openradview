@@ -62,7 +62,11 @@ fn mixed_file_and_zip_imports_explain_skips_without_retaining_source_names() {
         assert_eq!(study.skipped_files, 6);
         assert_eq!(study.import_report.skipped_files(), 6);
         for reason in SkipReason::ALL {
-            assert_eq!(study.import_report.count(reason), 1, "{reason:?}");
+            let expected = usize::from(!matches!(
+                reason,
+                SkipReason::MissingReference | SkipReason::ConflictingReference
+            ));
+            assert_eq!(study.import_report.count(reason), expected, "{reason:?}");
         }
         let reasons: Vec<_> = study
             .import_report

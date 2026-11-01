@@ -33,6 +33,7 @@ pub enum LoadError {
     Cancelled,
     Changed,
     Empty,
+    Directory,
     ScalarRequired,
 }
 impl std::fmt::Display for LoadError {
@@ -45,6 +46,7 @@ impl std::fmt::Display for LoadError {
             Self::Changed => "The selected source changed. Close and reopen the study.",
             Self::ScalarRequired => "This operation needs scalar pixel values.",
             Self::Empty => "No supported DICOM or NIfTI images were found.",
+            Self::Directory => "The DICOMDIR cannot be used safely. Use Open folder on its containing folder to scan image files directly.",
         })
     }
 }

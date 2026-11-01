@@ -114,6 +114,7 @@ pub(super) fn file_source(path: PathBuf) -> Result<Source, LoadError> {
     Ok(Source {
         id: 0,
         path,
+        scope: None,
         stamp: Stamp::new(&metadata),
         offset: 0,
         length: metadata.len(),
@@ -154,6 +155,7 @@ pub(super) fn zip_sources(
         let source = Source {
             id: 0,
             path: path.to_owned(),
+            scope: None,
             stamp: stamp.clone(),
             offset: entry.data_start().ok_or(LoadError::Unsupported)?,
             length: entry.size(),

@@ -5,6 +5,18 @@ or drag and drop. Pick a series in the sidebar. Loading runs in the background
 and can be cancelled. Keep the source files available while viewing; the app
 does not make a patient database or copy the whole study into memory.
 
+For supplied media, use **Open files** to select `DICOMDIR` alone, or a ZIP with
+one media index. The viewer opens its supported referenced images and groups
+declared studies with temporary numbers. Expand **File-set import** for missing
+files, conflicting identities and unsupported objects. Source descriptions and
+patient names from the index are not catalogue labels. Burned-in text can still
+appear in images.
+
+If a media index cannot be used, choose **Open folder** on its containing folder.
+This scans supported files directly, including unlisted images, and ignores the
+index. For an unusable index inside a ZIP, unpack the ZIP with your archive tool
+first. The app does not repair the index, modify originals or extract archives.
+
 If some inputs are skipped, expand the sidebar's skipped-input summary to see
 reason counts. It distinguishes known unsupported encodings/object types, missing
 NIfTI companions and malformed DICOM metadata; ambiguous failures remain

@@ -12,16 +12,20 @@ pub enum SkipReason {
     MissingCompanion,
     MalformedMetadata,
     UnsupportedOrInvalid,
+    MissingReference,
+    ConflictingReference,
 }
 
 impl SkipReason {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::UnrecognizedInput,
         Self::UnsupportedEncoding,
         Self::UnsupportedObject,
         Self::MissingCompanion,
         Self::MalformedMetadata,
         Self::UnsupportedOrInvalid,
+        Self::MissingReference,
+        Self::ConflictingReference,
     ];
 
     pub fn label(self) -> &'static str {
@@ -32,6 +36,8 @@ impl SkipReason {
             Self::MissingCompanion => "Missing NIfTI companion",
             Self::MalformedMetadata => "Incomplete or malformed DICOM metadata",
             Self::UnsupportedOrInvalid => "Unsupported or invalid image representation",
+            Self::MissingReference => "Missing file-set reference",
+            Self::ConflictingReference => "Conflicting file-set image identity",
         }
     }
 
@@ -43,6 +49,8 @@ impl SkipReason {
             Self::MissingCompanion => 3,
             Self::MalformedMetadata => 4,
             Self::UnsupportedOrInvalid => 5,
+            Self::MissingReference => 6,
+            Self::ConflictingReference => 7,
         }
     }
 }
@@ -57,11 +65,18 @@ pub struct ImportIssue {
 #[derive(Clone, Debug, Default)]
 pub struct ImportReport {
     indexed_files: usize,
-    counts: [usize; 6],
+    counts: [usize; 8],
+    directories: usize,
     issues: Vec<ImportIssue>,
 }
 
 impl ImportReport {
+    pub fn directories(&self) -> usize {
+        self.directories
+    }
+    pub(crate) fn directory(&mut self) {
+        self.directories += 1;
+    }
     pub fn indexed_files(&self) -> usize {
         self.indexed_files
     }

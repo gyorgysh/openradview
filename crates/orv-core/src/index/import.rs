@@ -20,6 +20,8 @@ const MAX_IMAGES: usize = 1_000_000;
 const MAX_SERIES: usize = 4096;
 const MAX_METADATA: u64 = 128 * 1024 * 1024;
 pub(super) const MAX_EXPANDED: u64 = 64 * 1024 * 1024 * 1024;
+#[path = "media.rs"]
+mod media;
 
 struct Builder {
     study: Study,
@@ -177,6 +179,24 @@ fn index_paths_inner(
         if cancelled() {
             return Err(LoadError::Cancelled);
         }
+        if super::dicomdir::is_name(&path) {
+            if paths.contains(&path) {
+                if paths.len() != 1 {
+                    return Err(LoadError::Directory);
+                }
+                media::Context {
+                    builder: &mut builder,
+                    cancelled: &cancelled,
+                    expanded: &mut expanded,
+                    report: &mut report,
+                    progress: &mut progress,
+                    summary,
+                }
+                .local(&path)?;
+            }
+            // Open folder is an explicit scan, independent of the media index.
+            continue;
+        }
         let mut file = File::open(&path).map_err(|_| LoadError::Io)?;
         let metadata = file.metadata().map_err(|_| LoadError::Io)?;
         let stamp = Stamp::new(&metadata);
@@ -187,6 +207,19 @@ fn index_paths_inner(
             let mut archive = zip::ZipArchive::new(file).map_err(|_| LoadError::Unsupported)?;
             if archive.len() > MAX_ENTRIES {
                 return Err(LoadError::Limit);
+            }
+            if paths.contains(&path)
+                && (media::Context {
+                    builder: &mut builder,
+                    cancelled: &cancelled,
+                    expanded: &mut expanded,
+                    report: &mut report,
+                    progress: &mut progress,
+                    summary,
+                })
+                .archive(&mut archive, &path, &stamp)?
+            {
+                continue;
             }
             let members = super::pairs::zip_sources(&mut archive, &path, &stamp, &cancelled)?;
             for index in 0..archive.len() {
@@ -201,6 +234,11 @@ fn index_paths_inner(
                 }
                 if entry.enclosed_name().is_none() || entry.is_symlink() {
                     return Err(LoadError::Unsupported);
+                }
+                if super::dicomdir::is_name(Path::new(
+                    entry.name().map_err(|_| LoadError::Unsupported)?.as_ref(),
+                )) {
+                    continue;
                 }
                 expanded = expanded.checked_add(entry.size()).ok_or(LoadError::Limit)?;
                 if expanded > MAX_EXPANDED {
@@ -222,6 +260,7 @@ fn index_paths_inner(
                 let source = Source {
                     id: 0,
                     path: path.clone(),
+                    scope: None,
                     stamp: stamp.clone(),
                     offset: entry.data_start().ok_or(LoadError::Unsupported)?,
                     length: entry.size(),
@@ -302,6 +341,7 @@ fn index_paths_inner(
             let source = Source {
                 id: 0,
                 path,
+                scope: None,
                 stamp,
                 offset: 0,
                 length: metadata.len(),
