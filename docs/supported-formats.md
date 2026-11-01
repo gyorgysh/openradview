@@ -124,7 +124,8 @@ Declared trim and optional delay remain separate from intervals. Unrepresentable
 durations, invalid trim, partitioned/reordered/mixed-object frames and malformed
 optional timing get an explanation while ordinary image browsing remains available.
 Display-rate recommendations, acquisition dates, audio and wrap/sweep intervals
-are not inferred. This is metadata inspection; Play still uses the selected fps.
+are not inferred. Supported intervals and trim can be used through the explicit
+Source intervals playback choice; manual fps remains the default.
 
 NIfTI spatial units are converted from metres/mm/micrometres into LPS millimetres.
 A valid known sform takes precedence over qform, including a negative qfac. The
@@ -405,12 +406,27 @@ only the active completed source pane through the existing explicit export path.
 
 ## Local playback and picture export
 
-Source 2D series have explicit Play/Pause, requested1–30fps (default8) and optional
-Loop. The default stops at the end. A ready frame receives its full interval before the next request;
-late decoding lowers speed instead of skipping images or queuing catch-up work.
-This is paced browsing, not acquisition timing or a multiaxis time-series player.
-Manual view changes, Escape, source/mode changes, label editing, dialogs and loss
-of focus pause it. Paused playback schedules no timer; decoding wakes pending work.
+Source 2D series have explicit Play/Pause, manual1–30fps (default8) and optional
+Loop. Manual mode stops at the end unless Loop is checked. A ready frame receives
+its full interval before the next request; late decoding lowers speed instead of
+skipping images or queuing catch-up work.
+
+For validated DICOM timing, explicitly enable **Source intervals** below the
+image. Manual fps and Loop are inactive. The scheduler follows the interval to the
+next original object frame within the declared inclusive trim. Starting at or
+outside the trim end returns to the first trimmed frame; resuming inside it gives
+the current frame its full next interval. The final trimmed image stops playback
+as soon as it is ready. No final-frame dwell, loop interval or acquisition-delay
+wait is invented. Single-image trims cannot enable source playback.
+
+The last ready-to-ready step, source interval and image wait show the effective
+local pace. Decode/UI delays can lengthen it; this is not real-time reproduction
+or a multiaxis time-volume player. Manual view changes, Escape, source/mode changes,
+label editing, dialogs, decode errors, minimization and loss of focus pause it.
+Source replacement resets the opt-in; changing playback mode ends existing sharing
+approval. Unavailable timing retains manual browsing with an explanation. Checked
+clock overflow stops with a message. Paused playback and pending decoding schedule
+no continuing timer; decoding wakes pending work.
 
 **Study → Export picture…** captures one completed pane from source2D, linked MPR,
 oblique or3D/MIP. It writes image.png plus the existing snapshot view.json schema

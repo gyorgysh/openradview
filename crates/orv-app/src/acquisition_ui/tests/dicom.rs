@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::dicom_acquisition_phantom as phantom;
 use orv_core::acquisition::{DicomAxis, DicomCatalog};
-#[path = "../../../../orv-core/tests/support/dicom_axes.rs"]
-mod phantom;
 fn catalog(object: &dicom_object::DefaultDicomObject) -> (tempfile::TempDir, DicomCatalog) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("axes.dcm");
@@ -93,7 +92,7 @@ fn timing_inspection_reports_declared_intervals_trim_delay_and_invalid_metadata(
         let content = text(&tree);
         assert!(content.contains("Trim: images 2–4 of 5"));
         assert!(content.contains("Declared frame delay: 7.5 ms"));
-        assert!(content.contains("manually chosen fps"));
+        assert!(content.contains("manual fps remains the default"));
         assert!(content.contains(if variable {
             "First to last frame: 300 ms"
         } else {

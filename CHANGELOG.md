@@ -2,12 +2,16 @@
 
 ## Unreleased
 
+- Opt into supported DICOM source intervals for local playback, with declared trim,
+  fixed/variable timing and visible ready-image pace. Wait for each requested image
+  without skipping; stop at the trim end. Manual fps/Loop remain the default.
+  Changing playback mode ends existing sharing approval.
 - Select supported declared DICOM temporal positions and echo times, with actual
   values shown separately from dimension ordinals. Preserve organization and
   unselected acquisition context; explain missing or ambiguous choices.
 - Inspect supported source frame intervals, trim and delay. Timing requires the
   original object frame order; partitioned, reordered or mixed sources remain
-  independently viewable. Playback still uses the manually selected rate.
+  independently viewable; source intervals are an explicit playback choice.
 
 - Select NIfTI time points, components, higher axes and complex views directly
   within their original input. Show declared time coordinates and steps in seconds,

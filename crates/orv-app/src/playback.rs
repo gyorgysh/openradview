@@ -1,19 +1,47 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! User-paced source browsing, independent of acquisition timing. A ready image
-//! receives a full interval before the next request; late decoding never causes catch-up skips.
-use std::time::{Duration, Instant};
+//! One ready source image at a time. Decoding never creates a catch-up queue.
+mod ui;
+use orv_core::acquisition::CineTiming;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum Step {
     Idle,
     Wait(Duration),
     Advance(u32),
 }
 
+struct Shown {
+    deadline: Instant,
+    ready: Instant,
+    interval: Duration,
+}
+struct Requested {
+    at: Instant,
+    previous_ready: Instant,
+    interval: Duration,
+}
+#[derive(Debug, PartialEq, Eq)]
+struct Pace {
+    elapsed: Duration,
+    interval: Duration,
+    image_wait: Duration,
+}
+
 pub(super) struct Playback {
     pub running: bool,
     pub fps: u8,
     pub repeat: bool,
-    shown: Option<(u32, Instant)>,
+    source: Option<Arc<CineTiming>>,
+    source_mode: bool,
+    expected: Option<u32>,
+    shown: Option<Shown>,
+    requested: Option<Requested>,
+    pace: Option<Pace>,
+    notice: Option<&'static str>,
 }
 
 impl Default for Playback {
@@ -22,22 +50,98 @@ impl Default for Playback {
             running: false,
             fps: 8,
             repeat: false,
+            source: None,
+            source_mode: false,
+            expected: None,
             shown: None,
+            requested: None,
+            pace: None,
+            notice: None,
         }
     }
 }
 
 impl Playback {
+    /// Metadata is a capability for this catalogued source, not equal numeric timing.
+    /// Return whether an enabled mode was reset so the owner can revoke consent.
+    pub fn bind_source(&mut self, source: Option<Arc<CineTiming>>) -> bool {
+        let same = match (&self.source, &source) {
+            (Some(old), Some(new)) => Arc::ptr_eq(old, new),
+            (None, None) => true,
+            _ => false,
+        };
+        if same {
+            return false;
+        }
+        let changed = self.source_mode;
+        self.pause();
+        self.source_mode = false;
+        self.source = source;
+        self.pace = None;
+        self.notice = None;
+        changed
+    }
+    pub fn set_source_mode(&mut self, enabled: bool) -> bool {
+        let enabled = enabled && self.source_playable();
+        if enabled == self.source_mode {
+            return false;
+        }
+        self.pause();
+        self.source_mode = enabled;
+        self.pace = None;
+        self.notice = None;
+        true
+    }
+    fn source_playable(&self) -> bool {
+        self.source.as_ref().is_some_and(|timing| {
+            let [first, last] = timing.trim();
+            first < last
+        })
+    }
     pub fn pause(&mut self) {
         self.running = false;
+        self.expected = None;
         self.shown = None;
+        self.requested = None;
+        self.notice = None;
     }
 
-    pub fn start(&mut self) {
+    /// Starting at/outside the end returns to the first playable image. Resuming
+    /// within the range gives that image a full interval; acquisition delay is not
+    /// a playback dwell and no interval after the final trimmed image is invented.
+    pub fn start_at(&mut self, target: u32, count: usize) -> Option<u32> {
+        self.pause();
+        self.pace = None;
+        self.notice = None;
+        if count < 2 || target as usize >= count {
+            return None;
+        }
+        let target = if self.source_mode {
+            let timing = self.source.as_ref()?;
+            if timing.frame_count() as usize != count || !self.source_playable() {
+                return None;
+            }
+            let [first, last] = timing.trim();
+            if target < first || target >= last {
+                first
+            } else {
+                target
+            }
+        } else if target as usize == count - 1 {
+            0
+        } else {
+            target
+        };
         self.running = true;
-        self.shown = None;
+        self.expected = Some(target);
+        Some(target)
     }
 
+    fn fail(&mut self, notice: &'static str) -> Step {
+        self.pause();
+        self.notice = Some(notice);
+        Step::Idle
+    }
     pub fn tick(
         &mut self,
         now: Instant,
@@ -48,95 +152,86 @@ impl Playback {
         if !self.running {
             return Step::Idle;
         }
-        if count < 2 || target as usize >= count {
-            self.pause();
-            return Step::Idle;
+        if count < 2 || target as usize >= count || self.expected != Some(target) {
+            return self.fail("Playback paused because the requested image context changed.");
         }
+        let next = if self.source_mode {
+            let Some(timing) = self.source.as_ref() else {
+                return self.fail("Source timing is no longer available. Playback paused.");
+            };
+            let [first, last] = timing.trim();
+            if timing.frame_count() as usize != count || !(first..=last).contains(&target) {
+                return self
+                    .fail("Source timing does not match this image range. Playback paused.");
+            }
+            target.checked_add(1).filter(|next| *next <= last)
+        } else if target as usize + 1 < count {
+            Some(target + 1)
+        } else if self.repeat {
+            Some(0)
+        } else {
+            None
+        };
         if displayed != Some(target as usize) {
-            // The decode worker wakes the UI. No timer or newer decode request
-            // is needed while waiting for the current target.
+            // The worker wakes the UI. No timer or new request while decoding.
             self.shown = None;
             return Step::Idle;
         }
-        let (_, since) = *self.shown.get_or_insert((target, now));
-        if self.shown.is_some_and(|(index, _)| index != target) {
-            self.shown = Some((target, now));
-            return Step::Wait(self.interval());
+        if let Some(requested) = self.requested.take() {
+            self.pace = Some(Pace {
+                elapsed: now.saturating_duration_since(requested.previous_ready),
+                interval: requested.interval,
+                image_wait: now.saturating_duration_since(requested.at),
+            });
         }
-        let elapsed = now.saturating_duration_since(since);
-        let interval = self.interval();
-        if elapsed < interval {
-            return Step::Wait(interval - elapsed);
+        if self.source_mode && next.is_none() {
+            self.pause();
+            self.notice = Some("Reached the source trim end.");
+            return Step::Idle;
         }
-        self.shown = None;
-        if (target as usize) + 1 < count {
-            Step::Advance(target + 1)
-        } else if self.repeat {
-            Step::Advance(0)
+        if self.shown.is_none() {
+            let interval = if self.source_mode {
+                let Some(interval) = next
+                    .and_then(|frame| self.source.as_ref()?.interval_before(frame))
+                    .filter(|d| !d.is_zero())
+                else {
+                    return self.fail("Source interval is unavailable. Playback paused.");
+                };
+                interval
+            } else {
+                Duration::from_secs_f64(1.0 / f64::from(self.fps.clamp(1, 30)))
+            };
+            let Some(deadline) = now.checked_add(interval) else {
+                return self
+                    .fail("Source interval exceeds the monotonic clock range. Playback paused.");
+            };
+            self.shown = Some(Shown {
+                deadline,
+                ready: now,
+                interval,
+            });
+        }
+        let Some(shown) = &self.shown else {
+            return Step::Idle;
+        };
+        if now < shown.deadline {
+            return Step::Wait(shown.deadline.duration_since(now));
+        }
+        if let Some(next) = next {
+            self.requested = Some(Requested {
+                at: now,
+                previous_ready: shown.ready,
+                interval: shown.interval,
+            });
+            self.shown = None;
+            self.expected = Some(next);
+            Step::Advance(next)
         } else {
             self.pause();
             Step::Idle
         }
     }
-
-    fn interval(&self) -> Duration {
-        Duration::from_secs_f64(1.0 / f64::from(self.fps.clamp(1, 30)))
-    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn slow_decode_receives_full_interval_and_never_skips() {
-        let now = Instant::now();
-        let mut player = Playback::default();
-        player.start();
-        assert!(matches!(player.tick(now, 0, Some(0), 100), Step::Wait(_)));
-        assert!(matches!(
-            player.tick(now + Duration::from_secs(5), 0, Some(0), 100),
-            Step::Advance(1)
-        ));
-        assert!(matches!(
-            player.tick(now + Duration::from_secs(20), 1, Some(0), 100),
-            Step::Idle
-        ));
-        assert!(player.running);
-        let ready = now + Duration::from_secs(30);
-        assert!(
-            matches!(player.tick(ready, 1, Some(1), 100), Step::Wait(d) if d == Duration::from_millis(125))
-        );
-        assert!(matches!(
-            player.tick(ready + Duration::from_millis(124), 1, Some(1), 100),
-            Step::Wait(_)
-        ));
-        assert!(matches!(
-            player.tick(ready + Duration::from_millis(125), 1, Some(1), 100),
-            Step::Advance(2)
-        ));
-    }
-    #[test]
-    fn end_stops_unless_loop_is_explicit_and_pause_is_idle() {
-        let now = Instant::now();
-        let mut player = Playback::default();
-        player.start();
-        player.tick(now, 2, Some(2), 3);
-        assert!(matches!(
-            player.tick(now + Duration::from_secs(1), 2, Some(2), 3),
-            Step::Idle
-        ));
-        assert!(!player.running);
-        player.repeat = true;
-        player.start();
-        player.tick(now, 2, Some(2), 3);
-        assert!(matches!(
-            player.tick(now + Duration::from_secs(1), 2, Some(2), 3),
-            Step::Advance(0)
-        ));
-        player.pause();
-        assert!(matches!(player.tick(now, 0, Some(0), 3), Step::Idle));
-        player.start();
-        assert!(matches!(player.tick(now, 0, Some(0), 1), Step::Idle));
-        assert!(!player.running);
-    }
-}
+mod tests;

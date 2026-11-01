@@ -66,6 +66,9 @@ pub struct SeriesBrowser {
     axes: crate::acquisition_ui::Controls,
 }
 impl SeriesBrowser {
+    pub(crate) fn cine(&self, selected: usize) -> Option<&orv_core::acquisition::CineMetadata> {
+        self.catalog.dicom.cine(selected)
+    }
     pub fn new(catalog: Catalog, study: Arc<Study>, ctx: egui::Context) -> Self {
         let search = if catalog.entries.len() > 1 {
             search::Search::start(catalog.entries.clone(), ctx.clone())

@@ -11,6 +11,9 @@ mod controls;
 mod copy;
 mod demos;
 mod dialogs;
+#[cfg(test)]
+#[path = "../../orv-core/tests/support/dicom_axes.rs"]
+mod dicom_acquisition_phantom;
 mod export;
 mod frame_source;
 mod frame_worker;
