@@ -128,25 +128,18 @@ impl ObliqueSession {
         if color && self.tool == Tool::Window {
             self.tool = Tool::Pan;
         }
-        if ui.is_enabled() && !ui.ctx().egui_wants_keyboard_input() {
-            ui.input(|i| {
-                for (key, tool) in [
-                    (egui::Key::W, Tool::Window),
-                    (egui::Key::P, Tool::Pan),
-                    (egui::Key::Z, Tool::Zoom),
-                    (egui::Key::S, Tool::Browse),
-                ] {
-                    if i.key_pressed(key) && (!color || tool != Tool::Window) {
-                        self.tool = tool;
-                    }
-                }
-                if i.key_pressed(egui::Key::I) {
-                    self.view.invert = !self.view.invert;
-                }
-                if i.key_pressed(egui::Key::R) {
-                    self.fit();
-                }
-            });
+        crate::actions::tool_input(
+            ui,
+            &mut self.tool,
+            !color,
+            false,
+            snapshot.image.slab.is_none() && self.slab.is_none(),
+        );
+        if crate::actions::pressed(ui, crate::actions::Action::Invert) {
+            self.view.invert = !self.view.invert;
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Fit) {
+            self.fit();
         }
         self.annotations.bind_image(&snapshot.image, &self.view);
         crate::view_context::show(ui, &snapshot.image);
@@ -209,15 +202,11 @@ impl ObliqueSession {
             .round()
             .clamp(0., f64::from(count - 1)) as u32;
         self.view.slice = initial;
-        if ui.is_enabled() && !ui.ctx().egui_wants_keyboard_input() {
-            ui.input(|i| {
-                if i.key_pressed(egui::Key::ArrowDown) {
-                    self.view.slice = (initial + 1).min(count - 1);
-                }
-                if i.key_pressed(egui::Key::ArrowUp) {
-                    self.view.slice = initial.saturating_sub(1);
-                }
-            });
+        if crate::actions::pressed(ui, crate::actions::Action::Next) {
+            self.view.slice = initial.saturating_add(1).min(count - 1);
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Previous) {
+            self.view.slice = initial.saturating_sub(1);
         }
         let (_, response) = ui.allocate_exact_size(
             Vec2::new(width, (ui.available_height() - 62.).max(60.)),
@@ -293,15 +282,24 @@ impl ObliqueSession {
                 .small()
                 .color(theme::SILVER),
         );
-        let hint = if color {
-            "Images [S] / arrows: move plane · Pan [P] / Space drag: move image · Zoom [Z] / pinch: zoom · Resampled RGB codes may differ from source images."
-        } else {
-            "Images [S] / arrows: move plane · Pan [P] / Space drag: move image · Zoom [Z] / pinch: zoom · Contrast [W]: window/level · Resampled values may differ from source images."
-        };
+        let hint = format!(
+            "{} / arrows: move plane · {} / Space drag: move image · {} / pinch: zoom · {}",
+            crate::actions::label(ui.ctx(), crate::actions::Action::Browse),
+            crate::actions::label(ui.ctx(), crate::actions::Action::Pan),
+            crate::actions::label(ui.ctx(), crate::actions::Action::Zoom),
+            if color {
+                "Resampled RGB codes may differ from source images.".into()
+            } else {
+                format!(
+                    "{}: window/level · Resampled values may differ from source images.",
+                    crate::actions::label(ui.ctx(), crate::actions::Action::Contrast)
+                )
+            }
+        );
         let hint_height = ui
             .painter()
             .layout(
-                hint.into(),
+                hint.clone(),
                 egui::TextStyle::Small.resolve(ui.style()),
                 theme::SILVER,
                 width,
@@ -309,7 +307,7 @@ impl ObliqueSession {
             .size()
             .y;
         if ui.available_height() >= hint_height {
-            ui.label(RichText::new(hint).small().color(theme::SILVER));
+            ui.label(RichText::new(&hint).small().color(theme::SILVER));
         }
         response.on_hover_text(hint);
     }

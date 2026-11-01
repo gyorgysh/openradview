@@ -294,3 +294,118 @@ fn a_view_mode_change_discards_a_completed_private_candidate_and_releases_canvas
     assert!(workspace.annotations.marks.is_empty());
     assert!(!ctx.memory(|memory| memory.has_focus(id)));
 }
+
+#[test]
+fn typed_points_work_behind_their_menu_and_validate_the_same_bounds_and_region() {
+    let ctx = egui::Context::default();
+    let image = image();
+    let view = ViewState::default();
+    let mut annotations = draft(&image, Tool::EllipseRoi, Vec::new());
+    let popup = egui::Id::new("typed-measurement-menu");
+    egui::Popup::open_id(&ctx, popup);
+    for pixel in [[-1., 0.], [1., 1.], [3., 3.]] {
+        annotations.point_input.request = Some(pixel);
+        assert!(annotations.capture().is_err());
+        assert!(annotations.outlines(&image, &view).is_err());
+        assert!(annotations.source_outlines().is_err());
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let (_, response) =
+                ui.allocate_exact_size(egui::vec2(400., 400.), egui::Sense::click_and_drag());
+            annotations.show(ui, &response, &image, &view, Tool::EllipseRoi);
+        });
+        output.textures_delta.clear();
+        assert!(annotations.point_input.request.is_none());
+        if pixel[0] < 0. {
+            assert!(annotations.pending.is_empty());
+            assert!(
+                annotations
+                    .draft_error
+                    .as_ref()
+                    .unwrap()
+                    .contains("valid image sample")
+            );
+        }
+    }
+    assert!(annotations.marks.is_empty());
+    assert!(annotations.candidate.is_some());
+    wait(&mut annotations);
+    annotations.finish_candidate();
+    assert_eq!(annotations.marks.len(), 1);
+    assert_eq!(annotations.marks[0].points, vec![[1., 1.], [3., 3.]]);
+    assert!(annotations.marks[0].label.starts_with("Ellipse ROI · n=5"));
+    assert!(annotations.marks[0].label.contains("18.85 mm² shape"));
+    assert_eq!(Arc::strong_count(&image), 1);
+    annotations.point_input.request = Some([2., 2.]);
+    annotations.bind_image(&image, &ViewState { slice: 1, ..view });
+    assert!(
+        annotations.point_input.request.is_none(),
+        "A changed source clears queued input"
+    );
+    egui::Popup::close_all(&ctx);
+}
+
+#[test]
+fn typed_region_completion_restores_add_focus_without_stealing_another_controls_focus() {
+    fn render(
+        ctx: &egui::Context,
+        annotations: &mut Annotations,
+        events: Vec<egui::Event>,
+    ) -> egui::accesskit::TreeUpdate {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events,
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(800., 700.))),
+                ..Default::default()
+            },
+            |ui| {
+                annotations.point_controls(ui);
+                let _ = ui.button("Other control");
+            },
+        );
+        output.textures_delta.clear();
+        output.platform_output.accesskit_update.take().unwrap()
+    }
+    fn focus(target_node: egui::accesskit::NodeId) -> egui::Event {
+        egui::Event::AccessKitActionRequest(egui::accesskit::ActionRequest {
+            action: egui::accesskit::Action::Focus,
+            target_tree: egui::accesskit::TreeId::ROOT,
+            target_node,
+            data: None,
+        })
+    }
+    for move_focus in [false, true] {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let image = image();
+        let mut annotations = draft(&image, Tool::EllipseRoi, vec![[1., 1.]]);
+        annotations.point_input.coordinates = [4., 4.];
+        let tree = render(&ctx, &mut annotations, vec![]);
+        let node = |name: &str| {
+            tree.nodes
+                .iter()
+                .find_map(|(id, node)| {
+                    (node.role() == egui::accesskit::Role::Button && node.label() == Some(name))
+                        .then_some(*id)
+                })
+                .unwrap()
+        };
+        let add = node("Add point to measurement");
+        let other = node("Other control");
+        render(&ctx, &mut annotations, vec![focus(add)]);
+        render(&ctx, &mut annotations, vec![key(egui::Key::Enter)]);
+        let pixel = annotations.point_input.request.take().unwrap();
+        annotations.add_point(pixel, &image, &ViewState::default(), Tool::EllipseRoi, &ctx);
+        assert!(annotations.candidate.is_some());
+        let disabled = render(&ctx, &mut annotations, vec![]);
+        assert_ne!(disabled.focus, add);
+        if move_focus {
+            render(&ctx, &mut annotations, vec![focus(other)]);
+        }
+        wait(&mut annotations);
+        annotations.finish_candidate();
+        let completed = render(&ctx, &mut annotations, vec![]);
+        assert_eq!(annotations.marks.len(), 1);
+        assert_eq!(completed.focus, if move_focus { other } else { add });
+        assert!(annotations.point_input.focus_after_calculation.is_none());
+    }
+}

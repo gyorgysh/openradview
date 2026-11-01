@@ -4,6 +4,20 @@ use super::*;
 #[cfg(test)]
 #[path = "creation_tests.rs"]
 mod tests;
+pub(super) struct PointInput {
+    coordinates: [f64; 2],
+    pub(super) request: Option<[f64; 2]>,
+    focus_after_calculation: Option<egui::Id>,
+}
+impl Default for PointInput {
+    fn default() -> Self {
+        Self {
+            coordinates: [1.; 2],
+            request: None,
+            focus_after_calculation: None,
+        }
+    }
+}
 impl Annotations {
     pub(crate) fn cancel_interaction(&mut self, ctx: &egui::Context) {
         self.cancel_draft();
@@ -17,6 +31,8 @@ impl Annotations {
             self.calculation.cancel_for(candidate.id);
         }
         self.pending.clear();
+        self.point_input.request = None;
+        self.point_input.focus_after_calculation = None;
         self.draft_error = None;
         self.finish_requested = false;
     }
@@ -157,6 +173,116 @@ impl Annotations {
             }
         }
     }
+    pub(super) fn point_controls(&mut self, ui: &mut egui::Ui) {
+        let Some(tool) = self
+            .active_tool
+            .filter(|tool| tool.measures() && *tool != Tool::EditMarks)
+        else {
+            return;
+        };
+        let Some(key) = &self.image else { return };
+        if key.slab.is_some() || key.size.contains(&0) {
+            return;
+        }
+        let size = key.size;
+        ui.add_enabled_ui(
+            self.candidate.is_none() && !self.calculation.is_busy() && self.marks.len() < MAX_MARKS,
+            |ui| {
+                ui.label("Add a measurement point · image coordinates, numbered from 1");
+                crate::toolbar::number(
+                    ui,
+                    "Point column",
+                    egui::DragValue::new(&mut self.point_input.coordinates[0])
+                        .range(1.0..=f64::from(size[0]))
+                        .max_decimals(3),
+                );
+                crate::toolbar::number(
+                    ui,
+                    "Point row",
+                    egui::DragValue::new(&mut self.point_input.coordinates[1])
+                        .range(1.0..=f64::from(size[1]))
+                        .max_decimals(3),
+                );
+                let add = ui.button("Add point to measurement");
+                if add.clicked() {
+                    self.point_input.request =
+                        Some(self.point_input.coordinates.map(|value| value - 1.));
+                    self.point_input.focus_after_calculation = add.has_focus().then_some(add.id);
+                } else if let Some(origin) = self.point_input.focus_after_calculation {
+                    let focused = ui.memory(|memory| memory.focused());
+                    if origin != add.id || focused.is_some_and(|id| id != origin) {
+                        self.point_input.focus_after_calculation = None;
+                    } else if ui.is_enabled() && self.point_input.request.is_none() {
+                        // Worker validation temporarily disables the control. Restore
+                        // its keyboard origin only if no other control took focus.
+                        if focused.is_none() {
+                            add.request_focus();
+                        }
+                        self.point_input.focus_after_calculation = None;
+                    }
+                }
+                ui.weak(if tool == Tool::PolygonRoi {
+                    "Add at least 3 vertices, then Finish polygon."
+                } else if tool == Tool::Angle {
+                    "Endpoint, vertex, endpoint · 3 points."
+                } else {
+                    "Add 2 points; the completed result appears below."
+                });
+                if ui
+                    .add_enabled(
+                        !self.pending.is_empty(),
+                        egui::Button::new("Remove last draft point"),
+                    )
+                    .clicked()
+                {
+                    self.pending.pop();
+                    self.draft_error = None;
+                    if self.pending.is_empty() {
+                        add.request_focus();
+                    }
+                    ui.ctx().request_repaint();
+                }
+            },
+        );
+        if let Some(error) = &self.draft_error {
+            ui.label(error);
+        }
+    }
+    fn add_point(
+        &mut self,
+        pixel: [f64; 2],
+        image: &Arc<Frame>,
+        view: &ViewState,
+        tool: Tool,
+        ctx: &egui::Context,
+    ) {
+        ctx.request_repaint();
+        if !sampled_point(image, pixel) {
+            self.draft_error = Some("The point is outside a valid image sample".into());
+            return;
+        }
+        if let Err(error) = self.prepare_storage(tool) {
+            self.draft_error = Some(error);
+            return;
+        }
+        if tool != Tool::PolygonRoi && self.pending.len() >= if tool == Tool::Angle { 3 } else { 2 }
+        {
+            self.pending.pop();
+        }
+        if self.point_count() >= MAX_POINTS
+            || tool == Tool::PolygonRoi && self.pending.len() >= measurements::MAX_POLYGON_VERTICES
+        {
+            self.draft_error = Some("The region or collection point allowance is full".into());
+        } else {
+            self.pending.push(pixel);
+            self.draft_error = None;
+            if tool != Tool::PolygonRoi
+                && self.pending.len() == if tool == Tool::Angle { 3 } else { 2 }
+            {
+                self.complete_draft(image, view, tool, ctx);
+            }
+        }
+    }
     pub(super) fn handle_creation(
         &mut self,
         ui: &egui::Ui,
@@ -194,42 +320,29 @@ impl Annotations {
             return;
         }
         self.finish_candidate();
+        let typed_point = self.point_input.request.take();
+        let pointer_point = (!egui::Popup::is_any_open(ui.ctx())
+            && !crate::viewport::navigation_override(ui, response)
+            && response.clicked_by(egui::PointerButton::Primary))
+        .then(|| {
+            response
+                .interact_pointer_pos()
+                .and_then(|position| pixel_at(response.rect, image, view, position))
+        })
+        .flatten();
         if tool.measures()
+            && tool != Tool::EditMarks
             && self.marks.len() < MAX_MARKS
             && self.candidate.is_none()
             && (!tool.roi() || !self.calculation.is_busy())
-            && !egui::Popup::is_any_open(ui.ctx())
-            && !crate::viewport::navigation_override(ui, response)
-            && response.clicked_by(egui::PointerButton::Primary)
-            && let Some(position) = response.interact_pointer_pos()
-            && let Some(pixel) = pixel_at(response.rect, image, view, position)
-            && sampled_point(image, pixel)
+            && let Some(pixel) = typed_point.or(pointer_point)
         {
-            if let Err(error) = self.prepare_storage(tool) {
-                self.draft_error = Some(error);
-                return;
-            }
-            if tool != Tool::PolygonRoi
-                && self.pending.len() >= if tool == Tool::Angle { 3 } else { 2 }
+            self.add_point(pixel, image, view, tool, ui.ctx());
+            if typed_point.is_none()
+                && matches!(tool, Tool::EllipseRoi | Tool::PolygonRoi)
+                && !self.pending.is_empty()
             {
-                self.pending.pop();
-            }
-            if self.point_count() >= MAX_POINTS
-                || tool == Tool::PolygonRoi
-                    && self.pending.len() >= measurements::MAX_POLYGON_VERTICES
-            {
-                self.draft_error = Some("The region or collection point allowance is full".into());
-            } else {
-                self.pending.push(pixel);
-                self.draft_error = None;
-                if matches!(tool, Tool::EllipseRoi | Tool::PolygonRoi) {
-                    response.request_focus();
-                }
-                if tool != Tool::PolygonRoi
-                    && self.pending.len() == if tool == Tool::Angle { 3 } else { 2 }
-                {
-                    self.complete_draft(image, view, tool, ui.ctx());
-                }
+                response.request_focus();
             }
         }
         if self.finish_requested && self.candidate.is_none() && !self.calculation.is_busy() {

@@ -43,7 +43,11 @@ impl MprSession {
         theme::eyebrow(&mut ui, &heading);
         let size = Vec2::new(ui.available_width(), (ui.available_height() - 32.).max(30.));
         let (_, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
-        if response.hovered() {
+        if response.hovered()
+            && ui.input(|input| {
+                input.pointer.delta() != egui::Vec2::ZERO || input.pointer.any_pressed()
+            })
+        {
             self.active = index;
         }
         let [min, max] = snapshot.volume.bounds();
@@ -57,15 +61,13 @@ impl MprSession {
             .clamp(0., (count - 1) as f64) as u32;
         self.views[index].slice = initial;
         self.views[index].window = self.window;
-        if ui.is_enabled() && self.active == index && !ui.ctx().egui_wants_keyboard_input() {
-            ui.input(|i| {
-                if i.key_pressed(egui::Key::ArrowDown) {
-                    self.views[index].slice = (initial + 1).min(count - 1);
-                }
-                if i.key_pressed(egui::Key::ArrowUp) {
-                    self.views[index].slice = initial.saturating_sub(1);
-                }
-            });
+        if self.active == index {
+            if crate::actions::pressed(&ui, crate::actions::Action::Next) {
+                self.views[index].slice = initial.saturating_add(1).min(count - 1);
+            }
+            if crate::actions::pressed(&ui, crate::actions::Action::Previous) {
+                self.views[index].slice = initial.saturating_sub(1);
+            }
         }
         viewport::interact(
             &mut ui,

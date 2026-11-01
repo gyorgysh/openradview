@@ -190,7 +190,10 @@ fn adjust_contrast(window: &mut orv_core::WindowLevel, delta: egui::Vec2) {
 }
 
 pub fn navigation_override(ui: &egui::Ui, response: &egui::Response) -> bool {
-    ui.input(|i| i.key_down(egui::Key::Space))
+    (ui.is_enabled()
+        && !egui::Popup::is_any_open(ui.ctx())
+        && (response.has_focus() || !ui.ctx().egui_wants_keyboard_input())
+        && ui.input(|i| i.key_down(egui::Key::Space)))
         || response.dragged_by(egui::PointerButton::Secondary)
         || response.dragged_by(egui::PointerButton::Middle)
 }

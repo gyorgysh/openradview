@@ -11,12 +11,14 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
             ui.heading("Using OpenRadView");
             ui.label("Personal education and research only. Not for diagnosis or clinical decisions.");
             licenses = ui.button("Third-party licenses…").clicked();
+            egui::CollapsingHeader::new("Offline controls guide").show(ui, crate::guide::show);
+            ui.label("Shortcuts in the top bar offers searchable actions and saved single-letter bindings. Tool keys are suppressed while a control or text field has focus or a menu/dialog is open. Click the image to leave a field. Tab and Shift+Tab move between controls; Enter or Space activates buttons.");
             egui::CollapsingHeader::new("Move, zoom and browse images")
                 .default_open(true).show(ui, |ui| {
-                    ui.label("Pan [P] is the starting tool: drag or scroll to move the image. Hold Space while dragging to move temporarily from any 2D tool. Right or middle drag also moves.");
-                    ui.label("Zoom [Z]: drag up/down or scroll to zoom. Pinch or Cmd/Ctrl-scroll zooms in every tool and never also changes the image number.");
-                    ui.label("Images [S]: scroll or drag to browse slices. The image slider and ↑↓ keys work too. Crosshair mode in linked MPR also scrolls through planes.");
-                    ui.label("Contrast [W]: drag to adjust brightness/contrast (window/level). Presets are starting points. Reset display restores the original image window and removes inversion; Fit [R] centres the image and resets zoom separately.");
+                    ui.label(format!("{} is the starting tool: drag or scroll to move the image. Hold Space while dragging to move temporarily from any 2D tool. Right or middle drag also moves.", crate::actions::label(ctx, crate::actions::Action::Pan)));
+                    ui.label(format!("{}: drag up/down or scroll to zoom. Pinch or Cmd/Ctrl-scroll zooms in every tool and never also changes the image number.", crate::actions::label(ctx, crate::actions::Action::Zoom)));
+                    ui.label(format!("{}: scroll or drag to browse slices. The image slider and ↑↓ keys work too. Crosshair mode in linked MPR also scrolls through planes.", crate::actions::label(ctx, crate::actions::Action::Browse)));
+                    ui.label(format!("{}: drag to adjust brightness/contrast (window/level). Presets are starting points. Reset display restores the original image window and removes inversion; Fit centres the image and resets zoom separately.", crate::actions::label(ctx, crate::actions::Action::Contrast)));
                 });
             egui::CollapsingHeader::new("Play images and save a picture").show(ui, |ui| {
                 ui.label("Play browses the current 2D series at your requested speed (1–30 fps). Slower decoding reduces playback speed; images are not skipped. This does not reproduce acquisition timing. Playback stops at the end unless Loop is checked. Pause or Escape stops it; navigation, other views, dialogs and leaving the app also pause.");
@@ -26,7 +28,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 ui.label("The PNG may contain identifying text already in the pixels. The settings contain geometry and source fingerprints, without paths or patient tags. Review both files before sharing. No export is saved or shared automatically.");
             });
             egui::CollapsingHeader::new("Measurements and regions").show(ui, |ui| {
-                ui.label("Measure chooses Distance, Angle, Rectangle ROI, Ellipse ROI or Polygon ROI. Rectangle and ellipse use two opposite corners. Click polygon vertices, then Enter or Measurements… → Finish polygon. Backspace removes the last draft point; Escape cancels. Changing image, plane, mode or tool cancels the draft.");
+                ui.label("Measurements… also accepts typed Point column/row coordinates and Add point to measurement. Measure chooses Distance, Angle, Rectangle ROI, Ellipse ROI or Polygon ROI. Rectangle and ellipse use two opposite corners. Click polygon vertices, then Enter or Measurements… → Finish polygon. Backspace removes the last draft point; Escape cancels. Changing image, plane, mode or tool cancels the draft.");
                 ui.label("ROI statistics count valid pixel centres inside the boundary. Sampled area counts valid cells; shape area describes the continuous outline, so the two can differ. Physical values need valid geometry. RGB statistics retain their declared code domain. Slab projections cannot be measured; reformats must finish updating first.");
                 ui.label("Measure → Edit measurements selects or drags a vertex. Measurements… also offers a vertex selector and 1-based source column/row with Apply vertex coordinates. The original stays intact until the change validates; Escape, navigation override or a changed context cancels it. Undo/redo keeps up to 16 geometry edits in memory. Deleting or clearing marks clears that edit history. Apply or cancel coordinate changes before saving.");
                 ui.label("Measurements… selects, deletes or clears current-plane marks. Each collection holds 128 marks and 4096 points, with 3–256 vertices per simple polygon and no holes or crossing edges. Marks stay in memory; an explicit comparison save can restore editable source-image marks. New shapes use comparison version 2; earlier files remain readable. Image-only exports and agent snapshots omit marks.");
@@ -50,6 +52,10 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 ui.label("Supplied masks: select the loaded DICOM source series, open Labels… → Supplied masks, then Load matching DICOM masks…. The read-only subset accepts native little-endian BINARY SEG with matching source image/frame references and plane geometry. It preserves separate overlapping segments and sparse supplied-plane coverage.");
                 ui.label("Numeric ID visibility, fill/outline/hatching and overlap crosshatching work on source and thin MPR/oblique planes. Counts include stored positives on missing samples; omitted planes are unknown, not supplied empty masks. Segment volumes overlap, so do not add them.");
                 ui.label("Only the selected mask group is displayed. Manual labels keep their separate edits and undo. Closing the source releases both groups; slabs, 3D and agent snapshots exclude masks.");
+            });
+            egui::CollapsingHeader::new("Local comparison reference lines").show(ui, |ui| {
+                ui.label("In local comparison, Reference lines starts off. Enable it to see dashed intersections of the other pane's declared thin plane within both image footprints. Both images and display settings must finish updating first. Parallel/coplanar planes and nonoverlapping footprints have no unique visible line. Unknown or different spatial references are refused; alignment is not guessed and no registration is performed.");
+                ui.label("Lines follow each pane's rotation, flips, zoom and pan. Status explains an unavailable or offscreen intersection. Reference lines are local display aids; picture/illustration exports and agent snapshots omit them.");
             });
             egui::CollapsingHeader::new("What are MPR and 3D / MIP?").show(ui, |ui| {
                 ui.label("Linked MPR shows axial, coronal and sagittal cuts through the same stack after geometry checks. Crosshair selects one shared physical point. The previous complete image stays visible while a new set is calculated.");
@@ -85,6 +91,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
                 ui.label(crate::copy::AGENT_PRIVACY);
             });
             ui.add_space(12.);
+            crate::dialogs::reveal_focus(ui);
         });
     licenses
 }

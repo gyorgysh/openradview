@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Temporary local two-series viewing. Agent composition deliberately stays separate.
 mod navigation;
+mod reference_ui;
 mod saved;
 #[cfg(test)]
 mod tests;
@@ -137,36 +138,23 @@ impl Pane {
                 );
             }
         }
-        if ui.is_enabled() && !ui.ctx().egui_wants_keyboard_input() {
-            ui.input(|input| {
-                if input.key_pressed(egui::Key::ArrowDown) {
-                    self.view.slice = self
-                        .view
-                        .slice
-                        .saturating_add(1)
-                        .min(self.source.frame_count().saturating_sub(1) as u32);
-                }
-                if input.key_pressed(egui::Key::ArrowUp) {
-                    self.view.slice = self.view.slice.saturating_sub(1);
-                }
-                for (key, tool) in [
-                    (egui::Key::P, Tool::Pan),
-                    (egui::Key::Z, Tool::Zoom),
-                    (egui::Key::S, Tool::Browse),
-                    (egui::Key::W, Tool::Window),
-                ] {
-                    if input.key_pressed(key) && (!color || tool != Tool::Window) {
-                        self.tool = tool;
-                    }
-                }
-                if input.key_pressed(egui::Key::R) {
-                    self.view.pan = [0.; 2];
-                    self.view.zoom = 1.;
-                }
-                if input.key_pressed(egui::Key::I) {
-                    self.view.invert = !self.view.invert;
-                }
-            });
+        crate::actions::tool_input(ui, &mut self.tool, !color, false, true);
+        if crate::actions::pressed(ui, crate::actions::Action::Next) {
+            self.view.slice = self
+                .view
+                .slice
+                .saturating_add(1)
+                .min(self.source.frame_count().saturating_sub(1) as u32);
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Previous) {
+            self.view.slice = self.view.slice.saturating_sub(1);
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Fit) {
+            self.view.pan = [0.; 2];
+            self.view.zoom = 1.;
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Invert) {
+            self.view.invert = !self.view.invert;
         }
     }
     fn canvas(
@@ -176,7 +164,9 @@ impl Pane {
         pane: usize,
         size: egui::Vec2,
         active: bool,
-    ) -> bool {
+        reference_lines: bool,
+    ) -> (bool, Option<reference_ui::Target>) {
+        let mut reference = None;
         ui.add(
             egui::Label::new(format!(
                 "{} · {}",
@@ -210,6 +200,14 @@ impl Pane {
                 rect.size() * ui.ctx().pixels_per_point(),
             ));
             viewport::draw(ui, frame, rect, image.clone(), &view, 8 + pane, "");
+            if reference_lines && !pending {
+                reference = Some(reference_ui::Target::reserve(
+                    ui,
+                    rect,
+                    image.clone(),
+                    view.clone(),
+                ));
+            }
             crate::image_overlay::draw(ui, &response, image, &view);
             if !pending {
                 self.annotations
@@ -236,17 +234,11 @@ impl Pane {
                 theme::PAPER,
             );
         }
-        let slider = ui.add(
-            egui::Slider::new(
-                &mut self.view.slice,
-                0..=self.source.frame_count().saturating_sub(1) as u32,
-            )
-            .text("Image")
-            .custom_formatter(|value, _| {
-                format!("{} / {}", value as u32 + 1, self.source.frame_count())
-            }),
-        );
-        interacted || slider.dragged() || slider.changed()
+        let slider = controls::image_number(ui, &mut self.view.slice, self.source.frame_count());
+        (
+            interacted || slider.dragged() || slider.changed(),
+            reference,
+        )
     }
     fn picture(&self) -> Option<(ViewSpec, Arc<Frame>, [u32; 2])> {
         let (index, image) = self.image.as_ref()?;
@@ -271,6 +263,8 @@ pub(crate) struct ComparisonSession {
     panes: [Pane; 2],
     active: usize,
     linked: bool,
+    reference_lines: bool,
+    reference_status: reference_ui::Status,
     notice: Option<&'static str>,
     file_task: Option<saved::Task>,
     file_notice: Option<&'static str>,
@@ -304,6 +298,8 @@ impl ComparisonSession {
             ],
             active: 0,
             linked: false,
+            reference_lines: false,
+            reference_status: reference_ui::Status::Off,
             notice: None,
             file_task: None,
             file_notice: None,
@@ -346,6 +342,11 @@ impl ComparisonSession {
         self.saved_views = None;
         self.active = 1;
         self.linked = false;
+        self.reference_status = if self.reference_lines {
+            reference_ui::Status::Pending
+        } else {
+            reference_ui::Status::Off
+        };
         self.notice = None;
         self.file_notice = None;
         true
@@ -364,6 +365,11 @@ impl ComparisonSession {
             self.composition_dirty |= self.saved_views.is_some();
             self.saved_views = None;
             self.linked = false;
+            self.reference_status = if self.reference_lines {
+                reference_ui::Status::Pending
+            } else {
+                reference_ui::Status::Off
+            };
             self.notice = None;
             self.file_notice = None;
             return true;
@@ -479,6 +485,11 @@ impl ComparisonSession {
                     self.saved_views = Some(self.panes.each_ref().map(|pane| pane.view.clone()));
                     self.composition_dirty = false;
                     self.linked = false;
+                    self.reference_status = if self.reference_lines {
+                        reference_ui::Status::Pending
+                    } else {
+                        reference_ui::Status::Off
+                    };
                     self.notice = None;
                     self.file_notice = Some("Comparison restored after verifying both sources.");
                 }
@@ -565,7 +576,14 @@ impl ComparisonSession {
             let compatible = self.compatible();
             if ui.add_enabled(compatible, egui::Checkbox::new(&mut self.linked, "Link physical slices")).on_hover_text("Requires regular parallel planes in the same declared spatial reference. Uses physical image centers; does not register anatomy or link contrast/pan/zoom.").changed() && self.linked { self.synchronize(self.active); }
         });
+        ui.horizontal_wrapped(|ui| {
+            let response = ui.checkbox(&mut self.reference_lines, "Reference lines")
+                .on_hover_text("Finite intersections of both declared thin-image footprints; no registration. Image exports and snapshots omit these lines.");
+            ui.ctx().accesskit_node_builder(response.id, |node| node.set_description(self.reference_status.text()));
+            if response.changed() { self.reference_status = if self.reference_lines { reference_ui::Status::Pending } else { reference_ui::Status::Off }; }
+        });
         self.link_status(ui);
+        reference_ui::status(ui, self.reference_status);
         let before = self.panes.each_ref().map(|pane| pane.view.slice);
         controls::display_panel(ui, "comparison-display-controls", |ui| {
             ui.push_id("comparison-controls", |ui| {
@@ -586,15 +604,25 @@ impl ComparisonSession {
             egui::Layout::left_to_right(egui::Align::Min)
         };
         let mut interacted = None;
+        let mut reference_targets = [None, None];
         ui.with_layout(layout, |ui| {
-            for index in 0..2 {
+            for (index, target) in reference_targets.iter_mut().enumerate() {
                 let active = self.active == index;
                 ui.push_id(index, |ui| {
                     ui.allocate_ui_with_layout(
                         pane_size,
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
-                            if self.panes[index].canvas(ui, frame, index, pane_size, active) {
+                            let (changed, reference) = self.panes[index].canvas(
+                                ui,
+                                frame,
+                                index,
+                                pane_size,
+                                active,
+                                self.reference_lines,
+                            );
+                            *target = reference;
+                            if changed {
                                 interacted = Some(index);
                             }
                         },
@@ -614,6 +642,22 @@ impl ComparisonSession {
             && let Some(index) = changed
         {
             self.synchronize(index);
+        }
+        let status = if self.reference_lines {
+            reference_ui::paint_pair(
+                reference_targets.each_ref().map(Option::as_ref),
+                self.panes.each_ref().map(|pane| {
+                    pane.image
+                        .as_ref()
+                        .map(|(index, image)| (*index, image, &pane.view))
+                }),
+            )
+        } else {
+            reference_ui::Status::Off
+        };
+        if status != self.reference_status {
+            self.reference_status = status;
+            ui.ctx().request_repaint();
         }
         for pane in &mut self.panes {
             pane.worker.request(pane.view.slice as usize);

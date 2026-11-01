@@ -283,6 +283,20 @@ RAM admission; comparison does not materialize two volumes. The active pane owns
 tools, contrast and single-picture export. Click/drag/scroll or the pane buttons
 activate it; passive hover does not change its tools.
 
+Optional reference lines use only matching completed frame/view pairs. Core clips
+thin-plane intersections to both declared image footprints and rejects unknown or
+different private references/NIfTI contexts. Parallel/coplanar cases are explicit.
+The UI reserves paint slots beneath other canvas overlays, checks both frame Arcs
+and views after input/linking, then fills only coherent slots. Screen clipping
+bounds each dashed line to 128 dashes. State stays in RAM; image exports, snapshots
+and comparison-file schemas omit reference lines.
+
+Core physical display helpers describe a borrowed source centre and vertical field
+of view in millimetres. Pan-only keeps target zoom; zoom-only keeps its physical
+centre. Candidates preserve other view fields and reject reference, orientation
+or range mismatches. Scalar-window compatibility additionally requires known
+units, matching scalar representation/mapping and lookup-table identities.
+
 Entering comparison revokes live and frozen grants, cancels review/shared work and
 removes agent composition. Dual-pane content is never published through MCP.
 Leaving comparison returns to its active series and requires fresh Allow to share.
@@ -378,3 +392,24 @@ unsaved labels. [Release process](github-release.md)
 Native codec and patched windowing sources, licenses and file inventories are committed under
 `vendor/`. Packagers verify them and include the receipts and third-party notices
 with binaries. No codec/model download occurs in the installed app.
+
+## Local actions and keyboard settings
+
+The desktop action table owns default tool keys, dispatch and the active labels
+used by controls and Help. Remapping permits unmodified A–Z or no binding;
+duplicate assignments are rejected. Focused controls, open menus and auxiliary
+workspace dialogs retain their input. Temporary Space navigation also respects
+canvas ownership, so activating a menu button cannot cancel a coordinate edit.
+
+A sleeping worker loads and atomically replaces a bounded `controls.json` in the
+per-user application settings folder. Its versioned schema stores only the tool
+bindings. It contains no source paths, study history, images, labels or view state.
+The active bindings change after a successful save; a failure keeps the old set.
+No default file is created just by opening the viewer.
+
+Typed measurement points pass through the same current-image bounds, admitted
+coordinate budget, validation worker and canvas acceptance as pointer input.
+Changing image or tool clears queued point input. Explicit MPR plane selection
+and typed physical coordinates reuse the existing shared point/generation model.
+The bundled controls guide has finite manually advanced steps and no loading,
+networking or automatic source navigation.

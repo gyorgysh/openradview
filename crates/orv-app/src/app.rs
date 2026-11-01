@@ -11,6 +11,7 @@ pub struct OpenRadView {
     wordmark: Option<egui::TextureHandle>,
     privacy_open: bool,
     help_open: bool,
+    preferences: crate::preferences::Preferences,
     licenses: crate::licenses::Licenses,
     pub(super) workspace: crate::workspace::Workspace,
     #[cfg(feature = "updates")]
@@ -34,6 +35,7 @@ impl OpenRadView {
             wordmark: brand::texture(&cc.egui_ctx, brand::WORDMARK),
             privacy_open: false,
             help_open: false,
+            preferences: crate::preferences::Preferences::new(),
             licenses: Default::default(),
             workspace: Default::default(),
             #[cfg(feature = "updates")]
@@ -149,7 +151,9 @@ impl eframe::App for OpenRadView {
         #[cfg(feature = "qa")]
         let measured_start = Instant::now();
         let ctx = ui.ctx().clone();
-        let external_dialog_was_open = self.help_open || self.privacy_open || self.licenses.open;
+        self.preferences.poll(&ctx);
+        let external_dialog_was_open =
+            self.help_open || self.privacy_open || self.licenses.open || self.preferences.open;
         #[cfg(feature = "updates")]
         {
             if ctx.input(|i| i.viewport().close_requested())
@@ -227,6 +231,15 @@ impl eframe::App for OpenRadView {
                         if ui.button("Privacy").clicked() {
                             self.privacy_open = true;
                         }
+                        if self.accepted {
+                            let shortcuts = ui
+                                .push_id("open-shortcuts", |ui| ui.button("Shortcuts"))
+                                .inner;
+                            if shortcuts.clicked() {
+                                shortcuts.request_focus();
+                                self.preferences.open(&ctx);
+                            }
+                        }
                         if ui.button("Help").clicked() {
                             self.help_open = true;
                         }
@@ -247,7 +260,11 @@ impl eframe::App for OpenRadView {
                 ui.add_space(12.0);
                 ui.separator();
                 let height = (ui.available_height() - 40.0).max(0.0);
-                if self.help_open || self.privacy_open || self.licenses.open {
+                if self.help_open
+                    || self.privacy_open
+                    || self.licenses.open
+                    || self.preferences.open
+                {
                     self.workspace.pause_playback();
                 }
                 ui.allocate_ui(Vec2::new(ui.available_width(), height), |ui| {
@@ -257,7 +274,10 @@ impl eframe::App for OpenRadView {
                             frame,
                             self.started.elapsed().as_secs_f32(),
                             self.reduce_motion,
-                            self.help_open || self.privacy_open || self.licenses.open,
+                            self.help_open
+                                || self.privacy_open
+                                || self.licenses.open
+                                || self.preferences.open,
                         );
                     } else {
                         let viewport_height = ui.available_height();
@@ -285,6 +305,7 @@ impl eframe::App for OpenRadView {
                     });
                 });
             });
+        self.preferences.show(&ctx);
         if crate::help::show(&ctx, &mut self.help_open) {
             self.help_open = false;
             self.licenses.open = true;
@@ -312,7 +333,8 @@ impl eframe::App for OpenRadView {
                 ui.add_space(12.);
             });
         self.privacy_open = privacy_open;
-        if external_dialog_was_open && !(self.help_open || self.privacy_open || self.licenses.open)
+        if external_dialog_was_open
+            && !(self.help_open || self.privacy_open || self.licenses.open || self.preferences.open)
         {
             ctx.request_repaint();
         }

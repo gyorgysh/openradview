@@ -172,30 +172,21 @@ impl MprSession {
         if color && self.tool == Tool::Window {
             self.tool = Tool::Pan;
         }
-        if ui.is_enabled() && !ui.ctx().egui_wants_keyboard_input() {
-            ui.input(|i| {
-                if !color && i.key_pressed(egui::Key::W) {
-                    self.tool = Tool::Window;
-                }
-                if i.key_pressed(egui::Key::P) {
-                    self.tool = Tool::Pan;
-                }
-                if i.key_pressed(egui::Key::Z) {
-                    self.tool = Tool::Zoom;
-                }
-                if i.key_pressed(egui::Key::S) {
-                    self.tool = Tool::Browse;
-                }
-                if i.key_pressed(egui::Key::I) {
-                    self.invert = !self.invert;
-                }
-                if i.key_pressed(egui::Key::R) {
-                    for view in &mut self.views {
-                        view.zoom = 1.;
-                        view.pan = [0.; 2];
-                    }
-                }
-            });
+        crate::actions::tool_input(
+            ui,
+            &mut self.tool,
+            !color,
+            true,
+            snapshot.images[0].slab.is_none() && self.slab.is_none(),
+        );
+        if crate::actions::pressed(ui, crate::actions::Action::Invert) {
+            self.invert = !self.invert;
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Fit) {
+            for view in &mut self.views {
+                view.zoom = 1.;
+                view.pan = [0.; 2];
+            }
         }
         crate::view_context::show(ui, &snapshot.volume.frames()[0]);
         for (index, image) in snapshot.images.iter().enumerate() {
@@ -205,6 +196,30 @@ impl MprSession {
             self.tool = Tool::Pan;
         }
         controls::display_panel(ui, "mpr-display-controls", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let label = ui.label("Active MPR plane");
+                let active = self.active_index();
+                ui.add_enabled_ui(matches!(self.layout, Layout::Grid | Layout::Columns), |ui| {
+                    egui::ComboBox::from_id_salt("active-mpr-plane")
+                        .selected_text(["Axial", "Coronal", "Sagittal"][active])
+                        .show_ui(ui, |ui| {
+                            for (index, name) in ["Axial", "Coronal", "Sagittal"].into_iter().enumerate() {
+                                if ui.selectable_value(&mut self.active, index, name).clicked() { ui.close(); }
+                            }
+                        }).response.labelled_by(label.id);
+                });
+                egui::CollapsingHeader::new("Point coordinates").show(ui, |ui| {
+                    let [min, max] = snapshot.volume.bounds();
+                    let mut point = self.target.unwrap_or(snapshot.point);
+                    let previous = point;
+                    for (axis, name) in ["L (mm)", "P (mm)", "S (mm)"].into_iter().enumerate() {
+                        crate::toolbar::number(ui, name, egui::DragValue::new(&mut point[axis])
+                            .range(min[axis]..=max[axis]).max_decimals(3).speed(snapshot.volume.step_mm()));
+                    }
+                    ui.weak("Source LPS coordinates: left, posterior, superior. No body landmark is inferred.");
+                    if point != previous { self.request(&snapshot.volume, point); }
+                });
+            });
             let active = self.active_index();
             if controls::tools_with_measurements(
                 ui,
@@ -354,7 +369,9 @@ impl MprSession {
             snapshot.point[0], snapshot.point[1], snapshot.point[2]
         )).on_hover_text("Coordinates in the source LPS reference, in millimetres: left, posterior, superior. Negative values are valid and depend on the source origin; these are not distances from a body landmark.");
         ui.add_space(8.);
-        ui.label("Crosshair: choose the same point in all views. Images [S] or ↑↓: move a plane. Pan [P] or Space drag: move the image.");
+        ui.label(format!("Crosshair: choose the same point in all views. {} or ↑↓: move a plane. {} or Space drag: move the image.",
+            crate::actions::label(ui.ctx(), crate::actions::Action::Browse),
+            crate::actions::label(ui.ctx(), crate::actions::Action::Pan)));
         controls::navigation_hint(ui, self.tool);
         ui.label(RichText::new("Measurements on resampled images may differ from the source images. ROI values follow the selected scalar or RGB representation.").small().color(theme::SILVER));
         let [x, y, z] = snapshot.volume.dimensions();

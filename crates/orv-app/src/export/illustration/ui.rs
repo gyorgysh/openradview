@@ -186,9 +186,12 @@ impl Controller {
                     let scale = (ui.available_width() / size.x).min(280. / size.y).min(1.);
                     ui.image((texture.id(), size * scale));
                     ui.weak("The saved PNG uses these exact rendered bytes. This preview may be scaled to fit.");
-                    if self.saving.is_none() && ui.button("Save reviewed illustration…").clicked() {
-                        self.saving = Some(save::start(artifact.clone(), ctx.clone()));
-                        self.notice = None;
+                    if self.saving.is_none() {
+                        let save = ui.button("Save reviewed illustration…");
+                        if save.clicked() {
+                            self.saving = Some(save::start(artifact.clone(), ctx.clone()));
+                            self.notice = None;
+                        }
                     }
                 }
                 if let Some(task) = &self.saving {
@@ -197,6 +200,7 @@ impl Controller {
                     ui.weak("A cancellation received after both files finish leaves the completed export in place.");
                 }
                 if let Some(notice) = &self.notice { ui.label(notice); }
+                crate::dialogs::reveal_focus(ui);
             });
         if !open {
             *self = Self::default();

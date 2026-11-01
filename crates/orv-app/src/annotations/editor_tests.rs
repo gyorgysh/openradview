@@ -424,3 +424,128 @@ fn clicking_near_a_handle_does_not_edit_and_a_drag_keeps_the_grab_offset_or_roll
         }
     }
 }
+
+#[test]
+fn keyboard_history_transfers_accessible_focus_when_its_button_becomes_disabled() {
+    fn render(
+        ctx: &egui::Context,
+        annotations: &mut Annotations,
+        events: Vec<egui::Event>,
+    ) -> egui::accesskit::TreeUpdate {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events,
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(800., 700.))),
+                ..Default::default()
+            },
+            |ui| annotations.editor_controls(ui),
+        );
+        output.textures_delta.clear();
+        output.platform_output.accesskit_update.take().unwrap()
+    }
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    crate::theme::install(&ctx);
+    let image = image();
+    let mut annotations = triangle(&image);
+    annotations
+        .propose_edit(0, 0, vec![[0., 0.], [2., 0.], [0., 4.]], &image, &ctx)
+        .unwrap();
+    wait(&mut annotations);
+    annotations.finish_candidate();
+    let tree = render(&ctx, &mut annotations, vec![]);
+    let node = |name: &str| {
+        tree.nodes
+            .iter()
+            .find(|(_, node)| {
+                node.role() == egui::accesskit::Role::Button && node.label() == Some(name)
+            })
+            .map(|(id, _)| *id)
+            .unwrap()
+    };
+    let undo = node("Undo geometry edit");
+    let redo = node("Redo geometry edit");
+    render(
+        &ctx,
+        &mut annotations,
+        vec![egui::Event::AccessKitActionRequest(
+            egui::accesskit::ActionRequest {
+                action: egui::accesskit::Action::Focus,
+                target_tree: egui::accesskit::TreeId::ROOT,
+                target_node: undo,
+                data: None,
+            },
+        )],
+    );
+    assert_eq!(
+        ctx.memory(|memory| memory.focused().map(|id| id.accesskit_id())),
+        Some(undo)
+    );
+    for (expected, can_undo, can_redo) in [(redo, false, true), (undo, true, false)] {
+        let tree = render(
+            &ctx,
+            &mut annotations,
+            vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert_eq!(annotations.history.can_undo(), can_undo);
+        assert_eq!(annotations.history.can_redo(), can_redo);
+        assert_eq!(tree.focus, expected);
+        let tree = render(
+            &ctx,
+            &mut annotations,
+            vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert_eq!(tree.focus, expected);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .find(|(id, _)| *id == expected)
+                .unwrap()
+                .1
+                .is_disabled()
+        );
+    }
+}
+
+#[test]
+fn space_key_activation_in_a_menu_does_not_cancel_a_ready_numeric_geometry_change() {
+    let ctx = egui::Context::default();
+    let image = image();
+    let mut annotations = triangle(&image);
+    let changed = vec![[0., 0.], [2., 0.], [0., 4.]];
+    annotations
+        .propose_edit(0, 0, changed.clone(), &image, &ctx)
+        .unwrap();
+    wait(&mut annotations);
+    let popup = egui::Id::new("numeric-geometry-menu");
+    egui::Popup::open_id(&ctx, popup);
+    editor_frame(
+        &ctx,
+        &mut annotations,
+        &image,
+        vec![egui::Event::Key {
+            key: egui::Key::Space,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert_eq!(annotations.marks[0].points, changed);
+    assert!(annotations.history.can_undo());
+    assert!(annotations.candidate.is_none());
+    egui::Popup::close_all(&ctx);
+}

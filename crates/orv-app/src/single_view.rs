@@ -27,34 +27,19 @@ impl Workspace {
         if count == 0 {
             return;
         }
-        if ui.is_enabled() && !ui.ctx().egui_wants_keyboard_input() {
-            ui.input(|i| {
-                if i.key_pressed(egui::Key::ArrowDown) {
-                    self.view.slice = (self.view.slice + 1).min(count as u32 - 1);
-                }
-                if i.key_pressed(egui::Key::ArrowUp) {
-                    self.view.slice = self.view.slice.saturating_sub(1);
-                }
-                if i.key_pressed(egui::Key::R) {
-                    self.view.zoom = 1.0;
-                    self.view.pan = [0.0, 0.0];
-                }
-                if i.key_pressed(egui::Key::I) {
-                    self.view.invert = !self.view.invert;
-                }
-                if !color && i.key_pressed(egui::Key::W) {
-                    self.tool = Tool::Window;
-                }
-                if i.key_pressed(egui::Key::P) {
-                    self.tool = Tool::Pan;
-                }
-                if i.key_pressed(egui::Key::Z) {
-                    self.tool = Tool::Zoom;
-                }
-                if i.key_pressed(egui::Key::S) {
-                    self.tool = Tool::Browse;
-                }
-            });
+        crate::actions::tool_input(ui, &mut self.tool, !color, false, true);
+        if crate::actions::pressed(ui, crate::actions::Action::Next) {
+            self.view.slice = self.view.slice.saturating_add(1).min(count as u32 - 1);
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Previous) {
+            self.view.slice = self.view.slice.saturating_sub(1);
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Fit) {
+            self.view.zoom = 1.;
+            self.view.pan = [0.; 2];
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Invert) {
+            self.view.invert = !self.view.invert;
         }
         let mut inspect = false;
         if let Some((index, image)) = self.current_image() {
@@ -116,7 +101,10 @@ impl Workspace {
             });
             ui.horizontal_wrapped(|ui| {
                 ui.label(description.unwrap_or_else(|| "RGB color".into()));
-                ui.checkbox(&mut self.view.invert, "Invert [I]");
+                ui.checkbox(
+                    &mut self.view.invert,
+                    crate::actions::label(ui.ctx(), crate::actions::Action::Invert),
+                );
                 if ui.button("Reset display").clicked() {
                     self.view.invert = false;
                 }
@@ -231,11 +219,7 @@ impl Workspace {
                 .size(11.0)
                 .color(theme::SILVER),
             );
-            ui.add(
-                egui::Slider::new(&mut self.view.slice, 0..=count as u32 - 1)
-                    .text("Image")
-                    .custom_formatter(|v, _| format!("{} / {}", v as u32 + 1, count)),
-            );
+            controls::image_number(ui, &mut self.view.slice, count);
             if self.view != before_input || self.tool != before_tool
                 || (response.hovered() && ui.input(|i| i.pointer.any_down()))
                 || self.labels.open || self.labels.painting(self.selected)
