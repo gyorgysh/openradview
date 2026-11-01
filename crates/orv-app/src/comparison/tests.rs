@@ -2,7 +2,7 @@
 use super::*;
 use std::time::{Duration, Instant};
 
-fn study() -> Arc<Study> {
+pub(super) fn study() -> Arc<Study> {
     let mut study = orv_core::study::demo_study();
     study.series[0].frames = crate::mpr_worker::tests::frames();
     let mut second = study.series[0].clone();
@@ -11,7 +11,7 @@ fn study() -> Arc<Study> {
     study.series.push(second);
     Arc::new(study)
 }
-fn wait(session: &mut ComparisonSession) {
+pub(super) fn wait(session: &mut ComparisonSession) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         for pane in &mut session.panes {
