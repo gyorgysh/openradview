@@ -191,6 +191,25 @@ raw tags. Missing dimension/geometry context keeps source browsing available;
 conflicting macros and unsupported value mappings fail. Single-frame decode clones
 only its selected functional group, avoiding a full per-frame metadata-table copy.
 
+DICOM acquisition selectors are built on an import worker from retained headers.
+Known temporal/echo dimensions keep ordinal and pointed value separate. Family
+membership uses the private source series/reference key and a validated dimension
+organization/pointer/context digest with only those selected dimensions masked.
+Every other existing partition field remains bound. Source partition hashing uses
+the original unmasked stream, covered by independent golden bytes. Catalogs refuse
+inconsistent or ambiguous tuples and retain no source/image capabilities. Descriptor
+cache and members are bounded to4096; catalog copies of raw scope text exist only
+during preparation.
+
+Optional cine metadata additionally requires every indexed frame to have the same
+header/source and its original object ordinal, with no missing or extra frames.
+Fixed intervals are constant storage; variable intervals use at most65,536 bounded
+entries with fallible allocation and cancellation. Parsing validates the pointer,
+decimal representation, nanosecond duration range, trim and delay without using
+recommended rates or absolute dates. Invalid optional timing does not alter image
+identity or ordinary browsing. These auxiliary catalogs add no saved schema or
+agent fields; playback remains manually paced.
+
 ## Rendering and interaction
 
 Explicit image inspection also summarizes the selected series on a cancellable

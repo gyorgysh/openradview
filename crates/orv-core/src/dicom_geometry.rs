@@ -180,6 +180,27 @@ fn acquisition(
     values: &[u32],
     organizations: &[Option<String>],
 ) -> Result<Option<[u8; 32]>, LoadError> {
+    acquisition_context(
+        object,
+        shared,
+        frame,
+        dimensions,
+        values,
+        organizations,
+        &[],
+    )
+}
+// Selected dimensions are masked only for navigation families. Source partition
+// identity always calls this with no exclusions and retains its original bytes.
+pub(crate) fn acquisition_context(
+    object: &Object,
+    shared: Option<&Object>,
+    frame: Option<&Object>,
+    dimensions: &[(Tag, Tag)],
+    values: &[u32],
+    organizations: &[Option<String>],
+    excluded: &[(Tag, Tag)],
+) -> Result<Option<[u8; 32]>, LoadError> {
     let mut hash = Sha256::new();
     let mut count = 0u32;
     for (index, ((tag, group), value)) in dimensions.iter().zip(values).enumerate() {
@@ -195,7 +216,7 @@ fn acquisition(
         } else {
             hash.update(0u32.to_le_bytes());
         }
-        if *tag != IN_STACK || *group != CONTENT {
+        if (*tag != IN_STACK || *group != CONTENT) && !excluded.contains(&(*tag, *group)) {
             hash.update(value.to_le_bytes());
         }
         count += 1;
@@ -256,6 +277,9 @@ fn acquisition(
                 count += 1;
             }
             for tag in tags {
+                if excluded.contains(&(*tag, sequence)) {
+                    continue;
+                }
                 if context.element(*tag).is_ok() {
                     let value = numbers::<1>(context, *tag).ok_or(LoadError::Unsupported)?[0];
                     hash.update(tag.0.to_le_bytes());

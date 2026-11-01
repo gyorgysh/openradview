@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Metadata-first local study index with ZIP64 and a shared bounded decoded cache.
+mod acquisition;
 mod decode;
 mod dicomdir;
 mod encapsulated;
 mod fileset;
 mod header;
 mod import;
+pub(crate) use acquisition::AxisReader;
 mod nifti;
 mod nifti_input;
 mod pairs;

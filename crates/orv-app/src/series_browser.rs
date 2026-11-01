@@ -14,6 +14,7 @@ struct Entry {
 pub struct Catalog {
     entries: Arc<[Entry]>,
     acquisitions: orv_core::acquisition::NiftiCatalog,
+    dicom: orv_core::acquisition::DicomCatalog,
 }
 impl Catalog {
     /// Build on the import worker. Limit text separately from decoded images.
@@ -48,7 +49,8 @@ impl Catalog {
         }
         Ok(Self {
             entries: entries.into(),
-            acquisitions: orv_core::acquisition::NiftiCatalog::prepare(study, cancelled)?,
+            acquisitions: orv_core::acquisition::NiftiCatalog::prepare(study, &cancelled)?,
+            dicom: orv_core::acquisition::DicomCatalog::prepare(study, cancelled)?,
         })
     }
 }
@@ -83,7 +85,10 @@ impl SeriesBrowser {
         selected: usize,
         render: Option<&eframe::egui_wgpu::RenderState>,
     ) -> Option<usize> {
-        let axis_choice = self.axes.show(ui, &self.catalog.acquisitions, selected);
+        let axis_choice = self
+            .axes
+            .show_dicom(ui, &self.catalog.dicom, selected)
+            .or_else(|| self.axes.show(ui, &self.catalog.acquisitions, selected));
         self.thumbnails.poll(ui, render);
         if let Some(search) = &self.search
             && let Some((generation, rows)) = search.take()

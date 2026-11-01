@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod dicom;
 #[path = "../../../orv-core/tests/support/nifti_axes.rs"]
 mod phantom;
 fn catalog(units: u32, step: f64, offset: f64) -> (tempfile::TempDir, NiftiCatalog) {

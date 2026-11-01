@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Header-only axis controls return the same series choices as the local browser.
 use eframe::egui;
+mod dicom;
 use orv_core::{
     acquisition::{NiftiCatalog, Sampling, SelectionError},
     nifti_view::ComplexView,
