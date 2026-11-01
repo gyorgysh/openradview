@@ -50,9 +50,69 @@ pub fn number(ui: &mut egui::Ui, label: &str, value: egui::DragValue<'_>) -> egu
         |ui| {
             ui.spacing_mut().item_spacing.x = 6.;
             let label = ui.label(label);
-            ui.add_sized([FIELD_WIDTH, HEIGHT], value)
-                .labelled_by(label.id)
+            let focused = ui.memory(|memory| memory.focused());
+            let commit = ui.input(|input| {
+                input.key_pressed(egui::Key::Enter) && input.modifiers == egui::Modifiers::NONE
+            });
+            let response = ui
+                .add_sized([FIELD_WIDTH, HEIGHT], value)
+                .labelled_by(label.id);
+            // DragValue's single-line editor surrenders focus on Enter. Keep the
+            // committed field as the Tab origin rather than restarting at root.
+            if commit
+                && focused == Some(response.id)
+                && response.lost_focus()
+                && ui.memory(|memory| memory.focused()).is_none()
+            {
+                response.request_focus();
+            }
+            response
         },
     )
     .inner
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn numeric_enter_keeps_tab_origin_and_next_field_then_button_receive_focus() {
+        let ctx = egui::Context::default();
+        let mut values = [1u32, 2u32];
+        let mut ids = [egui::Id::NULL; 3];
+        let mut render = |events, request_first: bool| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    ids[0] = number(ui, "First", egui::DragValue::new(&mut values[0])).id;
+                    ids[1] = number(ui, "Second", egui::DragValue::new(&mut values[1])).id;
+                    ids[2] = ui.button("Continue").id;
+                    if request_first {
+                        ctx.memory_mut(|memory| memory.request_focus(ids[0]));
+                    }
+                },
+            );
+            output.textures_delta.clear();
+            ids
+        };
+        let ids = render(vec![], true);
+        render(vec![], false);
+        let press = |key| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        render(vec![press(egui::Key::Enter)], false);
+        assert_eq!(ctx.memory(|memory| memory.focused()), Some(ids[0]));
+        render(vec![press(egui::Key::Tab)], false);
+        assert_eq!(ctx.memory(|memory| memory.focused()), Some(ids[1]));
+        render(vec![press(egui::Key::Tab)], false);
+        assert_eq!(ctx.memory(|memory| memory.focused()), Some(ids[2]));
+        assert_eq!(values[0], 1);
+    }
 }

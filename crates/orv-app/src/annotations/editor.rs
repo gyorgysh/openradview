@@ -291,23 +291,27 @@ impl Annotations {
     }
     pub(super) fn editor_controls(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui
-                .add_enabled(
-                    self.history.can_undo(),
-                    egui::Button::new("Undo geometry edit"),
-                )
-                .clicked()
-            {
+            let undo = ui.add_enabled(
+                self.history.can_undo(),
+                egui::Button::new("Undo geometry edit"),
+            );
+            let redo = ui.add_enabled(
+                self.history.can_redo(),
+                egui::Button::new("Redo geometry edit"),
+            );
+            if undo.clicked() {
                 self.undo_edit(false);
+                ui.ctx().request_repaint();
+                if !self.history.can_undo() && self.history.can_redo() {
+                    redo.request_focus();
+                }
             }
-            if ui
-                .add_enabled(
-                    self.history.can_redo(),
-                    egui::Button::new("Redo geometry edit"),
-                )
-                .clicked()
-            {
+            if redo.clicked() {
                 self.undo_edit(true);
+                ui.ctx().request_repaint();
+                if !self.history.can_redo() && self.history.can_undo() {
+                    undo.request_focus();
+                }
             }
         });
         ui.weak("16 edits in memory · history clears on delete/clear.");

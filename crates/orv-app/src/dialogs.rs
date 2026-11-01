@@ -12,6 +12,18 @@ pub fn window(title: &'static str, ctx: &egui::Context) -> egui::Window<'static>
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
 }
 
+/// Reveal a newly focused control in this dialog without an idle scroll timer.
+pub fn reveal_focus(ui: &egui::Ui) {
+    if let Some(id) = ui.memory(|memory| memory.focused())
+        && let Some(response) = ui.ctx().read_response(id)
+        && response.gained_focus()
+        && response.layer_id == ui.layer_id()
+        && ui.min_rect().contains_rect(response.rect)
+    {
+        response.scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
+    }
+}
+
 #[cfg(feature = "mcp")]
 pub fn heading(ui: &mut egui::Ui, title: &str) -> bool {
     ui.horizontal(|ui| {
@@ -27,6 +39,68 @@ pub fn heading(ui: &mut egui::Ui, title: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tab_reveals_a_dialog_control_below_the_fold_without_continuous_repaints() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut last = None;
+        let mut time = 0.;
+        let mut render = |events, first_focus: bool| {
+            time += 1.;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(860., 640.),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    window("Keyboard scroll test", ui.ctx())
+                        .default_height(240.)
+                        .show(ui.ctx(), |ui| {
+                            let first = ui.button("First action");
+                            if first_focus {
+                                first.request_focus();
+                            }
+                            for _ in 0..30 {
+                                ui.label("More dialog content");
+                            }
+                            let response = ui.button("Last action");
+                            last = Some((response.id, response.rect, ui.clip_rect()));
+                            reveal_focus(ui);
+                        });
+                },
+            );
+            output.textures_delta.clear();
+            output.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+        };
+        render(vec![], true);
+        render(vec![], false);
+        render(
+            vec![egui::Event::Key {
+                key: egui::Key::Tab,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            false,
+        );
+        for _ in 0..3 {
+            render(vec![], false);
+        }
+        let delay = render(vec![], false);
+        let (id, rect, clip) = last.unwrap();
+        assert_eq!(ctx.memory(|memory| memory.focused()), Some(id));
+        assert!(
+            clip.contains_rect(rect),
+            "Focused control clipped: {rect:?} / {clip:?}"
+        );
+        assert!(delay > std::time::Duration::from_secs(1), "{delay:?}");
+    }
     #[test]
     fn auxiliary_window_remains_centered_and_inside_resized_viewports() {
         let ctx = egui::Context::default();

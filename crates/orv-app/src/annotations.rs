@@ -159,6 +159,7 @@ pub struct Annotations {
     candidate: Option<Candidate>,
     draft_error: Option<String>,
     finish_requested: bool,
+    point_input: creation::PointInput,
     marks: Vec<Mark>,
     selected: Option<u64>,
     next_id: u64,
@@ -200,8 +201,14 @@ fn sampled_point(image: &Frame, point: [f64; 2]) -> bool {
 }
 
 impl Annotations {
+    fn unfinished(&self) -> bool {
+        !self.pending.is_empty()
+            || self.point_input.request.is_some()
+            || self.candidate.is_some()
+            || self.editor.unfinished()
+    }
     pub(crate) fn capture(&self) -> Result<Vec<CapturedMark>, &'static str> {
-        if !self.pending.is_empty() || self.candidate.is_some() || self.editor.unfinished() {
+        if self.unfinished() {
             return Err("Finish or cancel the current measurement before saving.");
         }
         self.marks
@@ -314,7 +321,7 @@ impl Annotations {
             .corner_radius(3.)
             .show(&mut overlay, |ui| {
                 // The image canvas owns clicks and drags beneath this text.
-                ui.add(
+                let status = ui.add(
                     egui::Label::new(
                         egui::RichText::new(self.status(tool))
                             .small()
@@ -322,6 +329,9 @@ impl Annotations {
                     )
                     .selectable(false),
                 );
+                ui.ctx().accesskit_node_builder(status.id, |node| {
+                    node.set_live(egui::accesskit::Live::Polite)
+                });
             });
     }
     pub fn clear(&mut self) {
@@ -329,6 +339,7 @@ impl Annotations {
         self.candidate = None;
         self.draft_error = None;
         self.finish_requested = false;
+        self.point_input = creation::PointInput::default();
         self.pending = Vec::new();
         self.marks = Vec::new();
         self.selected = None;
@@ -521,6 +532,7 @@ impl Annotations {
                         ui.weak(
                             "Only this image / plane is listed. Nothing is saved automatically.",
                         );
+                        self.point_controls(ui);
                         ui.horizontal_wrapped(|ui| {
                             if ui
                                 .add_enabled(

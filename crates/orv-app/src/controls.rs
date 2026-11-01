@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::viewport::Tool;
+use crate::{
+    actions::{self, Action},
+    viewport::Tool,
+};
 use eframe::egui;
 use orv_core::WindowLevel;
 #[cfg(test)]
@@ -31,19 +34,27 @@ pub fn tools_with_measurements(
     let mut extra = Some(extra);
     crate::toolbar::row(ui, |ui| {
         if crosshair {
-            ui.selectable_value(tool, Tool::Crosshair, "Crosshair");
+            ui.selectable_value(
+                tool,
+                Tool::Crosshair,
+                actions::label(ui.ctx(), Action::Crosshair),
+            );
         }
-        ui.selectable_value(tool, Tool::Pan, "Pan [P]");
-        ui.selectable_value(tool, Tool::Zoom, "Zoom [Z]");
-        ui.selectable_value(tool, Tool::Browse, "Images [S]");
+        ui.selectable_value(tool, Tool::Pan, actions::label(ui.ctx(), Action::Pan));
+        ui.selectable_value(tool, Tool::Zoom, actions::label(ui.ctx(), Action::Zoom));
+        ui.selectable_value(tool, Tool::Browse, actions::label(ui.ctx(), Action::Browse));
         ui.add_enabled_ui(scalar, |ui| {
-            ui.selectable_value(tool, Tool::Window, "Contrast [W]");
+            ui.selectable_value(
+                tool,
+                Tool::Window,
+                actions::label(ui.ctx(), Action::Contrast),
+            );
         });
         if !narrow {
             ui.add_enabled_ui(measurements, |ui| measurement_tool(ui, tool));
         }
         if !narrow {
-            fit = ui.button("Fit [R]").clicked();
+            fit = ui.button(actions::label(ui.ctx(), Action::Fit)).clicked();
         }
         if !narrow && let Some(extra) = extra.take() {
             extra(ui);
@@ -51,7 +62,7 @@ pub fn tools_with_measurements(
     });
     if narrow {
         crate::toolbar::row(ui, |ui| {
-            fit = ui.button("Fit [R]").clicked();
+            fit = ui.button(actions::label(ui.ctx(), Action::Fit)).clicked();
             ui.add_enabled_ui(measurements, |ui| measurement_tool(ui, tool));
             if let Some(extra) = extra.take() {
                 extra(ui);
@@ -67,25 +78,40 @@ fn measurement_tool(ui: &mut egui::Ui, tool: &mut Tool) {
     egui::ComboBox::from_id_salt("measurement-tool")
         .wrap_mode(egui::TextWrapMode::Extend)
         .width(120.)
-        .selected_text(match tool {
-            Tool::Distance => "Distance",
-            Tool::Angle => "Angle",
-            Tool::Roi => "ROI stats",
-            Tool::EllipseRoi => "Ellipse ROI",
-            Tool::PolygonRoi => "Polygon ROI",
-            Tool::EditMarks => "Edit measurements",
-            _ => "Measure",
-        })
+        .selected_text(
+            actions::REMAPPABLE
+                .into_iter()
+                .find(|action| action.tool() == Some(*tool))
+                .filter(|_| tool.measures())
+                .map(|action| actions::label(ui.ctx(), action))
+                .unwrap_or_else(|| "Measure".into()),
+        )
         .show_ui(ui, |ui| {
             for (value, label) in [
-                (Tool::Distance, "Distance · 2 points"),
-                (Tool::Angle, "Angle · 3 points"),
-                (Tool::Roi, "Rectangle ROI · 2 corners"),
-                (Tool::EllipseRoi, "Ellipse ROI · 2 corners"),
-                (Tool::PolygonRoi, "Polygon ROI · Enter to finish"),
-                (Tool::EditMarks, "Edit measurements · select a vertex"),
+                (Tool::Distance, "2 points"),
+                (Tool::Angle, "3 points"),
+                (Tool::Roi, "2 corners"),
+                (Tool::EllipseRoi, "2 corners"),
+                (Tool::PolygonRoi, "Enter to finish"),
+                (Tool::EditMarks, "select a vertex"),
             ] {
-                if ui.selectable_value(tool, value, label).clicked() {
+                if ui
+                    .selectable_value(
+                        tool,
+                        value,
+                        format!(
+                            "{} · {label}",
+                            actions::label(
+                                ui.ctx(),
+                                actions::REMAPPABLE
+                                    .into_iter()
+                                    .find(|a| a.tool() == Some(value))
+                                    .unwrap_or(Action::Edit)
+                            )
+                        ),
+                    )
+                    .clicked()
+                {
                     ui.close();
                 }
             }
@@ -171,7 +197,7 @@ pub fn window(
             .on_hover_text("Brightness centre (window level)");
         }
 
-        ui.checkbox(invert, "Invert [I]");
+        ui.checkbox(invert, actions::label(ui.ctx(), Action::Invert));
         if ui.button("Reset display").on_hover_text("Restore the original image's window/level and turn inversion off. Fit resets pan/zoom separately.").clicked() {
             *window = original;
             *invert = false;
@@ -222,7 +248,7 @@ pub fn color_display(
             info.map(|info| format!("RGB · {}-bit codes · {}", info.bits, info.presentation()))
                 .unwrap_or_else(|| "sRGB color presentation".into()),
         );
-        ui.checkbox(invert, "Invert [I]");
+        ui.checkbox(invert, actions::label(ui.ctx(), Action::Invert));
         if ui.button("Reset display").clicked() {
             *invert = false;
         }
@@ -246,13 +272,36 @@ fn preset_name(window: WindowLevel, original: WindowLevel) -> &'static str {
     "Custom contrast"
 }
 
+/// Keep the visible and accessible image numbers in the same one-based domain.
+pub fn image_number(ui: &mut egui::Ui, slice: &mut u32, count: usize) -> egui::Response {
+    let count = u32::try_from(count).unwrap_or(u32::MAX);
+    let mut number = slice.saturating_add(1).clamp(1, count.max(1));
+    let response = ui.add_enabled(
+        count > 0,
+        egui::Slider::new(&mut number, 1..=count.max(1))
+            .text("Image")
+            .custom_formatter(|value, _| format!("{} / {count}", value as u32)),
+    );
+    if response.changed() {
+        *slice = number.saturating_sub(1);
+    }
+    response
+}
+
 pub fn navigation_hint(ui: &mut egui::Ui, tool: Tool) {
     let scroll = match tool {
         Tool::Browse | Tool::Crosshair => "Scroll: images / plane",
         Tool::Zoom => "Scroll: zoom",
         _ => "Scroll: move image",
     };
-    ui.label(egui::RichText::new(format!("{scroll} · Pinch / Cmd/Ctrl scroll: zoom · Space drag: move · ↑↓: images · [S] browse slices" )).size(11.0).color(crate::theme::SILVER));
+    let browse = actions::label(ui.ctx(), Action::Browse);
+    ui.label(
+        egui::RichText::new(format!(
+            "{scroll} · Pinch / Cmd/Ctrl scroll: zoom · Space drag: move · ↑↓: images · {browse}"
+        ))
+        .size(11.0)
+        .color(crate::theme::SILVER),
+    );
 }
 
 pub fn orientation(ui: &mut egui::Ui, transform: &mut orv_core::DisplayTransform) {

@@ -89,12 +89,18 @@ pub(super) fn show(
                 state.transfer = transfer;
             }
         }
-        if ui.button("Fit [R]").clicked() {
+        if ui
+            .button(crate::actions::label(ui.ctx(), crate::actions::Action::Fit))
+            .clicked()
+        {
             display.zoom = 1.;
             display.pan = [0.; 2];
             fit = true;
         }
-        ui.checkbox(&mut display.invert, "Invert [I]");
+        ui.checkbox(
+            &mut display.invert,
+            crate::actions::label(ui.ctx(), crate::actions::Action::Invert),
+        );
         if ui.button("Reset display").on_hover_text("Restore this volume’s initial display and turn inversion off. Fit resets the camera separately.").clicked() {
             *preset = TransferPreset::Bone;
             display.window = initial.0;

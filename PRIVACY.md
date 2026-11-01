@@ -21,6 +21,10 @@ memory erasure. Operating-system swap, file-dialog history, backups and screen
 capture are controlled by your device. The research-use notice is per running
 session and is not transmitted. Local labels remain in memory until you export them.
 
+Shortcut changes are saved only when you apply them. This small local settings
+file contains letter bindings and a format version, with no paths, study history,
+images, labels or view state. Opening the app does not create default shortcut settings.
+
 The app saves update preferences, the last check time and installation/backup
 state. These contain no study data. A staged update and previous app copy may
 remain until installation and the new app's startup complete.

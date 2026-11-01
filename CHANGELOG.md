@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Search and remap local tool shortcuts, with conflict checks and saved bindings
+  that contain no study data. Tool labels and Help show the active keys.
+- Enter measurement points by image coordinates and select an active MPR plane
+  or physical point through controls. Keep numeric Tab navigation and geometry
+  undo/redo focus when controls change state.
+- Add a manually advanced offline controls guide and technical glossary in Help.
+- Optionally show finite reference-plane intersections in local comparison.
+  Lines require matching completed thin images and known spatial references,
+  follow display transforms, and stay outside picture exports and snapshots.
+
 - Review an explicit current-pane illustration before saving, with selected completed
   measurement outlines and applied manual/supplied masks on source/thin reformat
   views. Layer changes invalidate the preview; saves reuse its exact PNG bytes.

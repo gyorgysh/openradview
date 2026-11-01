@@ -171,17 +171,13 @@ impl VolumeSession {
         ) {
             self.needs_fit = true;
         }
-        if ui.is_enabled() && !ui.ctx().egui_wants_keyboard_input() {
-            ui.input(|i| {
-                if i.key_pressed(egui::Key::R) {
-                    self.display.zoom = 1.;
-                    self.display.pan = [0.; 2];
-                    self.needs_fit = true;
-                }
-                if i.key_pressed(egui::Key::I) {
-                    self.display.invert = !self.display.invert;
-                }
-            });
+        if crate::actions::pressed(ui, crate::actions::Action::Fit) {
+            self.display.zoom = 1.;
+            self.display.pan = [0.; 2];
+            self.needs_fit = true;
+        }
+        if crate::actions::pressed(ui, crate::actions::Action::Invert) {
+            self.display.invert = !self.display.invert;
         }
         let (rect, response) = ui.allocate_exact_size(
             Vec2::new(content_width, (ui.available_height() - 72.).max(60.)),

@@ -90,19 +90,20 @@ impl SeriesBrowser {
         }
         if self.catalog.entries.len() > 1 {
             ui.horizontal(|ui| {
-                let changed = ui
-                    .add_enabled(
-                        self.search.is_some(),
-                        egui::TextEdit::singleline(&mut self.query)
-                            .hint_text("Filter series")
-                            .char_limit(128)
-                            .desired_width((ui.available_width() - 30.).max(30.)),
-                    )
-                    .changed();
-                let clear = ui
-                    .small_button("×")
-                    .on_hover_text("Clear series filter")
-                    .clicked();
+                let filter = ui.add_enabled(
+                    self.search.is_some(),
+                    egui::TextEdit::singleline(&mut self.query)
+                        .hint_text("Filter series")
+                        .char_limit(128)
+                        .desired_width((ui.available_width() - 30.).max(30.)),
+                );
+                ui.ctx()
+                    .accesskit_node_builder(filter.id, |node| node.set_label("Filter series"));
+                let changed = filter.changed();
+                let clear = ui.small_button("×").on_hover_text("Clear series filter");
+                ui.ctx()
+                    .accesskit_node_builder(clear.id, |node| node.set_label("Clear series filter"));
+                let clear = clear.clicked();
                 if clear {
                     self.query.clear();
                 }

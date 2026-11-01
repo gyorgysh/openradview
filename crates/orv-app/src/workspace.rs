@@ -461,6 +461,10 @@ impl Workspace {
         if !blocked && self.mode != ViewMode::Compare {
             self.labels.window(ui.ctx(), self.selected, series, slice);
         }
+        crate::actions::view_input_enabled(
+            ui.ctx(),
+            !blocked && !self.labels.open && !self.show_demo_credits && self.loading.is_none(),
+        );
         ui.add_enabled_ui(!blocked, |ui| {
             self.content_ui(ui, frame, seconds, reduce_motion)
         });
@@ -507,7 +511,9 @@ impl Workspace {
     ) {
         let ctx = ui.ctx().clone();
         if ui.is_enabled()
-            && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::O))
+            && self.loading.is_none()
+            && !egui::Popup::is_any_open(&ctx)
+            && crate::actions::pressed(ui, crate::actions::Action::OpenFiles)
         {
             self.begin(Source::Files, &ctx);
         }
@@ -527,7 +533,8 @@ impl Workspace {
             ui.spacing_mut().button_padding = egui::vec2(10., 5.);
             if ui
                 .add_enabled(self.loading.is_none(), egui::Button::new("Open files"))
-                .on_hover_text("DICOM, DICOMDIR, NIfTI or ZIP · Cmd/Ctrl+O")
+                .on_hover_text(format!("DICOM, DICOMDIR, NIfTI or ZIP · {}",
+                    crate::actions::bindings(&ctx).shortcut(crate::actions::Action::OpenFiles)))
                 .clicked()
             {
                 self.begin(Source::Files, &ctx);

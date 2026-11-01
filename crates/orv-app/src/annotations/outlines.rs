@@ -154,7 +154,7 @@ impl Outlines {
 }
 impl Annotations {
     pub(crate) fn source_outlines(&self) -> Result<SourceOutlines, &'static str> {
-        if !self.pending.is_empty() || self.candidate.is_some() || self.editor.unfinished() {
+        if self.unfinished() {
             return Err("Finish or cancel the measurement before preparing a contact sheet");
         }
         if self.preserve_plane
@@ -232,7 +232,7 @@ impl Annotations {
         view: &ViewState,
         budget: &Arc<MemoryBudget>,
     ) -> Result<Outlines, &'static str> {
-        if !self.pending.is_empty() || self.candidate.is_some() || self.editor.unfinished() {
+        if self.unfinished() {
             return Err(
                 "Finish or cancel the current measurement before preparing an illustration",
             );

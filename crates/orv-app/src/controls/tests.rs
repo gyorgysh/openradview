@@ -162,3 +162,63 @@ fn switching_from_measurement_repaints_without_another_input_and_settles_when_id
     );
     assert_eq!(tool, Tool::Pan);
 }
+
+#[test]
+fn accessible_image_numbers_match_the_visible_counter_and_keys_update_only_the_source_index() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut index = 2;
+    let render = |index: &mut u32, events| {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                image_number(ui, index, 5);
+            },
+        );
+        output.textures_delta.clear();
+        output.platform_output.accesskit_update.take().unwrap()
+    };
+    let tree = render(&mut index, vec![]);
+    let (id, node) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == egui::accesskit::Role::Slider)
+        .unwrap();
+    assert_eq!(node.numeric_value(), Some(3.));
+    assert_eq!(node.min_numeric_value(), Some(1.));
+    assert_eq!(node.max_numeric_value(), Some(5.));
+    render(
+        &mut index,
+        vec![egui::Event::AccessKitActionRequest(
+            egui::accesskit::ActionRequest {
+                action: egui::accesskit::Action::Focus,
+                target_tree: egui::accesskit::TreeId::ROOT,
+                target_node: *id,
+                data: None,
+            },
+        )],
+    );
+    let tree = render(
+        &mut index,
+        vec![egui::Event::Key {
+            key: egui::Key::ArrowRight,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert_eq!(index, 3);
+    assert_eq!(
+        tree.nodes
+            .iter()
+            .find(|(node, _)| node == id)
+            .unwrap()
+            .1
+            .numeric_value(),
+        Some(4.)
+    );
+}

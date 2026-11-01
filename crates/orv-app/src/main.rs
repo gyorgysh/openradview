@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod actions;
 mod annotations;
 mod app;
 mod brand;
@@ -12,6 +13,7 @@ mod dialogs;
 mod export;
 mod frame_source;
 mod frame_worker;
+mod guide;
 mod help;
 mod image_info;
 mod image_overlay;
@@ -24,6 +26,7 @@ mod mpr_viewport;
 mod mpr_worker;
 mod oblique_ui;
 mod playback;
+mod preferences;
 #[cfg(feature = "qa")]
 mod qa;
 mod rendered;
