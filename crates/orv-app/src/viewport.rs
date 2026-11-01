@@ -106,6 +106,7 @@ pub enum Tool {
     Roi,
     EllipseRoi,
     PolygonRoi,
+    EditMarks,
 }
 
 pub fn interact(
@@ -211,7 +212,7 @@ fn advance_slice(view: &mut ViewState, scroll: &mut f32, delta: f32, count: usiz
 
 impl Tool {
     pub fn measures(self) -> bool {
-        matches!(self, Self::Distance | Self::Angle) || self.roi()
+        matches!(self, Self::Distance | Self::Angle | Self::EditMarks) || self.roi()
     }
     pub fn roi(self) -> bool {
         matches!(self, Self::Roi | Self::EllipseRoi | Self::PolygonRoi)

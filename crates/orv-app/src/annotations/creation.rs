@@ -12,6 +12,7 @@ impl Annotations {
         }
     }
     pub(super) fn cancel_draft(&mut self) {
+        self.editor = editor::Editor::default();
         if let Some(candidate) = self.candidate.take() {
             self.calculation.cancel_for(candidate.id);
         }
@@ -85,6 +86,7 @@ impl Annotations {
                         tool,
                         result: None,
                         ready_repainted: false,
+                        base_revision: None,
                     })
                 }
                 Err(error) => self.draft_error = Some(error),
@@ -103,15 +105,24 @@ impl Annotations {
             self.selected = Some(id);
         }
     }
-    fn finish_candidate(&mut self) {
+    pub(super) fn finish_candidate(&mut self) {
         let Some(result) = self.candidate.as_mut().and_then(|c| c.result.take()) else {
             return;
         };
         let Some(candidate) = self.candidate.take() else {
             return;
         };
-        if self.image.as_ref() != Some(&candidate.image) || self.active_tool != Some(candidate.tool)
+        let expected_tool = if candidate.base_revision.is_some() {
+            Tool::EditMarks
+        } else {
+            candidate.tool
+        };
+        if self.image.as_ref() != Some(&candidate.image) || self.active_tool != Some(expected_tool)
         {
+            return;
+        }
+        if candidate.base_revision.is_some() {
+            self.finish_edit(candidate, result);
             return;
         }
         match result {

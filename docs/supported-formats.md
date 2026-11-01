@@ -320,6 +320,14 @@ restart restores none automatically. Comparison marks can be explicitly saved in
 a local comparison file and restored only against matching source series. They
 are excluded from image-only exports and agent snapshots.
 
+**Measure → Edit measurements** selects or drags a vertex. **Measurements…** also
+offers a vertex selector and 1-based source column/row with **Apply vertex
+coordinates**. The original stays intact until the completed proposal validates;
+Escape, navigation override, context changes or invalid geometry cancel it.
+Undo/redo retains up to 16 geometry edits in memory, including the matching
+validated reports. Deleting or clearing marks clears this edit history. Unapplied
+coordinate changes must be applied or cancelled before saving a comparison.
+
 ROI statistics include valid pixel centres inside the region boundary. Sampled
 area counts valid cells; shape area describes the continuous outline. They can
 differ, especially for small regions or missing samples. Physical areas require

@@ -9,6 +9,8 @@ use orv_core::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 mod creation;
+mod editor;
+mod history;
 mod serialization;
 mod stats_worker;
 mod storage;
@@ -133,6 +135,7 @@ struct Candidate {
     tool: Tool,
     result: Option<Result<stats_worker::Report, String>>,
     ready_repainted: bool,
+    base_revision: Option<u64>,
 }
 #[derive(Default)]
 pub struct Annotations {
@@ -150,6 +153,8 @@ pub struct Annotations {
     preserve_plane: bool,
     memory: Option<Arc<orv_core::resources::Reservation>>,
     canvas_id: Option<egui::Id>,
+    editor: editor::Editor,
+    history: history::History,
 }
 pub fn mapping(rect: Rect, image: &Frame, view: &ViewState) -> Option<ImageMapping> {
     ImageMapping::new(
@@ -183,7 +188,7 @@ fn sampled_point(image: &Frame, point: [f64; 2]) -> bool {
 
 impl Annotations {
     pub(crate) fn capture(&self) -> Result<Vec<CapturedMark>, &'static str> {
-        if !self.pending.is_empty() || self.candidate.is_some() {
+        if !self.pending.is_empty() || self.candidate.is_some() || self.editor.unfinished() {
             return Err("Finish or cancel the current measurement before saving.");
         }
         self.marks
@@ -322,8 +327,16 @@ impl Annotations {
         self.marks = Vec::new();
         self.selected = None;
         self.memory = None;
+        self.editor = editor::Editor::default();
+        self.history = history::History::default();
     }
     pub fn status(&self, tool: Tool) -> String {
+        if let Some(error) = &self.editor.error {
+            return format!("{error} · Escape dismisses.");
+        }
+        if self.editor.unfinished() {
+            return "Vertex change · release the handle or Apply in Measurements… · Escape cancels.".into();
+        }
         if self.candidate.is_some() {
             return "Checking region locally… Escape cancels.".into();
         }
@@ -355,6 +368,7 @@ impl Annotations {
             Tool::Roi => "ROI: click two corners. Scalar values or RGB codes follow the selected representation.",
             Tool::EllipseRoi => "Ellipse ROI: click opposite corners of its bounds.",
             Tool::PolygonRoi => "Polygon ROI: click vertices. Enter or Measurements → Finish polygon completes it. Backspace removes a point; Escape cancels.",
+            Tool::EditMarks => "Edit measurements: select or drag a vertex. Measurements… offers numeric coordinates and undo/redo. Escape cancels a change.",
             _ => "Research measurements only",
         }
         .into()
@@ -377,9 +391,41 @@ impl Annotations {
             self.cancel_interaction(ui.ctx());
             return;
         }
-        self.handle_creation(ui, response, image, view, tool);
+        if tool == Tool::EditMarks {
+            self.handle_editor(ui, response, image, view);
+        } else {
+            self.handle_creation(ui, response, image, view, tool);
+        }
         for mark in self.visible_marks() {
-            paint(ui, response.rect, image, view, &mark.points, mark.tool);
+            let candidate = self
+                .candidate
+                .as_ref()
+                .filter(|c| c.base_revision.is_some() && c.id == mark.id);
+            let gesture = self.editor.points().filter(|(id, _)| *id == mark.id);
+            if candidate.is_none() {
+                let points = gesture.map_or(mark.points.as_slice(), |(_, points)| points);
+                paint(ui, response.rect, image, view, points, mark.tool);
+                if tool == Tool::EditMarks
+                    && let Some((_, vertex)) = self
+                        .editor
+                        .selected_vertex()
+                        .filter(|(id, _)| *id == mark.id)
+                    && let Some(point) = points.get(vertex)
+                    && let Some(position) = screen_at(response.rect, image, view, *point)
+                {
+                    for stroke in [
+                        egui::Stroke::new(3., theme::INK),
+                        egui::Stroke::new(1., theme::PAPER),
+                    ] {
+                        ui.painter_at(response.rect).rect_stroke(
+                            Rect::from_center_size(position, egui::vec2(14., 14.)),
+                            0.,
+                            stroke,
+                            egui::StrokeKind::Middle,
+                        );
+                    }
+                }
+            }
             if let Some(point) = mark.points.first()
                 && let Some(position) = screen_at(response.rect, image, view, *point)
             {
@@ -450,6 +496,8 @@ impl Annotations {
     }
     fn delete_selected(&mut self) {
         if let Some(id) = self.selected.take() {
+            self.cancel_draft();
+            self.history = history::History::default();
             self.marks.retain(|mark| mark.id != id);
             self.calculation.cancel_for(id);
             self.selected = self.visible_marks().last().map(|mark| mark.id);
@@ -464,40 +512,43 @@ impl Annotations {
             )
             .ui(ui, |ui| {
                 ui.set_max_width(320.);
-                ui.weak(format!(
-                    "Measurements · {} / {MAX_MARKS} in memory",
-                    self.marks.len()
-                ));
-                ui.weak("Only this image / plane is listed. Nothing is saved automatically.");
-                ui.horizontal_wrapped(|ui| {
-                    if ui
-                        .add_enabled(
-                            self.active_tool == Some(Tool::PolygonRoi)
-                                && self.pending.len() >= 3
-                                && self.candidate.is_none()
-                                && !self.calculation.is_busy(),
-                            egui::Button::new("Finish polygon"),
-                        )
-                        .clicked()
-                    {
-                        self.finish_requested = true;
-                        ui.close();
-                    }
-                    if ui
-                        .add_enabled(
-                            !self.pending.is_empty() || self.candidate.is_some(),
-                            egui::Button::new("Cancel current measurement"),
-                        )
-                        .clicked()
-                    {
-                        self.cancel_draft();
-                        ui.close();
-                    }
-                });
-                let mut selected = self.selected;
                 egui::ScrollArea::vertical()
-                    .max_height(180.)
+                    .id_salt("measurements-menu")
+                    .max_height(ui.available_height().min(460.))
                     .show(ui, |ui| {
+                        ui.weak(format!(
+                            "Measurements · {} / {MAX_MARKS} in memory",
+                            self.marks.len()
+                        ));
+                        ui.weak(
+                            "Only this image / plane is listed. Nothing is saved automatically.",
+                        );
+                        ui.horizontal_wrapped(|ui| {
+                            if ui
+                                .add_enabled(
+                                    self.active_tool == Some(Tool::PolygonRoi)
+                                        && self.pending.len() >= 3
+                                        && self.candidate.is_none()
+                                        && !self.calculation.is_busy(),
+                                    egui::Button::new("Finish polygon"),
+                                )
+                                .clicked()
+                            {
+                                self.finish_requested = true;
+                                ui.close();
+                            }
+                            if ui
+                                .add_enabled(
+                                    !self.pending.is_empty() || self.candidate.is_some(),
+                                    egui::Button::new("Cancel current measurement"),
+                                )
+                                .clicked()
+                            {
+                                self.cancel_draft();
+                                ui.close();
+                            }
+                        });
+                        let mut selected = self.selected;
                         for mark in self.visible_marks() {
                             ui.selectable_value(
                                 &mut selected,
@@ -505,31 +556,33 @@ impl Annotations {
                                 format!("#{} · {}", mark.id.saturating_add(1), mark.label),
                             );
                         }
+                        if self.selected != selected {
+                            self.cancel_draft();
+                            self.selected = selected;
+                            ui.ctx().request_repaint();
+                        }
+                        self.editor_controls(ui);
+                        if ui
+                            .add_enabled(
+                                self.selected_mark().is_some(),
+                                egui::Button::new("Delete selected measurement"),
+                            )
+                            .clicked()
+                        {
+                            self.delete_selected();
+                            ui.close();
+                        }
+                        if ui
+                            .add_enabled(
+                                self.has_marks(),
+                                egui::Button::new("Clear all measurements"),
+                            )
+                            .clicked()
+                        {
+                            self.clear();
+                            ui.close();
+                        }
                     });
-                if self.selected != selected {
-                    self.selected = selected;
-                    ui.ctx().request_repaint();
-                }
-                if ui
-                    .add_enabled(
-                        self.selected_mark().is_some(),
-                        egui::Button::new("Delete selected measurement"),
-                    )
-                    .clicked()
-                {
-                    self.delete_selected();
-                    ui.close();
-                }
-                if ui
-                    .add_enabled(
-                        self.has_marks(),
-                        egui::Button::new("Clear all measurements"),
-                    )
-                    .clicked()
-                {
-                    self.clear();
-                    ui.close();
-                }
             });
     }
     fn poll(&mut self) {
