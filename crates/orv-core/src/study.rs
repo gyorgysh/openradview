@@ -186,6 +186,9 @@ impl std::fmt::Debug for Series {
 }
 
 impl Series {
+    pub fn nifti_axes(&self) -> Option<&crate::acquisition::NiftiAxes> {
+        self.source.as_ref()?.nifti_axes()
+    }
     pub fn volume(
         &self,
         cancelled: impl Fn() -> bool,

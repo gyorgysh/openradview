@@ -114,6 +114,21 @@ or in-plane shear gets no anatomical labels/physical measurements; the source
 pixel grid remains viewable in 2D. MPR/3D require a valid regular stack; scalar and color samples or different color contexts cannot be mixed.
 Time/component indices and complex presentation survive source hashes and snapshot metadata. Nonspatial axes are never mixed into a spatial stack. Paired files require a unique same-directory companion; no header-supplied paths are followed. Both files must remain unchanged. The NIfTI source grid is not relabelled as an acquisition plane. Non-CT volumes start with a neutral source intensity range calculated on the worker; CT retains its Bone starting preset. Source range and Reset are available in 3D controls. Transfer functions retain their explicit numeric limits.
 
+The sidebar's Acquisition axes controls select a NIfTI time, component, axis6/7
+or complex view within the same imported input. Identical separately opened
+inputs stay separate. Missing or ambiguous tuples are not guessed. Selection
+uses the ordinary series-change path: temporary measurements clear, reconstructed
+views close, and existing sharing approval ends. Comparison keeps its existing
+unsaved-mark guard. Labels remain attached to their original subseries.
+
+Declared seconds, milliseconds and microseconds become a relative time coordinate
+and step in seconds, including a nonzero or negative time offset. Hz, ppm and
+radians/second remain frequency coordinates. Unknown units, nonpositive steps,
+nonfinite or unrepresentable coordinates have no elapsed-time interpretation;
+ordinary index navigation still works. This does not add temporal analysis or
+source-timed playback. The complete higher-dimensional dataset is not prepared
+as one volume.
+
 The decoded 2D cache and prepared-volume pools grow with total/available physical
 RAM, up to 8 GiB each. They are shared across imports/views and allocate only as
 images are requested. A 500 MiB study is not restricted to 128 MiB: file size is

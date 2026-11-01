@@ -171,6 +171,19 @@ remain explicit: template/aligned coordinates are not assumed to be patient
 coordinates. Unknown geometry stays viewable in 2D without inferred anatomical
 labels or physical measurements.
 
+NIfTI acquisition metadata is auxiliary to the existing serialized subvolume
+identity. One opaque family capability per header opening distinguishes inputs;
+no names, pixel similarity or generated series numbers establish association.
+A cancellable import-worker catalog sorts at most4096 numeric tuples for bounded
+selection lookup, without retaining source/image capabilities. It refuses missing
+or ambiguous tuples. Sidebar choices use the existing series-change and active
+comparison-pane paths, preserving revocation, unsaved marks and label ownership.
+Reconstructed views close rather than retaining an unchecked cross-time point.
+Time metadata is normalized to seconds only for declared time units; frequency
+units remain explicit. Invalid timing preserves index navigation. The catalog and
+new timing metadata stay in RAM. Existing tuple/complex identity remains in source
+hashes and snapshot metadata; no new saved-view or settings fields are added.
+
 DICOM functional groups are validated before decoding. Explicit per-frame geometry
 and numeric/coded acquisition context partition nonspatial dimensions before stack
 construction. Acquisition digests participate in source identity without exposing

@@ -38,11 +38,15 @@ cargo run -p orv-core --example generate_media -- test-data/generated-media
 cargo run -p orv-core --example generate_media -- test-data/generated-labels --label-phantom
 cargo run -p orv-core --example generate_media -- test-data/generated-masks --segmentation-phantom
 cargo run -p orv-core --example generate_comparison -- test-data/generated-comparison
+cargo run -p orv-core --example generate_acquisition -- test-data/generated-acquisition
 ```
 
 The mask fixture adds three generated boxes with overlap, sparse source planes
 and a large numeric ID, plus a wrong-reference file that import must refuse. It
 contains no anatomy and exercises the documented input subset.
+The acquisition fixtures encode time, component, higher axes and source slices
+in numeric pixel values, with complex views and valid/frequency/unknown/invalid
+timing headers.
 
 ## Design and review
 

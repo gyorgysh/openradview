@@ -49,7 +49,7 @@ impl Nifti {
                 if !re.is_finite() || !im.is_finite() {
                     return Err(LoadError::Unsupported);
                 }
-                match self.view.complex {
+                match self.axes.view().complex {
                     ComplexView::Magnitude => re.hypot(im),
                     ComplexView::PhaseRadians => im.atan2(re),
                     ComplexView::Real => re,
@@ -91,7 +91,7 @@ impl Nifti {
             scalar: header.scalar.get(frame).cloned(),
             validity: None,
             color: None,
-            nifti: Some(self.view.clone()),
+            nifti: Some(self.axes.view().clone()),
             rgba: None,
             width: header.width,
             height: header.height,

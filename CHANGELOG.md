@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Select NIfTI time points, components, higher axes and complex views directly
+  within their original input. Show declared time coordinates and steps in seconds,
+  with frequency, unknown and invalid timing kept distinct. Index navigation
+  stays available without valid timing; changing acquisition uses normal source
+  selection and ends any existing sharing approval.
+
 - Search and remap local tool shortcuts, with conflict checks and saved bindings
   that contain no study data. Tool labels and Help show the active keys.
 - Enter measurement points by image coordinates and select an active MPR plane

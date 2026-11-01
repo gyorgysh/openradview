@@ -22,7 +22,7 @@ pub(super) struct Nifti {
     intercept: f64,
     step: [f64; 3],
     pub window: Option<WindowLevel>,
-    pub view: NiftiView,
+    pub axes: crate::acquisition::NiftiAxes,
     pub metadata_bytes: u64,
 }
 impl Nifti {
@@ -141,6 +141,9 @@ pub(super) fn read_headers(
         .filter(|w| w.is_valid());
     let (geometry, step) = geometry::geometry(&f, id).unwrap_or((None, [0.; 3]));
     let length = dims[0] * dims[1] * dims[2] * u64::from(bits / 8);
+    let family = crate::acquisition::Family::new();
+    let sampling =
+        crate::acquisition::Sampling::nifti(dims[3] as u32, f.units(), f.f32(92), f.f32(136));
     let mut headers = Vec::new();
     for volume in 0..volume_count {
         let mut n = volume;
@@ -177,13 +180,22 @@ pub(super) fn read_headers(
                     intercept,
                     step,
                     window,
-                    view: NiftiView {
-                        version,
-                        indices,
-                        dimensions: std::array::from_fn(|i| dims[i + 3] as u32),
-                        complex: *view,
-                    },
-                    metadata_bytes: if headers.is_empty() { size as u64 } else { 0 },
+                    axes: crate::acquisition::NiftiAxes::new(
+                        family.clone(),
+                        NiftiView {
+                            version,
+                            indices,
+                            dimensions: std::array::from_fn(|i| dims[i + 3] as u32),
+                            complex: *view,
+                        },
+                        sampling,
+                    ),
+                    metadata_bytes: std::mem::size_of::<crate::acquisition::NiftiAxes>() as u64
+                        + if headers.is_empty() {
+                            size as u64 + 32
+                        } else {
+                            0
+                        },
                 }),
                 offsets: OnceLock::new(),
                 deflated_at: None,

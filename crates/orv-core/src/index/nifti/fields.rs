@@ -80,6 +80,7 @@ impl Fields<'_> {
             116 => 184,
             124 => 192,
             128 => 200,
+            136 => 216,
             256..=324 => 352 + (at - 256) * 2,
             _ => unreachable!("only fixed scaling/affine fields are read"),
         };

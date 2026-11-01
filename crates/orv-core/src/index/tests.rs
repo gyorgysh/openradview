@@ -18,6 +18,7 @@ mod import_report;
 mod large;
 mod metadata_prefix;
 mod nifti;
+mod nifti_axes;
 mod nifti_expanded;
 mod padding;
 mod resources;
