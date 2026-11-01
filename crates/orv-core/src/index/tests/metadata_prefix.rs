@@ -166,3 +166,26 @@ fn supplied_mask_classes_never_become_ordinary_images_even_with_disagreeing_file
         }
     }
 }
+
+#[test]
+fn repeated_file_meta_or_dataset_attributes_are_rejected_before_the_pixel_payload() {
+    for (tag, meta) in [([2, 0, 2, 0], true), ([8, 0, 0x16, 0], false)] {
+        let mut bytes = binary();
+        let at = bytes.windows(4).position(|value| value == tag).unwrap();
+        let length = u16::from_le_bytes([bytes[at + 6], bytes[at + 7]]) as usize;
+        let element = bytes[at..at + 8 + length].to_vec();
+        bytes.splice(at..at, element.iter().copied());
+        if meta {
+            let group_length = u32::from_le_bytes(bytes[140..144].try_into().unwrap());
+            bytes[140..144].copy_from_slice(&(group_length + element.len() as u32).to_le_bytes());
+        }
+        let mut input = Cursor::new(&bytes);
+        let mut reason = SkipReason::UnrecognizedInput;
+        assert!(matches!(
+            header::read_prefix(&mut input, &|| false, &mut reason, |_| true),
+            Err(LoadError::Unsupported)
+        ));
+        assert_eq!(reason, SkipReason::MalformedMetadata);
+        assert!(input.position() < bytes.len() as u64 - 2);
+    }
+}

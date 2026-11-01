@@ -15,6 +15,7 @@ use std::{
     io::{Cursor, Read},
     sync::{Arc, OnceLock},
 };
+mod scopes;
 
 const MAX_HEADER: usize = 8 * 1024 * 1024;
 pub(super) const MAX_FRAME_SAMPLES: u64 = 32 * 1024 * 1024;
@@ -148,6 +149,16 @@ pub(super) fn read_prefix(
     reason: &mut SkipReason,
     class_allowed: impl Fn(&str) -> bool,
 ) -> Result<MetadataPrefix, LoadError> {
+    read_prefix_with_syntax(reader, cancelled, reason, class_allowed, |_| true)
+}
+
+pub(super) fn read_prefix_with_syntax(
+    reader: &mut impl Read,
+    cancelled: &impl Fn() -> bool,
+    reason: &mut SkipReason,
+    class_allowed: impl Fn(&str) -> bool,
+    syntax_allowed: impl Fn(&str) -> bool,
+) -> Result<MetadataPrefix, LoadError> {
     let mut first = [0u8; 132];
     reader
         .read_exact(&mut first[..4])
@@ -197,6 +208,10 @@ pub(super) fn read_prefix(
         return Err(LoadError::Unsupported);
     }
     let syntax = meta.transfer_syntax().to_owned();
+    if !syntax_allowed(&syntax) {
+        *reason = SkipReason::UnsupportedEncoding;
+        return Err(LoadError::Unsupported);
+    }
     let dataset_start = prefix.len();
     let deflated_at = (syntax == "1.2.840.10008.1.2.1.99").then_some(dataset_start as u64);
     let reader: Box<dyn Read + '_> = if deflated_at.is_some() {
@@ -225,7 +240,8 @@ pub(super) fn read_prefix(
         ts,
     )
     .map_err(|_| LoadError::Unsupported)?;
-    let (mut depth, mut tokens) = (0usize, 0usize);
+    let mut scopes = scopes::Scopes::new()?;
+    let mut tokens = 0usize;
     let (pixel_length, pixel_header) = loop {
         if cancelled() {
             return Err(LoadError::Cancelled);
@@ -243,17 +259,20 @@ pub(super) fn read_prefix(
             }
         })?;
         match token {
-            DataToken::ElementHeader(header) if depth == 0 && header.tag == Tag(0x7fe0, 0x0010) => {
+            DataToken::ElementHeader(header)
+                if scopes.depth() == 0 && header.tag == Tag(0x7fe0, 0x0010) =>
+            {
                 break (header.len.get().map(u64::from), before as usize);
             }
             DataToken::ElementHeader(header)
-                if depth == 0 && matches!(header.tag, Tag(0x7fe0, 0x0008 | 0x0009)) =>
+                if scopes.depth() == 0 && matches!(header.tag, Tag(0x7fe0, 0x0008 | 0x0009)) =>
             {
                 *reason = SkipReason::UnsupportedOrInvalid;
                 return Err(LoadError::Unsupported);
             }
-            DataToken::PixelSequenceStart if depth == 0 => break (None, before as usize),
+            DataToken::PixelSequenceStart if scopes.depth() == 0 => break (None, before as usize),
             DataToken::ElementHeader(header) => {
+                scopes.attribute(header.tag)?;
                 if header
                     .len
                     .get()
@@ -262,26 +281,28 @@ pub(super) fn read_prefix(
                     return Err(LoadError::Limit);
                 }
             }
-            DataToken::SequenceStart { len, .. } | DataToken::ItemStart { len } => {
-                depth += 1;
-                if depth > 64
-                    || len.get().is_some_and(|n| {
-                        n as usize > MAX_HEADER.saturating_sub(position.get() as usize)
-                    })
-                {
+            DataToken::SequenceStart { tag, len } => {
+                scopes.sequence(tag)?;
+                if len.get().is_some_and(|n| {
+                    n as usize > MAX_HEADER.saturating_sub(position.get() as usize)
+                }) {
                     return Err(LoadError::Limit);
                 }
             }
-            DataToken::SequenceEnd | DataToken::ItemEnd => {
-                depth = depth.checked_sub(1).ok_or(LoadError::Unsupported)?;
+            DataToken::ItemStart { len } => {
+                scopes.item()?;
+                if len.get().is_some_and(|n| {
+                    n as usize > MAX_HEADER.saturating_sub(position.get() as usize)
+                }) {
+                    return Err(LoadError::Limit);
+                }
             }
+            DataToken::SequenceEnd => scopes.end_sequence()?,
+            DataToken::ItemEnd => scopes.end_item()?,
             DataToken::PixelSequenceStart => {
-                depth += 1;
-                if depth > 64 {
-                    return Err(LoadError::Limit);
-                }
+                scopes.sequence(Tag(0x7fe0, 0x0010))?;
             }
-            DataToken::ItemValue(_) | DataToken::OffsetTable(_) if depth == 0 => {
+            DataToken::ItemValue(_) | DataToken::OffsetTable(_) if scopes.depth() == 0 => {
                 return Err(LoadError::Unsupported);
             }
             DataToken::ItemValue(_) | DataToken::OffsetTable(_) => (),
@@ -407,11 +428,18 @@ fn read_header_inner(
 /// Check declared meta value lengths before the framework allocates them.
 fn validate_meta(mut bytes: &[u8]) -> Result<(), LoadError> {
     let mut elements = 0;
+    let mut tags = std::collections::HashSet::new();
     while !bytes.is_empty() {
         elements += 1;
         if elements > 4096 || bytes.len() < 8 || bytes[..2] != [2, 0] {
             return Err(LoadError::Unsupported);
         }
+        let tag = u16::from_le_bytes([bytes[2], bytes[3]]);
+        if tags.contains(&tag) {
+            return Err(LoadError::Unsupported);
+        }
+        tags.try_reserve(1).map_err(|_| LoadError::Limit)?;
+        tags.insert(tag);
         let (head, length) = match &bytes[4..6] {
             b"OB" | b"UN" => {
                 if bytes.len() < 12 || bytes[6..8] != [0, 0] {

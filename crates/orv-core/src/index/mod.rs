@@ -11,7 +11,9 @@ mod nifti_input;
 mod pairs;
 mod readers;
 pub use import::{index_paths, index_paths_detailed};
+mod segments;
 mod source;
+pub use segments::{SegmentationError, read_binary_segmentation};
 #[cfg(test)]
 mod tests;
 

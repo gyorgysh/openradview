@@ -110,7 +110,7 @@ impl Source {
             data.assign_id(id);
         }
     }
-    fn check(&self) -> Result<(), LoadError> {
+    pub(super) fn check(&self) -> Result<(), LoadError> {
         if let Encoding::Paired { header, .. } = &self.encoding {
             header.check()?;
         }

@@ -73,6 +73,19 @@ masks/coverage/metadata and transient overlap bitsets before allocation, and
 cancellation discards the private result. This model requires callers to verify
 source association; it does not itself parse or validate DICOM references.
 
+The worker-only selected-file BINARY reader verifies explicit SOP class/instance/
+frame references inside the selected indexed DICOM series, then maps original
+source frames to the exact prepared volume's affine order. Native little-endian
+one-bit pixels, matching reference/plane geometry and a single source per mask
+frame are required; no resampling or reference paths are followed. Multiframe
+sources require an explicit original frame number. Duplicate segment/source-plane
+pairs are refused rather than folded across acquisition axes. Metadata parsing
+rejects repeated attributes within a dataset while allowing separate frame items;
+syntax admission precedes dataset parsing. File/source identity checks surround
+import, resources are admitted before parsing/reading, and public results retain
+numeric IDs and masks without source UIDs or segment descriptions. This core API
+does not add a desktop import action or change ordinary snapshot scope.
+
 Import reports retain category counts and at most 64 generated item ordinals in
 RAM, without filenames, paths, raw tags or parser messages. Detailed errors retain
 the report even when no supported image loads. Uncertain representation failures
