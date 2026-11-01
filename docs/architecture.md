@@ -81,6 +81,14 @@ only its selected functional group, avoiding a full per-frame metadata-table cop
 
 ## Rendering and interaction
 
+Explicit image inspection also summarizes the selected series on a cancellable
+worker without decoding its other pixels. A shared regular-stack geometry
+validator supplies affine construction to both metadata inspection and dense
+volumes; its temporary ordering table uses shared RAM admission. Readiness
+describes geometry and label-grid size independently of pixel compatibility and
+current CPU/GPU admission. Lossy/derived declarations remain typed aggregate
+counts, including unknown values, without raw metadata or new snapshot fields.
+
 The UI paints the last completed acquired image or coherent linked-plane result
 while newer work is pending. Workers coalesce obsolete requests and preserve
 cancellation. Linked planes share one rendered crosshair/generation; overlays do

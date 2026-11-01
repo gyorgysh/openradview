@@ -178,6 +178,15 @@ export is a user-chosen local save, not an anonymization guarantee.
 
 ## Local inspection
 
+The selected series' header summary checks regular volume geometry with the same
+affine rules as materialized volumes, including regular tilt. It reports grid
+steps, label-grid size limits and a decoded-data estimate separately from current
+memory/device admission and pixel-context validation. It decodes no additional
+frames. Declared lossy-compression and original/derived flags are counted per
+image; absent, malformed or unavailable declarations remain unknown. These flags
+are not an independent verification of source quality. Affine steps are not
+acquisition slice thickness. No raw tags, identifiers or source paths are exposed.
+
 Source 2D **Image info…** captures one displayed frame, its display settings and
 image number. It shows dimensions, declared spacing, NIfTI component/complex
 context and spatial-reference type without raw patient tags or paths. Close the

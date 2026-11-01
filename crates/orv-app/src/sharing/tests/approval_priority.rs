@@ -53,6 +53,7 @@ fn inbound_approval_waits_for_local_dialogs_then_escape_denies_without_a_grant()
             "external" => (),
             "information" => workspace.image_info.open(
                 workspace.current_image().unwrap().1,
+                Arc::new(workspace.study.as_ref().unwrap().series[0].clone()),
                 24,
                 workspace.view.clone(),
                 ctx.clone(),
