@@ -125,8 +125,9 @@ pub(in crate::export::illustration) fn input(
             queue,
         },
         outlines,
-        masks,
+        masks: masks.map(Arc::new),
         mask_note: None,
+        sheet: None,
     }
 }
 #[cfg(feature = "gpu-tests")]
@@ -157,6 +158,7 @@ fn real_gpu_illustrations_keep_image_only_bytes_and_match_known_mask_and_outline
             choice: Choice {
                 marks: false,
                 masks: true,
+                ..Default::default()
             },
         },
         &|| false,
@@ -210,6 +212,7 @@ fn real_gpu_illustrations_keep_image_only_bytes_and_match_known_mask_and_outline
             choice: Choice {
                 marks: true,
                 masks: false,
+                ..Default::default()
             },
         },
         &|| false,
@@ -260,6 +263,7 @@ fn illustration_source_verification_refuses_changed_pixels_and_private_reference
                 choice: Choice {
                     marks: true,
                     masks: true,
+                    ..Default::default()
                 },
             },
             &|| false,
@@ -280,6 +284,7 @@ fn categorical_gpu_composition_tracks_every_rotation_flip_and_zoom_pan() {
             choice: Choice {
                 marks: false,
                 masks: true,
+                ..Default::default()
             },
         },
         &|| false,

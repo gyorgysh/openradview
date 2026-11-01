@@ -382,8 +382,9 @@ inside a new user-chosen folder. The displayed aspect, window/inversion, pan/zoo
 physical plane/camera and sampling settings are retained. Output is bounded to
 1024pixels per side for slices and512 for volumes; it is a rendered picture,
 not an original-resolution dataset export. No app overlays, measurements or label
-map appear. A whole MPR grid, DICOM secondary capture and batch/video export are
-not implemented. Larger outputs would need a separately designed resource policy.
+map appear. Separate sheet actions cover MPR grids and source image ranges.
+DICOM secondary capture, batch/video export and higher per-pane resolutions are
+not implemented.
 
 **Study → Export illustration…** separately captures one source image, settled
 thin MPR/oblique plane or active comparison pane, up to 1024 pixels per side. Added
@@ -405,6 +406,28 @@ coordinates/kinds/numbers and mask settings/raster hash. It is not the image-onl
 snapshot schema and does not contain an editable mask volume. Reproduction needs
 the original source and masks. No files are written until explicit Save. A late
 cancellation after both files finish leaves the completed export in place.
+
+**Study → Export image range…** uses explicit one-based First image, Through
+image and Image step controls within the captured source series. The complete
+Included images list shows the actual selection, at most 16 images. Through is
+an inclusive upper bound and need not itself be sampled. Each source image uses
+the captured display settings in an initially 512-pixel square tile. This is an
+overview, without acquisition timing or a batch of different studies.
+
+**Study → Export MPR grid…** takes all three coherent completed thin planes from
+one physical point, including planes hidden by a focused native layout. Per-pane
+transforms/display settings and available raster aspects are captured together.
+Slabs are refused. Both sheet actions support 1–4 occupied columns (MPR at most 3),
+8-pixel gutters, scaling down within 2048 pixels per side and the same explicit
+layer/preview/exact-byte save flow. Generic Image N or Axial/Coronal/Sagittal
+captions identify each tile. No free text or patient overlay is added.
+
+Sheets use illustration schema/version 2 with layout, source/PNG hashes and each
+tile's caption, scene, geometry and chosen layer data. Individual scenes retain
+the existing per-pane limits. Source images and GPU readback tiles are prepared,
+copied and released one at a time; only the bounded CPU mosaic and numeric
+settings accumulate. A changed range or columns clears preview and Save. Image-
+only exports and MCP snapshot schemas/output limits remain unchanged.
 
 File selection, whole-series fingerprints, frozen-volume source verification,
 GPU readback/PNG encoding and writes run on one cancellable worker using the

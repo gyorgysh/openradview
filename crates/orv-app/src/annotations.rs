@@ -11,7 +11,7 @@ use std::sync::Arc;
 mod creation;
 mod drawing;
 mod outlines;
-pub(crate) use outlines::{Outline, Outlines};
+pub(crate) use outlines::{Outline, Outlines, SourceOutlines};
 mod editor;
 mod history;
 mod serialization;

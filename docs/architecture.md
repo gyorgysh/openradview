@@ -218,13 +218,25 @@ for nonrecursive cleanup; a failed second creation cannot delete another writer'
 file. The Workspace export lifetime closes both flows on source/mode changes.
 Ordinary snapshots/tool schemas retain their image-only contract.
 
-The renderer also provides a separate admitted CPU mosaic for at most16 bounded
-slice tiles. Its fixed-cell layout scales down to a2048-pixel output side without
+The renderer also provides a separate admitted CPU mosaic for at most 16 bounded
+slice tiles. Its fixed-cell layout scales down to a 2048-pixel output side without
 changing SceneState or shared snapshot/readback limits. Tiles can be read as RGBA,
 copied row by row and released before preparing the next; the mosaic encodes once
 with bounded PNG scratch. Duplicate, wrong-sized or incomplete tiles cannot produce
 a PNG. Callers must retain separate encoded-output and preview admissions. This
 renderer interface does not expose a desktop grid/contact-sheet action by itself.
+
+Desktop sheet capture keeps either three settled MPR planes from one snapshot or
+one source capability, captured display settings and a bounded coordinate-only
+source-mark collection. Private reference-key copies have their own bounded
+admission; empty mark collections keep only raster/ordinal boundaries. Explicit
+first/through/step validation yields at most 16
+ordinals without eagerly decoding their images on the UI thread. A worker reads,
+paints, copies and releases one tile at a time; generic captions and per-tile
+scene/layer records enter a separate version 2 illustration manifest. MPR inputs
+must share source/volume/point and applied mask identity. Numeric metadata scratch
+and aggregate JSON output are bounded separately. Preview generation includes
+range/column choices; Save reuses bytes after a fresh source check.
 
 Window/level, zoom, pan, interpolation and validity use the same implementation
 for desktop and offscreen rendering. Repaint is driven by input, results, active

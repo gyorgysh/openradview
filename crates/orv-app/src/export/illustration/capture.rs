@@ -9,6 +9,66 @@ impl Workspace {
         self.export.close();
         self.export.illustration.open(input);
     }
+    pub(crate) fn open_sheet_export(&mut self, frame: &eframe::Frame) {
+        self.pause_playback();
+        let captured = (|| {
+            let mut input = self.capture_illustration(frame)?;
+            input.sheet = Some(match self.mode {
+                ViewMode::Acquired => sheets::Sheet::Source {
+                    marks: self.annotations.source_outlines()?,
+                    total: input.base.series.frame_count(),
+                },
+                ViewMode::Mpr => {
+                    let mpr = self.mpr.as_ref().ok_or("No completed MPR grid")?;
+                    let (_, ready) = mpr.shared_view().ok_or("No completed MPR grid")?;
+                    if !ready {
+                        return Err("Wait for all MPR planes to finish");
+                    }
+                    let snapshot = mpr.snapshot.as_ref().ok_or("No completed MPR grid")?;
+                    if snapshot.images.iter().any(|image| image.slab.is_some()) {
+                        return Err("MPR sheets currently need thin planes");
+                    }
+                    let mut panes = Vec::new();
+                    panes
+                        .try_reserve_exact(3)
+                        .map_err(|_| "Not enough memory for MPR capture")?;
+                    for index in 0..3 {
+                        let image = snapshot.images[index].clone();
+                        let mut view = mpr.views[index].clone();
+                        view.slice = 0;
+                        let outlines = mpr.annotations[index].outlines(&image, &view)?;
+                        panes.push(FrozenInput {
+                            base: super::super::Input {
+                                series: input.base.series.clone(),
+                                pixels: Pixels::Reformat(image, snapshot.volume.clone()),
+                                scene: orv_core::scene::SceneState {
+                                    schema_version: 1,
+                                    source_sha256: "0".repeat(64),
+                                    series_index: input.base.scene.series_index,
+                                    view,
+                                    crosshair_mm: Some(snapshot.point),
+                                    reformat_side: snapshot.reformat_side,
+                                    output_size: mpr.picture_sizes[index].unwrap_or([512, 512]),
+                                    reconstruction: None,
+                                },
+                                device: input.base.device.clone(),
+                                queue: input.base.queue.clone(),
+                            },
+                            outlines,
+                            masks: input.masks.clone(),
+                            mask_note: input.mask_note,
+                            sheet: None,
+                        });
+                    }
+                    sheets::Sheet::Mpr { panes }
+                }
+                _ => return Err("Sheets need source images or a completed thin MPR grid"),
+            });
+            Ok(input)
+        })();
+        self.export.close();
+        self.export.illustration.open(captured);
+    }
     fn capture_illustration(&self, frame: &eframe::Frame) -> Result<FrozenInput, &'static str> {
         let base = self
             .picture_input(frame)
@@ -56,8 +116,9 @@ impl Workspace {
         Ok(FrozenInput {
             base,
             outlines,
-            masks,
+            masks: masks.map(Arc::new),
             mask_note,
+            sheet: None,
         })
     }
 }

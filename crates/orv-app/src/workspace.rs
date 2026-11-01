@@ -554,6 +554,16 @@ impl Workspace {
                         self.open_illustration_export(frame);
                         ui.close();
                     }
+                    let sheet_action = match self.mode {
+                        ViewMode::Acquired => Some("Export image range…"),
+                        ViewMode::Mpr => Some("Export MPR grid…"),
+                        _ => None,
+                    };
+                    if let Some(label) = sheet_action
+                        && ui.add_enabled(ready,egui::Button::new(label)).clicked() {
+                        self.open_sheet_export(frame);
+                        ui.close();
+                    }
                     if ui.button("Close study").clicked() { self.close(); ui.close(); }
                 });
             }

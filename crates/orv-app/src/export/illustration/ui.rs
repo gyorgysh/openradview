@@ -25,7 +25,10 @@ impl Controller {
             ..Default::default()
         };
         match input {
-            Ok(input) => self.input = Some(Arc::new(input)),
+            Ok(input) => {
+                self.choice.sheet = input.sheet.as_ref().map(sheets::Sheet::defaults);
+                self.input = Some(Arc::new(input));
+            }
             Err(error) => self.notice = Some(error.into()),
         }
     }
@@ -123,12 +126,42 @@ impl Controller {
                 ui.label("Identifying text may remain inside the image. Settings include source fingerprints and geometry, without source paths or patient tags. Review both files before sharing.");
                 if let Some(input) = &self.input {
                     let [width, height] = input.base.scene.output_size;
-                    ui.weak(format!("{width} × {height} pixels · captured current pane · personal education only"));
+                    if input.sheet.is_none() {
+                        ui.weak(format!("{width} × {height} pixels · captured current pane · personal education only"));
+                    }
                     ui.weak("Results, crosshairs, scales, editing handles and app controls are excluded. Masks are a picture, not editable labels.");
                     let mut choice = self.choice;
+                    let mut ready = true;
                     ui.add_enabled_ui(self.saving.is_none(), |ui| {
-                        ui.add_enabled(!input.outlines.marks().is_empty(), egui::Checkbox::new(&mut choice.marks,
-                            format!("Include completed measurement outlines ({})", input.outlines.marks().len())));
+                        if let (Some(sheet),Some(settings)) = (&input.sheet,&mut choice.sheet) {
+                            ui.weak(match sheet { sheets::Sheet::Source {..} => "Source images fitted to square tiles. The captured display settings apply to each image.", sheets::Sheet::Mpr {..} => "Axial, coronal and sagittal planes from one captured point. Each tile keeps its captured raster aspect." });
+                            ui.horizontal_wrapped(|ui| {
+                                if let sheets::Sheet::Source {total,..} = sheet
+                                    && let Some(range) = &mut settings.range {
+                                    let maximum=(*total).min(u32::MAX as usize) as u32;
+                                    crate::toolbar::number(ui,"First image",egui::DragValue::new(&mut range.first).range(1..=maximum));
+                                    crate::toolbar::number(ui,"Through image",egui::DragValue::new(&mut range.through).range(1..=maximum));
+                                    crate::toolbar::number(ui,"Image step",egui::DragValue::new(&mut range.step).range(1..=maximum));
+                                }
+                                crate::toolbar::number(ui,"Columns",egui::DragValue::new(&mut settings.columns).range(1..=4));
+                            });
+                            match sheet.layout(*settings) {
+                                Ok((layout,ordinals)) => {
+                                    let [w,h]=layout.size();
+                                    ui.weak(format!("{w} × {h} pixels · {} tiles · personal education only",layout.tiles().len()));
+                                    if !ordinals.is_empty() {
+                                        let numbers=ordinals.iter().map(|n|(n+1).to_string()).collect::<Vec<_>>().join(", ");
+                                        ui.label(format!("Included images: {numbers}"));
+                                    }
+                                }
+                                Err(reason) => { ready=false;ui.label(reason); }
+                            }
+                        }
+                        let count=input.sheet.as_ref().map_or(input.outlines.marks().len(),sheets::Sheet::count_marks);
+                        let marks_label=if matches!(input.sheet,Some(sheets::Sheet::Source {..})) {
+                            "Include outlines on the selected source images".into()
+                        } else { format!("Include completed measurement outlines ({count})") };
+                        ui.add_enabled(count>0, egui::Checkbox::new(&mut choice.marks,marks_label));
                         let label = input.masks.as_ref().map_or("Include applied masks", |mask| mask.name());
                         ui.add_enabled(input.masks.is_some(), egui::Checkbox::new(&mut choice.masks, label));
                         if let Some(note) = input.mask_note { ui.weak(note); }
@@ -136,7 +169,7 @@ impl Controller {
                     self.choose(choice);
                     if self.saving.is_none() {
                         ui.horizontal_wrapped(|ui| {
-                            if ui.button("Prepare preview").clicked() { self.prepare(ctx); }
+                            if ui.add_enabled(ready,egui::Button::new("Prepare preview")).clicked() { self.prepare(ctx); }
                             if self.pending.is_some() && ui.button("Cancel preview").clicked() { self.invalidate(); }
                         });
                     }
@@ -200,6 +233,7 @@ mod tests {
         controller.choose(Choice {
             marks: true,
             masks: false,
+            ..Default::default()
         });
         controller.accept(&ctx, 7, Ok(artifact.clone()));
         assert!(controller.artifact.is_none() && controller.pending.is_none());
@@ -218,6 +252,7 @@ mod tests {
         controller.choose(Choice {
             marks: false,
             masks: true,
+            ..Default::default()
         });
         assert!(controller.artifact.is_none() && controller.texture.is_none());
         controller.open(Err("No settled plane"));
