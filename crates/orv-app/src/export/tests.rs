@@ -203,3 +203,41 @@ fn local_export_uses_real_gpu_display_parameters_and_preserves_provenance() {
     };
     assert!(worker::render(input, || false).is_err());
 }
+
+#[test]
+fn failed_exclusive_metadata_creation_preserves_the_other_writers_file() {
+    let parent = tempfile::tempdir().unwrap();
+    let path = parent.path().join("OpenRadView-illustration");
+    let planted = std::cell::Cell::new(false);
+    assert!(
+        worker::write_illustration(parent.path(), b"png", b"metadata", || {
+            if !planted.get() && path.join("image.png").exists() {
+                std::fs::write(path.join("illustration.json"), b"other writer").unwrap();
+                planted.set(true);
+            }
+            false
+        })
+        .is_err()
+    );
+    assert!(planted.get());
+    assert!(!path.join("image.png").exists());
+    assert_eq!(
+        std::fs::read(path.join("illustration.json")).unwrap(),
+        b"other writer"
+    );
+    assert_eq!(std::fs::read_dir(&path).unwrap().count(), 1);
+    let saved =
+        worker::write_illustration(parent.path(), b"exact reviewed bytes", b"manifest", || {
+            false
+        })
+        .unwrap();
+    assert_ne!(path, saved);
+    assert_eq!(
+        std::fs::read(saved.join("image.png")).unwrap(),
+        b"exact reviewed bytes"
+    );
+    assert_eq!(
+        std::fs::read(path.join("illustration.json")).unwrap(),
+        b"other writer"
+    );
+}

@@ -370,6 +370,13 @@ impl ComparisonSession {
         }
         false
     }
+    pub(crate) fn illustration_outlines(
+        &self,
+        image: &Frame,
+        view: &ViewState,
+    ) -> Result<crate::annotations::Outlines, &'static str> {
+        self.panes[self.active].annotations.outlines(image, view)
+    }
     pub fn picture(&self) -> Option<(usize, ViewSpec, crate::export::Pixels, [u32; 2])> {
         let pane = &self.panes[self.active];
         let (spec, image, size) = pane.picture()?;

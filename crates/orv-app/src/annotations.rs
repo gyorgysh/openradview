@@ -9,6 +9,9 @@ use orv_core::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 mod creation;
+mod drawing;
+mod outlines;
+pub(crate) use outlines::{Outline, Outlines};
 mod editor;
 mod history;
 mod serialization;
@@ -36,6 +39,16 @@ pub(crate) enum SavedTool {
     PolygonRoi,
 }
 impl SavedTool {
+    fn from_tool(tool: Tool) -> Result<Self, &'static str> {
+        match tool {
+            Tool::Distance => Ok(Self::Distance),
+            Tool::Angle => Ok(Self::Angle),
+            Tool::Roi => Ok(Self::Roi),
+            Tool::EllipseRoi => Ok(Self::EllipseRoi),
+            Tool::PolygonRoi => Ok(Self::PolygonRoi),
+            _ => Err("Unsupported measurement"),
+        }
+    }
     fn tool(self) -> Tool {
         match self {
             Self::Distance => Tool::Distance,
@@ -63,33 +76,33 @@ impl SavedMark {
         image: &Frame,
         cancelled: &impl Fn() -> bool,
     ) -> Result<(), &'static str> {
-        if cancelled() {
-            return Err("Comparison operation cancelled.");
-        }
-        let tool = self.tool.tool();
-        let count = match tool {
-            Tool::Angle => self.points.len() == 3,
-            Tool::PolygonRoi => {
-                (3..=measurements::MAX_POLYGON_VERTICES).contains(&self.points.len())
-            }
-            _ => self.points.len() == 2,
-        };
-        if !count {
-            return Err("Invalid measurement points.");
-        }
-        if image.slab.is_some()
-            || self
-                .points
-                .iter()
-                .any(|point| !sampled_point(image, *point))
-        {
-            return Err("Measurement points are outside the verified image.");
-        }
-        if tool.roi() {
-            roi_shape(tool, &self.points)?.validate([image.width, image.height], cancelled)?;
-        }
-        Ok(())
+        validate_points(image, self.tool.tool(), &self.points, cancelled)
     }
+}
+fn validate_points(
+    image: &Frame,
+    tool: Tool,
+    points: &[[f64; 2]],
+    cancelled: &impl Fn() -> bool,
+) -> Result<(), &'static str> {
+    if cancelled() {
+        return Err("Measurement operation cancelled.");
+    }
+    let count = match tool {
+        Tool::Angle => points.len() == 3,
+        Tool::PolygonRoi => (3..=measurements::MAX_POLYGON_VERTICES).contains(&points.len()),
+        _ => points.len() == 2,
+    };
+    if !count {
+        return Err("Invalid measurement points.");
+    }
+    if image.slab.is_some() || points.iter().any(|p| !sampled_point(image, *p)) {
+        return Err("Measurement points are outside the verified image.");
+    }
+    if tool.roi() {
+        roi_shape(tool, points)?.validate([image.width, image.height], cancelled)?;
+    }
+    Ok(())
 }
 pub(crate) fn validate_mark_counts(marks: &[SavedMark]) -> Result<(), &'static str> {
     if marks.len() > MAX_MARKS
@@ -194,14 +207,7 @@ impl Annotations {
         self.marks
             .iter()
             .map(|mark| {
-                let tool = match mark.tool {
-                    Tool::Distance => SavedTool::Distance,
-                    Tool::Angle => SavedTool::Angle,
-                    Tool::Roi => SavedTool::Roi,
-                    Tool::EllipseRoi => SavedTool::EllipseRoi,
-                    Tool::PolygonRoi => SavedTool::PolygonRoi,
-                    _ => return Err("Unsupported measurement"),
-                };
+                let tool = SavedTool::from_tool(mark.tool)?;
                 Ok(CapturedMark {
                     saved: SavedMark {
                         frame: mark
@@ -426,23 +432,15 @@ impl Annotations {
                     }
                 }
             }
-            if let Some(point) = mark.points.first()
-                && let Some(position) = screen_at(response.rect, image, view, *point)
-            {
-                ui.painter_at(response.rect).text(
-                    position + egui::vec2(6., 6.),
-                    egui::Align2::LEFT_TOP,
-                    format!(
-                        "#{}{}",
-                        mark.id.saturating_add(1),
-                        if self.selected == Some(mark.id) {
-                            " •"
-                        } else {
-                            ""
-                        }
-                    ),
-                    egui::FontId::monospace(11.),
-                    theme::PAPER,
+            if let Some(point) = mark.points.first() {
+                drawing::number(
+                    &ui.painter_at(response.rect),
+                    response.rect,
+                    image,
+                    view,
+                    *point,
+                    mark.id.saturating_add(1),
+                    self.selected == Some(mark.id),
                 );
             }
         }
@@ -713,40 +711,7 @@ fn paint(
     points: &[[f64; 2]],
     tool: Tool,
 ) {
-    let painter = ui.painter_at(rect);
-    let screen = points
-        .iter()
-        .filter_map(|p| screen_at(rect, image, view, *p))
-        .collect::<Vec<_>>();
-    // The dark surround keeps geometry visible over bright source pixels.
-    for stroke in [
-        egui::Stroke::new(3.5, theme::INK),
-        egui::Stroke::new(1.5, theme::PAPER),
-    ] {
-        if matches!(tool, Tool::Roi | Tool::EllipseRoi) && screen.len() > 1 {
-            let bounds = Rect::from_two_pos(screen[0], screen[1]);
-            if tool == Tool::EllipseRoi {
-                painter.add(egui::Shape::ellipse_stroke(
-                    bounds.center(),
-                    bounds.size() / 2.,
-                    stroke,
-                ));
-            } else {
-                painter.rect_stroke(bounds, 0., stroke, egui::StrokeKind::Middle);
-            }
-        } else {
-            for pair in screen.windows(2) {
-                painter.line_segment([pair[0], pair[1]], stroke);
-            }
-            if tool == Tool::PolygonRoi && screen.len() > 2 {
-                painter.line_segment([screen[screen.len() - 1], screen[0]], stroke);
-            }
-        }
-    }
-    for pos in screen {
-        painter.circle_filled(pos, 3.0, theme::PAPER);
-        painter.circle_stroke(pos, 4.5, egui::Stroke::new(1.0, theme::INK));
-    }
+    drawing::geometry(&ui.painter_at(rect), rect, image, view, points, tool, true);
 }
 
 #[cfg(test)]

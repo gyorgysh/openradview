@@ -385,13 +385,35 @@ not an original-resolution dataset export. No app overlays, measurements or labe
 map appear. A whole MPR grid, DICOM secondary capture and batch/video export are
 not implemented. Larger outputs would need a separately designed resource policy.
 
+**Study → Export illustration…** separately captures one source image, settled
+thin MPR/oblique plane or active comparison pane, up to 1024 pixels per side. Added
+layers start unchecked. Completed current-plane outlines/numbers and the selected
+applied manual/supplied mask group can be included. Mask visibility, fill/outline/
+hatch style, opacity, overlap pattern and nearest categorical sampling follow the
+native view. Unapplied connected-region proposals are unavailable; finish/cancel
+measurement drafts/edits first. Comparison panes have no applied mask layer.
+Slabs and 3D are unsupported. Results, selection/edit handles, crosshairs, scales
+and app controls are excluded. Outlines use fixed output-pixel strokes/fonts.
+
+Prepare preview checks the fresh source and renders immutable selected layers on
+a worker. Changing layers clears the preview and disables saving until a new
+matching preview finishes. The displayed preview may be scaled to fit; Save uses
+its exact PNG bytes, after fresh source verification. It writes image.png and a
+separate version 1 illustration.json in a new OpenRadView-illustration folder.
+That manifest records the scene, geometry/source/PNG hashes, selected outline
+coordinates/kinds/numbers and mask settings/raster hash. It is not the image-only
+snapshot schema and does not contain an editable mask volume. Reproduction needs
+the original source and masks. No files are written until explicit Save. A late
+cancellation after both files finish leaves the completed export in place.
+
 File selection, whole-series fingerprints, frozen-volume source verification,
 GPU readback/PNG encoding and writes run on one cancellable worker using the
 native GPU device. Retained volume identities are matched independent of source
 ordering (including left-handed NIfTI); mismatched source pixels are refused.
 Volume verification is bounded to131,072frames. Existing output is never replaced;
 new folders/files are created exclusively, with0700/0600 permissions on Unix.
-Known partial outputs are removed on failure/cancellation. Forced exit or power
+Only files successfully created by that operation are removed on failure/cancellation;
+failed exclusive creation never transfers ownership of an existing file. Forced exit or power
 loss can still leave an incomplete export; neither is claimed transaction-safe.
 
 No network or agent permission is involved. Exported settings exclude paths,

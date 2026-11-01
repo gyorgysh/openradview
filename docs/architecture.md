@@ -201,6 +201,23 @@ untouched target and retain their image-only contract and existing size caps.
 Target textures and readback/encoding working storage have separate admissions;
 row copies and encoded-output growth are fallible and bounded. Callers retaining
 encoded bytes must account for that storage in their artifact/cache lifetime.
+Explicit desktop illustrations capture immutable completed outlines and the
+selected applied manual/supplied mask group separately from image-only exports.
+A worker-owned egui context uses bundled fonts and shared native coordinate,
+outline and categorical-mesh painters on the admitted offscreen target. Ellipse
+contours and aggregate projected geometry are bounded before tessellation;
+composition CPU/GPU working storage, mask planes and retained artifact/preview
+textures have separate admissions. The separate illustration manifest records
+layer choices/settings, coordinates and hashes without raw source identifiers.
+
+Preview generations bind input identity and layer choices. A change drops the
+previous result/texture and disables Save. Saving rechecks fresh source content
+and private reference identity, then writes the exact encoded preview bytes.
+Output uses exclusive numbered folders and tracks each successfully created file
+for nonrecursive cleanup; a failed second creation cannot delete another writer's
+file. The Workspace export lifetime closes both flows on source/mode changes.
+Ordinary snapshots/tool schemas retain their image-only contract.
+
 Window/level, zoom, pan, interpolation and validity use the same implementation
 for desktop and offscreen rendering. Repaint is driven by input, results, active
 playback and finite animation. Idle viewing does not require a polling loop.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Read-only supplied masks have no manual-label edits, undo or automatic attachment.
-mod overlay;
+pub(in crate::labels) mod overlay;
 use super::{
     OverlayView,
     jobs::Worker,
@@ -42,6 +42,21 @@ impl Default for Supplied {
     }
 }
 impl Supplied {
+    pub(super) fn illustration_masks(
+        &self,
+        selected: usize,
+    ) -> Result<Option<super::CapturedMasks>, &'static str> {
+        if !self.visible || self.series != selected || self.display.visible == 0 {
+            return Ok(None);
+        }
+        let Some(map) = &self.current else {
+            return Ok(None);
+        };
+        if self.pending.is_some() {
+            return Err("Wait for mask loading to finish, then reopen export");
+        }
+        super::CapturedMasks::supplied(map.clone(), self.display.clone(), self.opacity).map(Some)
+    }
     pub fn poll(&mut self) {
         let Some((generation, result)) = self.worker.as_ref().and_then(Worker::take) else {
             return;
@@ -323,6 +338,34 @@ mod tests {
             )
             .unwrap(),
         )
+    }
+    #[test]
+    fn illustration_capture_uses_only_the_selected_supplied_ids_and_waits_for_replacement() {
+        let masks = masks();
+        let mut state = Supplied {
+            current: Some(masks.clone()),
+            series: 3,
+            ..Default::default()
+        };
+        let captured = state.illustration_masks(3).unwrap().unwrap();
+        assert_eq!(captured.description().visible_ids, [9]);
+        let json = serde_json::to_value(captured.description()).unwrap();
+        assert_eq!(json["group"], "supplied");
+        assert!(
+            captured
+                .prepare(&masks.source_arc().frames()[1], 8, &|| false)
+                .unwrap()
+                .image
+                .pixels
+                .iter()
+                .all(|p| p.a() != 0)
+        );
+        assert!(state.illustration_masks(2).unwrap().is_none());
+        state.pending = Some((1, 3));
+        assert!(state.illustration_masks(3).is_err());
+        state.pending = None;
+        state.display.visible = 0;
+        assert!(state.illustration_masks(3).unwrap().is_none());
     }
     #[test]
     fn failed_replacement_and_cancelled_or_stale_completion_preserve_the_previous_set() {
