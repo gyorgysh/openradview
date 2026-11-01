@@ -16,6 +16,13 @@ They are available without a download. Use them to learn the controls.
 
 ## Move around an image
 
+In source 2D, **Image info… → Series geometry and source** checks regular volume
+geometry, affine grid steps and label-grid size without decoding the whole series.
+It also shows an estimated decoded size and declared lossy/derived image counts.
+Unknown declarations remain unknown. Compatible geometry alone does not establish
+pixel compatibility, anatomical correspondence or current RAM/GPU availability;
+those view requirements are checked when opening the view.
+
 | Action | Control |
 | --- | --- |
 | Browse images or move a plane | Scroll, ↑/↓, or Images **S** and drag |

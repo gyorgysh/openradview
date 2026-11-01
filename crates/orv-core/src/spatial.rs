@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! DICOM PS3.3 C.7.6.2.1: LPS millimetres and zero-based pixel centres.
 use crate::{study::Geometry, vector::*};
+mod stack;
+pub(crate) use stack::RegularGeometry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeometryError {

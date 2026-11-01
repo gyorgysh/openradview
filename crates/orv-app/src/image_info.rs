@@ -5,8 +5,8 @@ use crate::theme;
 use eframe::egui;
 use orv_core::{
     ViewState,
-    inspection::{self, Histogram},
-    study::Frame,
+    inspection::{self, Histogram, SeriesInfo},
+    study::{Frame, Series},
 };
 use std::{sync::Arc, sync::mpsc::TryRecvError};
 
@@ -17,6 +17,7 @@ pub struct ImageInfo {
     view: ViewState,
     task: Option<worker::Task>,
     histogram: Option<Histogram>,
+    series: Option<SeriesInfo>,
     error: Option<&'static str>,
     channel: usize,
     logarithmic: bool,
@@ -28,9 +29,16 @@ impl ImageInfo {
     pub fn close(&mut self) {
         *self = Self::default();
     }
-    pub fn open(&mut self, image: Arc<Frame>, index: usize, view: ViewState, ctx: egui::Context) {
+    pub fn open(
+        &mut self,
+        image: Arc<Frame>,
+        series: Arc<Series>,
+        index: usize,
+        view: ViewState,
+        ctx: egui::Context,
+    ) {
         self.close();
-        self.task = Some(worker::Task::start(image.clone(), ctx));
+        self.task = Some(worker::Task::start(image.clone(), series, ctx));
         self.image = Some(image);
         self.index = index;
         self.view = ViewState {
@@ -44,8 +52,9 @@ impl ImageInfo {
         };
         if let Some(task) = &self.task {
             match task.result.try_recv() {
-                Ok(Ok(histogram)) => {
-                    self.histogram = Some(histogram);
+                Ok(Ok(result)) => {
+                    self.histogram = Some(result.histogram);
+                    self.series = Some(result.series);
                     self.task = None;
                 }
                 Ok(Err(message)) => {
@@ -124,9 +133,14 @@ impl ImageInfo {
         } else if let Some(message) = self.error {
             ui.label(message);
         } else {
-            ui.label("Counting pixels on a background worker…");
+            ui.label("Inspecting image and series on a background worker…");
         }
         egui::CollapsingHeader::new("Image details").show(ui, |ui| self.details(ui, image));
+        if let Some(series) = &self.series {
+            egui::CollapsingHeader::new("Series geometry and source")
+                .default_open(true)
+                .show(ui, |ui| series_details(ui, series));
+        }
         ui.weak("Close this window to continue navigating.");
     }
     fn details(&self, ui: &mut egui::Ui, image: &Frame) {
@@ -162,6 +176,70 @@ impl ImageInfo {
         }
         ui.weak("Image spacing is not monitor calibration or a guarantee of true object size. Pixel values do not establish a medical finding.");
     }
+}
+fn series_details(ui: &mut egui::Ui, series: &SeriesInfo) {
+    ui.label(format!(
+        "{} {} · estimated decoded source {:.1} MiB",
+        series.frames,
+        if series.frames == 1 {
+            "image"
+        } else {
+            "images"
+        },
+        series.decoded_bytes as f64 / (1024. * 1024.)
+    ));
+    match &series.geometry {
+        Ok(grid) => {
+            ui.label(format!(
+                "MPR / oblique / 3D geometry: regular {} × {} × {} grid{}",
+                grid.dimensions[0],
+                grid.dimensions[1],
+                grid.dimensions[2],
+                if grid.tilted {
+                    " · regular tilt retained"
+                } else {
+                    ""
+                }
+            ));
+            ui.small(format!(
+                "Affine steps: {} × {} × {} mm",
+                number(grid.steps_mm[0]),
+                number(grid.steps_mm[1]),
+                number(grid.steps_mm[2])
+            ));
+            let label_voxels = grid
+                .dimensions
+                .iter()
+                .try_fold(1usize, |count, size| count.checked_mul(*size));
+            let label_plane = grid.dimensions[0].checked_mul(grid.dimensions[1]);
+            ui.label(
+                if label_voxels.is_some_and(|count| count <= orv_core::labels::MAX_VOXELS)
+                    && label_plane.is_some_and(|count| count <= 4 * 1024 * 1024)
+                {
+                    "Label grid size: within current limits"
+                } else {
+                    "Label grid size exceeds current limits"
+                },
+            );
+            ui.weak("Pixel representation and current memory/device limits are checked when opening a view. Geometry alone does not establish anatomical correspondence.");
+        }
+        Err(orv_core::spatial::GeometryError::Limit) => {
+            ui.label("Geometry checking exceeds a supported size or current memory limit. Source 2D remains available.");
+        }
+        Err(error) => {
+            ui.label(format!("Regular volume geometry unavailable: {error}"));
+            ui.weak("Supported source images remain available in 2D.");
+        }
+    }
+    ui.label(format!(
+        "Lossy source declarations: {} yes · {} no · {} unknown",
+        series.lossy.yes, series.lossy.no, series.lossy.unknown
+    ));
+    ui.label(format!(
+        "Source derivation: {} derived · {} original · {} unknown",
+        series.derived.yes, series.derived.no, series.derived.unknown
+    ));
+    ui.weak("Unknown includes missing declarations. These flags do not independently verify source quality. Acquisition slice thickness is separate from affine grid steps.");
 }
 fn window(ctx: &egui::Context) -> egui::Window<'static> {
     crate::dialogs::window("Image information", ctx)
@@ -254,15 +332,25 @@ mod tests {
     use super::*;
     #[test]
     fn closing_information_releases_the_captured_frame_and_discards_pending_work() {
-        let image = orv_core::study::demo_study().series[0].frames[0].clone();
+        let study = orv_core::study::demo_study();
+        let series = Arc::new(study.series[0].clone());
+        let image = series.frames[0].clone();
+        drop(study);
         let weak = Arc::downgrade(&image);
         let mut info = ImageInfo::default();
-        info.open(image, 0, ViewState::default(), egui::Context::default());
+        info.open(
+            image,
+            series,
+            0,
+            ViewState::default(),
+            egui::Context::default(),
+        );
         assert!(info.is_open());
         info.close();
         assert!(!info.is_open());
         assert!(info.task.is_none());
         assert!(info.histogram.is_none());
+        assert!(info.series.is_none());
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while weak.upgrade().is_some() {
             assert!(
@@ -276,9 +364,11 @@ mod tests {
     fn information_window_with_real_fonts_stays_centered_inside_minimum_viewport() {
         let ctx = egui::Context::default();
         crate::theme::install(&ctx);
-        let image = orv_core::study::demo_study().series[0].frames[0].clone();
+        let study = orv_core::study::demo_study();
+        let image = study.series[0].frames[0].clone();
         let mut info = ImageInfo {
             histogram: Some(inspection::histogram(&image, 256, || false).unwrap()),
+            series: Some(inspection::series_info(&study.series[0], || false).unwrap()),
             ..Default::default()
         };
         for size in [

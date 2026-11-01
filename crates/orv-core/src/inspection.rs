@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Local image descriptions. Values and declared geometry do not establish medical meaning.
 mod histogram;
+mod series;
 use crate::study::{Frame, Geometry};
 pub use histogram::{ChannelHistogram, Histogram, histogram};
+pub use series::{Declarations, RegularGrid, SeriesInfo, series_info};
 
 /// LPS directions outside the left, right, top and bottom image edges.
 /// Small (<0.0001) direction components are suppressed as rounding noise.

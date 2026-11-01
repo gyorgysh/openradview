@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Show selected-series regular geometry, label-grid size, decoded-size estimate
+  and declared lossy/derived image counts in Image info without decoding the
+  whole series. Keep geometry readiness separate from pixel and device admission.
 - Explain skipped local inputs with bounded reason counts, including when no
   supported images load. Distinguish known unsupported encodings and DICOM object
   types, missing NIfTI companions, malformed metadata and uncertain input failures.

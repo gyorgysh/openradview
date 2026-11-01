@@ -35,6 +35,20 @@ struct IndexedFrame {
     header: Arc<Header>,
     frame: u32,
 }
+impl IndexedFrame {
+    fn decoded_bytes(&self) -> u64 {
+        let sample_bytes = self.header.dicom().map_or(4, |object| {
+            if crate::dicom_color::layout(object).ok().flatten().is_some() {
+                10 // Source RGB codes plus display RGBA.
+            } else if object.element(dicom_core::Tag(0x0028, 0x0120)).is_ok() {
+                5 // Scalar values plus potential stored-padding validity.
+            } else {
+                4
+            }
+        });
+        u64::from(self.header.width) * u64::from(self.header.height) * sample_bytes
+    }
+}
 struct CacheEntry {
     source: u64,
     frame: u32,
@@ -149,6 +163,47 @@ impl IndexedSeries {
     pub fn is_empty(&self) -> bool {
         self.frames.is_empty()
     }
+    pub(crate) fn declarations(&self, index: usize) -> (Option<bool>, Option<bool>) {
+        let Some(object) = self
+            .frames
+            .get(index)
+            .and_then(|entry| entry.header.dicom().ok())
+        else {
+            return (None, None);
+        };
+        let text = |tag| {
+            object
+                .element(tag)
+                .ok()
+                .filter(|element| {
+                    element
+                        .header()
+                        .len
+                        .get()
+                        .is_some_and(|length| length <= 128)
+                })
+                .and_then(|element| element.to_str().ok())
+                .filter(|text| text.len() <= 128)
+        };
+        let lossy = match text(dicom_core::Tag(0x0028, 0x2110))
+            .as_deref()
+            .map(str::trim)
+        {
+            Some("00") => Some(false),
+            Some("01") => Some(true),
+            _ => None,
+        };
+        let derived = match text(dicom_core::Tag(0x0008, 0x0008))
+            .as_deref()
+            .and_then(|text| text.split('\\').next())
+            .map(str::trim)
+        {
+            Some("ORIGINAL") => Some(false),
+            Some("DERIVED") => Some(true),
+            _ => None,
+        };
+        (lossy, derived)
+    }
     pub(crate) fn navigation_frame(&self, index: usize) -> Option<crate::navigation::SpatialFrame> {
         let entry = self.frames.get(index)?;
         let geometry = match &entry.header.format {
@@ -189,21 +244,10 @@ impl IndexedSeries {
     /// Conservative retained-pixel estimate before decoding. Declared scalar
     /// padding reserves a byte per sample even if no matching code is found.
     pub fn decoded_bytes(&self) -> u64 {
-        self.frames
-            .iter()
-            .map(|f| {
-                let sample_bytes = f.header.dicom().map_or(4, |object| {
-                    if crate::dicom_color::layout(object).ok().flatten().is_some() {
-                        10 // raw u16 RGB plus display RGBA
-                    } else if object.element(dicom_core::Tag(0x0028, 0x0120)).is_ok() {
-                        5 // f32 scalar plus possible stored-padding validity
-                    } else {
-                        4
-                    }
-                });
-                u64::from(f.header.width) * u64::from(f.header.height) * sample_bytes
-            })
-            .sum()
+        self.frames.iter().map(IndexedFrame::decoded_bytes).sum()
+    }
+    pub(crate) fn frame_decoded_bytes(&self, index: usize) -> Option<u64> {
+        self.frames.get(index).map(IndexedFrame::decoded_bytes)
     }
     /// Worker-only: cancellable local I/O and pixel conversion. Never call in UI.
     pub fn read_frame(

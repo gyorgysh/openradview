@@ -143,6 +143,18 @@ impl Volume {
                 return Err(GeometryError::Spacing);
             }
         }
+        let geometry = crate::spatial::RegularGeometry::prepare(
+            frames.len(),
+            |index| {
+                frames
+                    .get(index)
+                    .map(|frame| crate::navigation::SpatialFrame {
+                        size: [frame.width, frame.height],
+                        geometry: frame.geometry.clone(),
+                    })
+            },
+            &cancelled,
+        )?;
         let normal = reference.normal();
         let source_frames = frames.clone();
         frames.sort_by(|a, b| {
@@ -150,52 +162,17 @@ impl Volume {
                 f.geometry
                     .as_ref()
                     .map(|g| dot(g.position, normal))
-                    .unwrap_or(0.0)
+                    .unwrap_or(0.)
             };
             position(a).total_cmp(&position(b))
         });
-        let origin = frames[0]
-            .geometry
-            .as_ref()
-            .ok_or(GeometryError::Missing)?
-            .position;
-        let last = frames[frames.len() - 1]
-            .geometry
-            .as_ref()
-            .ok_or(GeometryError::Missing)?
-            .position;
-        let delta = mul(sub(last, origin), 1.0 / (frames.len() - 1) as f64);
-        let dz = dot(delta, normal);
-        if !dz.is_finite() || dz <= 1e-5 {
-            return Err(GeometryError::Irregular);
-        }
-        for (i, frame) in frames.iter().enumerate() {
-            let p = frame
-                .geometry
-                .as_ref()
-                .ok_or(GeometryError::Missing)?
-                .position;
-            if norm(sub(p, add(origin, mul(delta, i as f64)))) > 0.01f64.max(dz * 0.01) {
-                return Err(GeometryError::Irregular);
-            }
-        }
-        let reference = frames[0].geometry.as_ref().ok_or(GeometryError::Missing)?;
-        let (u, v) = reference.directions();
-        let basis = [
-            mul(u, reference.spacing[1]),
-            mul(v, reference.spacing[0]),
-            delta,
-        ];
-        let det = dot(basis[0], cross(basis[1], basis[2]));
-        if !det.is_finite() || det.abs() < 1e-12 {
-            return Err(GeometryError::Irregular);
-        }
-        let inverse = [
-            mul(cross(basis[1], basis[2]), 1.0 / det),
-            mul(cross(basis[2], basis[0]), 1.0 / det),
-            mul(cross(basis[0], basis[1]), 1.0 / det),
-        ];
-        let step = reference.spacing[0].min(reference.spacing[1]).min(dz);
+        let crate::spatial::RegularGeometry {
+            dimensions,
+            origin,
+            basis,
+            inverse,
+            step,
+        } = geometry;
         let has_missing_scalar = frames.iter().any(|f| f.validity.is_some());
         let mut volume = Self {
             frames,

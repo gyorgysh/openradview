@@ -85,8 +85,13 @@ impl Workspace {
         }
         if inspect && let Some((index, image)) = self.current_image() {
             self.playback.pause();
-            self.image_info
-                .open(image, index, self.view.clone(), ui.ctx().clone());
+            self.image_info.open(
+                image,
+                std::sync::Arc::new(series.clone()),
+                index,
+                self.view.clone(),
+                ui.ctx().clone(),
+            );
         }
         let original = self
             .current_image()
