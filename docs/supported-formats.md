@@ -181,7 +181,8 @@ Load a scalar NIfTI label volume with integer values0–255 (zero background), e
 dimensions/affine and the same NIfTI spatial-reference code. DICOM sources accept
 scanner-reference NIfTI labels with matching numeric geometry. Numeric equality
 does not establish anatomical correspondence: the user must verify the overlay.
-No registration, label resampling or DICOM SEG/RTSTRUCT import/export is provided.
+Import does not register or resample a map to another grid. No DICOM SEG/RTSTRUCT
+import/export is provided.
 
 Export explicitly to a new .nii filename: NIfTI-2 uint8, label intent1002, exact
 f64 sform in RAS millimetres, without source pixels/names/identifiers. Existing
@@ -190,8 +191,20 @@ replacement and quitting protect unsaved work. Only one source series has a labe
 map at a time; changing series retains it until explicitly removed. The limits
 are32Mi voxels and4Mi pixels/slice, alongside the adaptive shared source-volume allowance.
 Workers clone a private edit, publish only successful results and retain two
-checkpoints; cancellation leaves the displayed map unchanged. Labels show only
-in source2D, and are excluded from renderer/MCP snapshots. No new agent tool or
+checkpoints; cancellation leaves the displayed map unchanged. Labels appear on
+source 2D and matching thin MPR/oblique planes, with per-ID visibility and
+fill/outline/hatching. Nearest-voxel display never interpolates IDs; half ties
+choose the larger index, with source cells covering [-0.5, dimension-0.5).
+Stored IDs on missing samples are preserved but not displayed. Output validity
+also masks the overlay. Slabs and 3D omit labels. Current map, source, completed
+plane generation/preview and display settings must match before compositing;
+unmatched old layers are hidden while the worker prepares replacements.
+Overlay buffers are limited to four Mi-pixels and the device texture-side limit;
+failure leaves the underlying image available. Source counts report stored and
+valid voxels separately. Label cell volume includes all stored labeled cells and
+uses the absolute source affine determinant, including shear; it is not the
+product of displayed grid-step lengths. Visibility/zoom/resampling do not change
+these counts or the original map. Labels are excluded from renderer/MCP snapshots. No new agent tool or
 permission was added. Label maps can themselves contain sensitive information;
 export is a user-chosen local save, not an anonymization guarantee.
 

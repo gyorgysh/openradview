@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Inspect local labels on thin MPR and oblique planes, with per-ID visibility,
+  fill/outline/hatching and source voxel counts. Keep missing samples separate
+  and derive label cell volume from the source affine. Painting stays on source
+  images; slabs, 3D and shared snapshots omit labels.
 - Open a local DICOMDIR or a ZIP with one media index, validate referenced image
   identities, and show missing/conflicting references with generated study groups.
   Constrain file-set reads to their selected folder or archive. Open folder scans

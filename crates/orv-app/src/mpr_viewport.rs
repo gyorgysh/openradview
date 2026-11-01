@@ -137,6 +137,7 @@ impl MprSession {
         mut paint: PlanePaint,
         frame: &eframe::Frame,
         snapshot: &MprSnapshot,
+        labels: &crate::labels::LabelUi,
     ) {
         let PlanePaint {
             ref mut ui,
@@ -149,6 +150,7 @@ impl MprSession {
             response.rect.size() * ui.ctx().pixels_per_point(),
         ));
         viewport::draw(ui, frame, response.rect, image.clone(), view, index + 1, "");
+        labels.draw_plane(ui, response, image, view, index);
         let painter = ui.painter_at(response.rect);
         if self.active_index() == index {
             painter.rect_stroke(

@@ -35,6 +35,17 @@ ID/eligibility buffers are capped at four Mi-pixels and charged to the shared CP
 volume pool. Source counts preserve stored and valid voxels separately; physical
 cell volume is the absolute determinant of the source affine, including shear.
 
+Native label overlays use a separate coalescing worker from edits/exports, with
+one active and one latest request for at most three completed images. Cache keys
+bind weak map/image identities, exact source volume, selected series, view
+generation/preview, display settings and texture-side limit. Replaced layers clear
+immediately; weak keys do not keep old maps or frame buffers alive. Rasterization
+and source counts stay off the UI thread. Prepared/cached textures retain bounded
+CPU/GPU reservations, and upload checks the current egui texture-side allowance.
+An independent coalescing count worker recomputes only on map changes. Both wait
+on condition variables when idle; shutdown changes the predicate under the wait
+mutex to avoid a lost wakeup. No label data enters ordinary snapshots or tools.
+
 Import reports retain category counts and at most 64 generated item ordinals in
 RAM, without filenames, paths, raw tags or parser messages. Detailed errors retain
 the report even when no supported image loads. Uncertain representation failures

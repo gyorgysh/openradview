@@ -146,7 +146,13 @@ impl MprSession {
             }
         }
     }
-    pub fn ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        frame: &eframe::Frame,
+        labels: &mut crate::labels::LabelUi,
+        selected: usize,
+    ) {
         let content_width = ui.available_width();
         self.poll();
         if let Some(error) = &self.error {
@@ -208,26 +214,6 @@ impl MprSession {
                 snapshot.images[0].slab.is_none() && self.slab.is_none(),
                 |ui| {
                     controls::orientation(ui, &mut self.views[active].transform);
-                    egui::ComboBox::from_id_salt("mpr-layout")
-                        .wrap_mode(egui::TextWrapMode::Extend)
-                        .selected_text(self.layout.label())
-                        .show_ui(ui, |ui| {
-                            for layout in [
-                                Layout::Grid,
-                                Layout::Columns,
-                                Layout::Axial,
-                                Layout::Coronal,
-                                Layout::Sagittal,
-                            ] {
-                                ui.selectable_value(&mut self.layout, layout, layout.label());
-                            }
-                        });
-                    self.annotations[active].controls(ui);
-                    if ui.button("Clear all panes").clicked() {
-                        for a in &mut self.annotations {
-                            a.clear();
-                        }
-                    }
                 },
             ) {
                 for view in &mut self.views {
@@ -235,6 +221,33 @@ impl MprSession {
                     view.pan = [0.; 2];
                 }
             }
+            // Keep the layout selector from enlarging the navigation row.
+            crate::toolbar::row(ui, |ui| {
+                if ui.button("Labels…").clicked() {
+                    labels.open = true;
+                }
+                egui::ComboBox::from_id_salt("mpr-layout")
+                    .wrap_mode(egui::TextWrapMode::Truncate)
+                    .width(150.)
+                    .selected_text(self.layout.label())
+                    .show_ui(ui, |ui| {
+                        for layout in [
+                            Layout::Grid,
+                            Layout::Columns,
+                            Layout::Axial,
+                            Layout::Coronal,
+                            Layout::Sagittal,
+                        ] {
+                            ui.selectable_value(&mut self.layout, layout, layout.label());
+                        }
+                    });
+                self.annotations[active].controls(ui);
+                if ui.button("Clear all panes").clicked() {
+                    for annotations in &mut self.annotations {
+                        annotations.clear();
+                    }
+                }
+            });
             if color {
                 controls::color_display(ui, &mut self.invert, snapshot.volume.color_info());
             } else {
@@ -320,8 +333,18 @@ impl MprSession {
             view.window = self.window;
             view.invert = self.invert;
         }
+        labels.prepare_planes(
+            selected,
+            &snapshot.volume,
+            &snapshot.images,
+            crate::labels::OverlayView::Mpr {
+                generation: snapshot.generation,
+                preview: snapshot.preview,
+            },
+            ui.ctx(),
+        );
         for paint in paints {
-            self.finish_plane(paint, frame, &snapshot);
+            self.finish_plane(paint, frame, &snapshot, labels);
         }
     }
     fn guide(&self, ui: &mut egui::Ui, snapshot: &MprSnapshot) {

@@ -419,9 +419,12 @@ impl Workspace {
             .as_ref()
             .and_then(|s| s.series.get(self.selected))
             .map(|s| Arc::new(s.clone()));
-        let slice = self
-            .current_image()
-            .and_then(|(_, f)| self.labels.current.as_ref()?.slice_index(&f));
+        let slice = if self.mode == ViewMode::Acquired {
+            self.current_image()
+                .and_then(|(_, f)| self.labels.current.as_ref()?.slice_index(&f))
+        } else {
+            None
+        };
         let other_modal = self.sharing_modal_open()
             || self.labels.discard_question
             || self.discard_labels
@@ -618,21 +621,23 @@ impl Workspace {
                     match self.mode {
                         ViewMode::Mpr => {
                             if let Some(mpr) = &mut self.mpr {
-                                mpr.ui(ui, frame);
+                                mpr.ui(ui, frame, &mut self.labels, self.selected);
                             }
                         }
                         ViewMode::Volume => {
+                            self.labels.clear_overlays();
                             if let Some(volume) = &mut self.volume {
                                 volume.ui(ui, frame);
                             }
                         }
                         ViewMode::Oblique => {
                             if let Some(oblique) = &mut self.oblique {
-                                oblique.ui(ui, frame);
+                                oblique.ui(ui, frame, &mut self.labels, self.selected);
                             }
                         }
                         ViewMode::Acquired => self.image_ui(ui, frame),
                         ViewMode::Compare => {
+                            self.labels.clear_overlays();
                             if let Some(comparison) = &mut self.comparison
                                 && let Some(source) = ui
                                     .add_enabled_ui(self.loading.is_none(), |ui| {
