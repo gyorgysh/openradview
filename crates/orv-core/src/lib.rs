@@ -16,6 +16,7 @@ pub mod navigation;
 pub mod nifti_view;
 pub mod oblique;
 mod plane_sampling;
+pub mod reference_line;
 pub mod resources;
 pub mod scalar;
 pub mod scene;
