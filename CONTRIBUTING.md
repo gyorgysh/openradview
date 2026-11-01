@@ -36,7 +36,12 @@ cargo run -p orv-core --example generate_fixture -- test-data/synthetic
 cargo run -p orv-core --example generate_formats -- test-data/synthetic-formats
 cargo run -p orv-core --example generate_media -- test-data/generated-media
 cargo run -p orv-core --example generate_media -- test-data/generated-labels --label-phantom
+cargo run -p orv-core --example generate_media -- test-data/generated-masks --segmentation-phantom
 ```
+
+The mask fixture adds three generated boxes with overlap, sparse source planes
+and a large numeric ID, plus a wrong-reference file that import must refuse. It
+contains no anatomy and exercises the documented input subset.
 
 ## Design and review
 

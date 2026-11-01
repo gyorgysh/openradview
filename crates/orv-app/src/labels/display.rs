@@ -7,6 +7,7 @@ use std::sync::Arc;
 impl LabelUi {
     pub fn clear_overlays(&mut self) {
         self.overlays.clear();
+        self.supplied.clear_overlays();
     }
     pub fn prepare_planes(
         &mut self,
@@ -16,6 +17,13 @@ impl LabelUi {
         view: OverlayView,
         ctx: &egui::Context,
     ) {
+        if self.supplied_active {
+            self.overlays.clear();
+            self.supplied
+                .prepare_planes(selected, source, images, view, ctx);
+            return;
+        }
+        self.supplied.clear_overlays();
         if !self.visible
             || selected != self.series
             || self.display.visible_ids[1..].iter().all(|v| !*v)
@@ -39,6 +47,10 @@ impl LabelUi {
         view: &ViewState,
         index: usize,
     ) {
+        if self.supplied_active {
+            self.supplied.draw_plane(ui, response, image, view, index);
+            return;
+        }
         if !self.visible {
             return;
         }

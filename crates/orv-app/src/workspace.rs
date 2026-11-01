@@ -905,7 +905,7 @@ impl Workspace {
         }
         if self.discard_labels && !self.labels.busy() {
             self.discard_labels = false;
-            self.labels = Default::default();
+            self.labels.discard_manual();
             if self.pending_quit {
                 self.pending_quit = false;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);

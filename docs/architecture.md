@@ -83,8 +83,8 @@ pairs are refused rather than folded across acquisition axes. Metadata parsing
 rejects repeated attributes within a dataset while allowing separate frame items;
 syntax admission precedes dataset parsing. File/source identity checks surround
 import, resources are admitted before parsing/reading, and public results retain
-numeric IDs and masks without source UIDs or segment descriptions. This core API
-does not add a desktop import action or change ordinary snapshot scope.
+numeric IDs and masks without source UIDs or segment descriptions. Desktop import
+is an explicit selected-file action, separate from ordinary image catalogue admission.
 
 Manual labels and supplied segments share allocation-free nearest-cell mapping
 for completed thin planes. Supplied planes keep independent u64 positive and
@@ -94,6 +94,17 @@ intersects source/output sample validity. Sampling admits 17 bytes per output
 pixel before allocation, caps planes at four million pixels and cancels without
 publishing partial buffers. Matching geometry alone does not bind a completed
 image to the source: the caller must preserve exact source/view identity.
+
+The native labels panel selects either manual labels or read-only supplied masks.
+Each keeps its own source association and state; manual undo/dirty guards never
+flatten supplied masks into uint8 IDs. A generic overlay cache retains weak map/
+completed-image keys, exact source and view generations, visibility/style and
+device limits. One coalescing worker samples and prepares charged CPU/GPU textures
+for at most three completed planes. Supplied import uses another cancellable worker;
+failed/cancelled replacements preserve the previous set, and stale generations
+cannot attach. Manual-map removal preserves supplied masks; source closure drops
+both. Numeric counts/coverage and overlap are local display controls, with no new
+ordinary snapshot or agent-tool scope.
 
 Import reports retain category counts and at most 64 generated item ordinals in
 RAM, without filenames, paths, raw tags or parser messages. Detailed errors retain
@@ -257,7 +268,7 @@ Hashes distinguish pixels, geometry, validity, color context and view settings.
 Pending results never count as completed snapshots.
 
 A snapshot pairs image-only PNG pixels with scene/geometry/source/PNG hashes.
-UI annotations and label overlays are excluded. Local export creates a new folder
+UI annotations, manual labels and supplied masks are excluded. Local export creates a new folder
 and does not overwrite existing files. Label maps stay on the source grid and
 need matching affine/reference information; no registration is implied.
 
