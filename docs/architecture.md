@@ -25,6 +25,16 @@ metadata, expanded data, frame counts and materialized volumes have explicit
 bounds. Load, decode, filtering, statistics and export run on cancellable workers.
 [Exact limits](supported-formats.md)
 
+Core label-plane sampling keeps categorical IDs separate from eligibility.
+Nearest-voxel cells are half-open from -0.5 to dimension-0.5, with half ties toward
+the larger index. An ID on a missing source sample remains stored but is ineligible
+for display; completed output validity is intersected separately. Sampling refuses
+slab projections and mismatched declared references. Callers must additionally bind
+the exact source and completed reformat generation before compositing. Temporary
+ID/eligibility buffers are capped at four Mi-pixels and charged to the shared CPU
+volume pool. Source counts preserve stored and valid voxels separately; physical
+cell volume is the absolute determinant of the source affine, including shear.
+
 Import reports retain category counts and at most 64 generated item ordinals in
 RAM, without filenames, paths, raw tags or parser messages. Detailed errors retain
 the report even when no supported image loads. Uncertain representation failures
