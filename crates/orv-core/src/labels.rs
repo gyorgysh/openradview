@@ -3,6 +3,12 @@
 use crate::{study::Frame, volume::Volume};
 use std::sync::Arc;
 mod export;
+mod sampling;
+mod statistics;
+pub use sampling::{LabelPlane, MAX_PLANE_PIXELS};
+pub use statistics::{LabelCount, LabelStatistics};
+#[cfg(test)]
+mod sampling_tests;
 #[cfg(test)]
 mod tests;
 

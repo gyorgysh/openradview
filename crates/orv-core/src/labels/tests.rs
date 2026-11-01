@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use crate::{WindowLevel, study::Geometry};
-fn source() -> Arc<Volume> {
+pub(super) fn source() -> Arc<Volume> {
     Arc::new(
         Volume::new(
             (0..3)

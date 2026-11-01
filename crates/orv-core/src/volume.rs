@@ -251,6 +251,10 @@ impl Volume {
             ),
         )
     }
+    /// Physical volume of one source-grid cell, including any regular shear.
+    pub fn voxel_volume_mm3(&self) -> f64 {
+        dot(self.basis[0], cross(self.basis[1], self.basis[2])).abs()
+    }
     pub fn world_to_voxel(&self, p: V3) -> V3 {
         let d = sub(p, self.origin);
         self.inverse.map(|row| dot(row, d))
