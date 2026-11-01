@@ -10,6 +10,7 @@ pub mod import_report;
 pub mod index;
 pub mod inspection;
 pub mod labels;
+pub mod linked_display;
 pub mod load;
 pub mod measurements;
 pub mod navigation;
