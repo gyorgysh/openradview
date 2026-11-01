@@ -133,6 +133,15 @@ impl Workspace {
         self.image_info.close();
         self.labels.stop_painting();
         self.labels.open = false;
+        self.annotations.cancel_interaction(ctx);
+        if let Some(mpr) = &mut self.mpr {
+            for annotations in &mut mpr.annotations {
+                annotations.cancel_interaction(ctx);
+            }
+        }
+        if let Some(oblique) = &mut self.oblique {
+            oblique.cancel_measurement_interaction(ctx);
+        }
         let previous_mode = self.mode;
         self.mode = mode;
         if mode == ViewMode::Compare {

@@ -214,8 +214,12 @@ visits without a dense mask. Scalar/RGB code reductions share stable moments;
 new wrappers separate continuous geometric area from valid sampled-pixel area.
 Physical area uses the validated plane basis; missing or nonrepresentable geometry
 keeps area unknown. Existing rectangle APIs and serialized statistics retain their
-fields. Native mark creation/editing and saved comparisons currently use the
-existing rectangle/distance/angle kinds.
+fields. Native creation supports distance, angle, rectangle, ellipse and simple
+polygon marks. ROI candidates remain private until their owning enabled canvas
+accepts worker validation for the exact image and tool. Context changes discard
+drafts, and reformats admit interaction only on the matching settled thin plane.
+Each collection has 128 marks, 4096 total points and 256 vertices per polygon, with
+1 MiB of admitted metadata storage retained through pending worker inputs.
 Series previews use one idle-blocking worker, coalesce visible-row requests and
 reuse the decoded source cache. At most 32 small textures remain in RAM, with
 shared RAM/GPU reservations; closing the study cancels work and drops previews.
@@ -243,6 +247,12 @@ cache to fingerprint both sources, reject mismatches, and reconstruct marks and
 statistics against fresh frames before publishing either pane. Unsaved comparison
 measurements and changes to a saved view are protected on replacement or closure.
 The file may still be sensitive; previews and study history are not persisted.
+Comparison version 2 adds ellipse/polygon kinds with a 2 MiB file limit. Version1
+retains its 256 KiB limit and original kinds; it is still written when sufficient.
+Deserialization bounds individual point/mark vectors, then checks total points
+before source decoding. File workers admit 16 MiB of scratch. Geometry and results
+are validated/recomputed from fresh source frames; a late cancelled restore
+cannot replace current work.
 
 Quarter-turn/flip display transforms leave acquisition geometry and source pixels
 unchanged. The source-to-viewport map is shared by probes, measurements, label

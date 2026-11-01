@@ -183,7 +183,9 @@ impl MprSession {
         crate::image_overlay::draw(ui, response, image, view);
         if self.is_settled() {
             self.annotations[index].show(ui, response, image, view, self.tool);
+            self.annotations[index].status_overlay(ui, response.rect, self.tool);
+        } else {
+            self.annotations[index].cancel_interaction(ui.ctx());
         }
-        self.annotations[index].status_overlay(ui, response.rect, self.tool);
     }
 }

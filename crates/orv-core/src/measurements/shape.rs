@@ -57,6 +57,14 @@ fn intersect(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> bool {
         || on_segment(c, d, b)
 }
 impl<'a> RoiShape<'a> {
+    /// Geometry-only validation for a candidate region, without reading image samples.
+    pub fn validate(
+        self,
+        size: [u32; 2],
+        cancelled: impl Fn() -> bool,
+    ) -> Result<(), &'static str> {
+        self.prepare(size, &cancelled).map(|_| ())
+    }
     pub(super) fn prepare(
         self,
         size: [u32; 2],

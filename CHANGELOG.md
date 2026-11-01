@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Draw ellipse and simple polygon regions on source and thin reformat planes.
+  Report scalar/RGB statistics with sampled area separate from continuous shape
+  area. Explicitly saved comparisons preserve the new shapes; earlier comparison
+  files remain readable. Drafts cancel when their image or view changes.
+
 - Explicitly load matching local BINARY DICOM segmentation masks on source,
   thin MPR and oblique planes. Preserve overlapping segments and sparse coverage,
   with numeric visibility, styles and source counts. Supplied masks stay read-only

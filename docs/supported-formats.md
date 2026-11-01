@@ -306,15 +306,25 @@ with its original presentation. At most 32 64×64 previews are retained in RAM;
 the shared source cache and RAM/GPU reservations apply. No thumbnail files or
 extra agent scope are introduced. Clearing a study closes inspection/filter/preview workers.
 
-Distance, angle and rectangular ROI marks remain in memory across navigation in
+Distance, angle, rectangle, ellipse and simple polygon ROI marks remain in memory across navigation in
 the current series. Source marks bind to the exact frame ordinal and geometry;
 reformat marks bind to the exact plane and sampling grid. Each collection holds
-at most 128 marks. **Measurements…** lists marks on the current image/plane and
+at most 128 marks and 4096 points; polygons have 3–256 vertices, without holes or
+crossing/touching edges. **Measure** chooses the tool. Ellipses use two opposite
+corners; polygons finish with Enter or **Measurements… → Finish polygon**.
+Backspace removes the last draft point and Escape cancels. Changing image, plane,
+view mode or tool cancels a draft. **Measurements…** lists marks on the current image/plane and
 offers selection, deletion and clearing. ROI statistics run in the background,
 one calculation per collection. Changing series or closing its view clears marks;
 restart restores none automatically. Comparison marks can be explicitly saved in
 a local comparison file and restored only against matching source series. They
 are excluded from image-only exports and agent snapshots.
+
+ROI statistics include valid pixel centres inside the region boundary. Sampled
+area counts valid cells; shape area describes the continuous outline. They can
+differ, especially for small regions or missing samples. Physical areas require
+valid spacing and plane geometry. Color statistics retain their declared RGB code
+domain. These tools do not recognize anatomy or identify disease.
 
 ## Local series comparison
 
@@ -343,6 +353,9 @@ Agents cannot access the dual-pane layout. Return to a single series and review 
 fresh Allow before sharing. An explicit comparison file can retain views and marks;
 it has fingerprints but no source paths or pixels and may still be sensitive.
 Reopening requires the same sources in the same pane order and fresh verification.
+Files with ellipse/polygon marks use version 2 (up to 2 MiB). Earlier version 1 files
+retain their256KiB limit; files containing only the earlier mark kinds still use
+version 1. Invalid geometry or source mismatches leave the current comparison intact.
 No study history or thumbnail files are created. Picture export captures
 only the active completed source pane through the existing explicit export path.
 
