@@ -6,6 +6,7 @@ mod dicom_color;
 mod dicom_geometry;
 mod dicom_padding;
 mod dicom_voi;
+pub mod import_report;
 pub mod index;
 pub mod inspection;
 pub mod labels;

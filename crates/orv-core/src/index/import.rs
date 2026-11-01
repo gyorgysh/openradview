@@ -2,10 +2,13 @@
 //! Background metadata/CRC import; no retained full-study pixel buffers.
 use super::*;
 use super::{
-    header::read_header,
+    header::read_header_detailed,
     source::{Encoding, Stamp},
 };
-use crate::study::{Series, Study};
+use crate::{
+    import_report::{ImportError, ImportReport, InputFailure, SkipReason},
+    study::{Series, Study},
+};
 use std::{
     collections::HashMap,
     fs::{self, File},
@@ -131,7 +134,29 @@ impl Builder {
 pub fn index_paths(
     paths: &[PathBuf],
     cancelled: impl Fn() -> bool,
+    progress: impl FnMut(Progress),
+) -> Result<Study, LoadError> {
+    index_paths_detailed(paths, cancelled, progress).map_err(|failure| failure.error)
+}
+
+/// Retains bounded, non-identifying reasons even when no image can be indexed.
+pub fn index_paths_detailed(
+    paths: &[PathBuf],
+    cancelled: impl Fn() -> bool,
+    progress: impl FnMut(Progress),
+) -> Result<Study, ImportError> {
+    let mut summary = ImportReport::default();
+    index_paths_inner(paths, cancelled, progress, &mut summary).map_err(|error| ImportError {
+        error,
+        report: summary,
+    })
+}
+
+fn index_paths_inner(
+    paths: &[PathBuf],
+    cancelled: impl Fn() -> bool,
     mut progress: impl FnMut(Progress),
+    summary: &mut ImportReport,
 ) -> Result<Study, LoadError> {
     crate::resources::refresh_memory_policy();
     let mut resolver = super::pairs::Resolver::default();
@@ -189,7 +214,7 @@ pub fn index_paths(
                     zip::CompressionMethod::Stored => Encoding::Stored,
                     zip::CompressionMethod::Deflated => Encoding::Deflated,
                     _ => {
-                        builder.study.skipped_files += 1;
+                        summary.skip(report.files, SkipReason::UnsupportedEncoding);
                         progress(report);
                         continue;
                     }
@@ -210,7 +235,7 @@ pub fn index_paths(
                 if super::pairs::is_image(&name) {
                     drain_entry(&mut entry, &cancelled, &mut report, &mut progress)?;
                     if super::pairs::zip_companion(&name, true, &members)?.is_none() {
-                        builder.study.skipped_files += 1;
+                        summary.skip(report.files, SkipReason::MissingCompanion);
                     }
                     continue;
                 }
@@ -219,7 +244,9 @@ pub fn index_paths(
                 } else {
                     None
                 };
-                let input = if super::pairs::is_nifti(&name) {
+                let input = if super::pairs::is_header(&name) && pair.is_none() {
+                    Err(InputFailure::skipped(SkipReason::MissingCompanion))
+                } else if super::pairs::is_nifti(&name) {
                     super::nifti_input::read(
                         super::nifti_input::NiftiInput {
                             source,
@@ -233,8 +260,10 @@ pub fn index_paths(
                         &mut report,
                         &mut progress,
                     )
+                    .map_err(InputFailure::from)
                 } else {
-                    read_header(&mut entry, &cancelled).map(|header| (source, vec![header]))
+                    read_header_detailed(&mut entry, &cancelled)
+                        .map(|header| (source, vec![header]))
                 };
                 match input {
                     Ok((source, headers)) => {
@@ -258,9 +287,12 @@ pub fn index_paths(
                             )?;
                             builder.add(source.clone(), header, &cancelled)?;
                         }
+                        summary.indexed();
                     }
-                    Err(LoadError::Unsupported) => builder.study.skipped_files += 1,
-                    Err(e) => return Err(e),
+                    Err(failure) if failure.error == LoadError::Unsupported => {
+                        summary.skip(report.files, failure.reason);
+                    }
+                    Err(failure) => return Err(failure.error),
                 }
                 progress(report);
             }
@@ -287,7 +319,11 @@ pub fn index_paths(
             } else {
                 None
             };
-            let input = if super::pairs::is_nifti(&name) {
+            let input = if super::pairs::is_image(&name)
+                || (super::pairs::is_header(&name) && pair.is_none())
+            {
+                Err(InputFailure::skipped(SkipReason::MissingCompanion))
+            } else if super::pairs::is_nifti(&name) {
                 super::nifti_input::read(
                     super::nifti_input::NiftiInput {
                         source,
@@ -301,8 +337,9 @@ pub fn index_paths(
                     &mut report,
                     &mut progress,
                 )
+                .map_err(InputFailure::from)
             } else {
-                read_header(&mut file, &cancelled).map(|header| (source, vec![header]))
+                read_header_detailed(&mut file, &cancelled).map(|header| (source, vec![header]))
             };
             match input {
                 Ok((source, headers)) => {
@@ -318,9 +355,12 @@ pub fn index_paths(
                         )?;
                         builder.add(source.clone(), header, &cancelled)?;
                     }
+                    summary.indexed();
                 }
-                Err(LoadError::Unsupported) => builder.study.skipped_files += 1,
-                Err(e) => return Err(e),
+                Err(failure) if failure.error == LoadError::Unsupported => {
+                    summary.skip(report.files, failure.reason);
+                }
+                Err(failure) => return Err(failure.error),
             }
             progress(report);
         }
@@ -333,6 +373,8 @@ pub fn index_paths(
         series.source = Some(Arc::new(indexed));
     }
     builder.study.series.sort_by_key(|s| s.number);
+    builder.study.skipped_files = summary.skipped_files();
+    builder.study.import_report = std::mem::take(summary);
     Ok(builder.study)
 }
 

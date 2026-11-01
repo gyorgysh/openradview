@@ -5,6 +5,12 @@ or drag and drop. Pick a series in the sidebar. Loading runs in the background
 and can be cancelled. Keep the source files available while viewing; the app
 does not make a patient database or copy the whole study into memory.
 
+If some inputs are skipped, expand the sidebar's skipped-input summary to see
+reason counts. It distinguishes known unsupported encodings/object types, missing
+NIfTI companions and malformed DICOM metadata; ambiguous failures remain
+unsupported or invalid. An import with no supported images includes these counts
+in its error. Indexed files still need successful pixel decoding when browsed.
+
 The included CT, MRI and X-ray demos are credited public research datasets.
 They are available without a download. Use them to learn the controls.
 

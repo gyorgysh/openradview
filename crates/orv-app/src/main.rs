@@ -15,6 +15,7 @@ mod frame_worker;
 mod help;
 mod image_info;
 mod image_overlay;
+mod import_info;
 mod labels;
 mod licenses;
 mod mpr;

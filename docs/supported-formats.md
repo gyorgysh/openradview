@@ -13,6 +13,15 @@ that an image, orientation, reconstruction or measurement is correct for care.
 | NIfTI-1/2 | Single-file `.nii`/`.nii.gz` and paired `.hdr`/`.img` (either member may be gzipped), little/big endian; uint8/int8, uint16/int16, uint32/int32, uint64/int64, float32/float64, complex64/complex128. Time, vector/tensor and higher axes become separately labelled scalar subseries; complex views are magnitude, phase in radians, real and imaginary. | Up to 4,096 subseries and one million displayed frames per import. No RGB/RGBA, binary, float128/complex256 or Analyze. Components are viewed individually, without vector/tensor reorientation, tractography or temporal analysis. Values become f32 and may lose integer/f64 precision. Enabled nonfinite scaling or voxel values are refused. Header descriptions/extensions are ignored. |
 | Local sources | Files, folders, ZIP and ZIP64 with stored/deflated members; supported NIfTI including gzip and same-directory pairs can be inside ZIP | No extraction, uploads or pixel disk cache. ZIP/gzip integrity and expanded length are checked on a cancellable background worker. Selected files must remain available. |
 
+Import keeps reason counts for skipped inputs in memory. Known unsupported
+encodings and object families, missing paired files, malformed DICOM metadata
+and unrecognized inputs have separate categories. Other unsupported/invalid
+representations remain an explicit combined category when a more precise reason
+is unknown. No supported images yields an error with the collected counts.
+Cancellation, changed sources and hard limits still fail the operation. A
+successfully indexed file can still fail later pixel decoding; the summary is
+not a full-study pixel validation result.
+
 DICOM modality rescale and signedness are applied before grayscale display;
 MONOCHROME1 inversion remains a display operation. Source LINEAR, LINEAR_EXACT
 and SIGMOID functions are explicit, with up to 16 alternative window pairs and

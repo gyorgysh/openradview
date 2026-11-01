@@ -13,6 +13,7 @@ use std::{
 mod color;
 mod enhanced;
 mod formats;
+mod import_report;
 mod large;
 mod nifti;
 mod nifti_expanded;

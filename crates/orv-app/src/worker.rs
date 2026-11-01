@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use eframe::egui;
-use orv_core::{index::index_paths, load::LoadError, study::Study};
+use orv_core::{
+    import_report::ImportError, index::index_paths_detailed, load::LoadError, study::Study,
+};
 use std::{
     path::PathBuf,
     sync::{
@@ -23,7 +25,7 @@ pub struct ImportedStudy {
 
 pub struct ImportTask {
     pub demo: Option<crate::demos::Demo>,
-    pub receiver: mpsc::Receiver<Result<Option<ImportedStudy>, LoadError>>,
+    pub receiver: mpsc::Receiver<Result<Option<ImportedStudy>, ImportError>>,
     pub cancel: Arc<AtomicBool>,
     pub processed: Arc<AtomicUsize>,
     pub checked_bytes: Arc<AtomicU64>,
@@ -51,6 +53,7 @@ impl ImportTask {
                         worker_processed.store(files, Ordering::Relaxed);
                     })
                     .map(Some)
+                    .map_err(ImportError::from)
                 } else {
                     let paths = match source {
                         Source::Files => rfd::FileDialog::new()
@@ -66,7 +69,7 @@ impl ImportTask {
                     match paths {
                         Some(paths) => {
                             let mut repaint = std::time::Instant::now();
-                            index_paths(
+                            index_paths_detailed(
                                 &paths,
                                 || worker_cancel.load(Ordering::Relaxed),
                                 |p| {
@@ -88,7 +91,8 @@ impl ImportTask {
                         .map(|study| {
                             let catalog = crate::series_browser::Catalog::build(&study, || {
                                 worker_cancel.load(Ordering::Relaxed)
-                            })?;
+                            })
+                            .map_err(ImportError::from)?;
                             Ok(ImportedStudy { study, catalog })
                         })
                         .transpose()
@@ -97,7 +101,7 @@ impl ImportTask {
                 ctx.request_repaint();
             });
         if spawn.is_err() {
-            let _ = fallback.send(Err(LoadError::Io));
+            let _ = fallback.send(Err(LoadError::Io.into()));
             repaint.request_repaint();
         }
         Self {

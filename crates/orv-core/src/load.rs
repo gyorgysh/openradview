@@ -385,8 +385,12 @@ impl<F: FnMut(usize)> Import<'_, F> {
                         frames,
                     });
                 }
+                self.study.import_report.indexed();
             }
-            Err(LoadError::Unsupported) => self.study.skipped_files += 1,
+            Err(LoadError::Unsupported) => self.study.skipped(
+                self.processed,
+                crate::import_report::SkipReason::UnsupportedOrInvalid,
+            ),
             Err(e) => return Err(e),
         }
         (self.progress)(self.processed);
