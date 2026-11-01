@@ -52,19 +52,24 @@ impl ImageMapping {
         }))
     }
     pub fn view_to_pixel(&self, uv: [f64; 2]) -> Option<[f64; 2]> {
-        if uv.iter().any(|v| !v.is_finite()) {
+        let pixel = self.view_to_pixel_unbounded(uv)?;
+        pixel
+            .iter()
+            .enumerate()
+            .all(|(i, value)| *value >= 0. && *value <= f64::from(self.size[i] - 1))
+            .then_some(pixel)
+    }
+    /// View-centre anchors may lie outside a panned image. Picking and probing
+    /// must continue to use `view_to_pixel`, which checks the sampled footprint.
+    pub fn view_to_pixel_unbounded(&self, uv: [f64; 2]) -> Option<[f64; 2]> {
+        if uv.iter().any(|value| !value.is_finite()) {
             return None;
         }
         let centered = self.transform.inverse(std::array::from_fn(|i| {
             (uv[i] - 0.5 - self.pan[i]) / self.scale[i]
         }));
-        let pixel: [f64; 2] =
-            std::array::from_fn(|i| (centered[i] + 0.5) * self.size[i] as f64 - 0.5);
-        pixel
-            .iter()
-            .enumerate()
-            .all(|(i, v)| *v >= 0.0 && *v <= (self.size[i] - 1) as f64)
-            .then_some(pixel)
+        let pixel = std::array::from_fn(|i| (centered[i] + 0.5) * f64::from(self.size[i]) - 0.5);
+        pixel.iter().all(|value| value.is_finite()).then_some(pixel)
     }
 }
 
