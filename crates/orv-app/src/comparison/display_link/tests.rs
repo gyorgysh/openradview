@@ -34,7 +34,7 @@ fn session() -> ComparisonSession {
     session
 }
 fn views(session: &ComparisonSession) -> [ViewState; 2] {
-    session.panes.each_ref().map(|pane| pane.view.clone())
+    std::array::from_fn(|index| session.panes[index].view.clone())
 }
 fn update(
     session: &mut ComparisonSession,
@@ -44,9 +44,9 @@ fn update(
     enabled: bool,
 ) -> Update {
     let result = session.display_links.update(Input {
-        panes: &session.panes,
+        panes: [&session.panes[0], &session.panes[1]],
         before,
-        before_aspects: session.panes.each_ref().map(|pane| pane.canvas_aspect),
+        before_aspects: std::array::from_fn(|index| session.panes[index].canvas_aspect),
         active: session.active,
         previous_active,
         reconfigured,
@@ -58,9 +58,8 @@ fn update(
     result
 }
 fn finish_source(session: &mut ComparisonSession) {
-    session.panes[0]
-        .worker
-        .request(session.panes[0].view.slice as usize);
+    let requested = session.panes[0].view.slice as usize;
+    session.panes[0].worker.request(requested);
     let deadline = Instant::now() + Duration::from_secs(5);
     while session.panes[0].image.as_ref().unwrap().0 != session.panes[0].view.slice as usize {
         session.panes[0].poll();
@@ -324,11 +323,11 @@ fn changed_canvas_aspects_start_one_fresh_physical_action_with_the_same_anchor()
     let before = views(&session);
     update(&mut session, &before, 0, true, true);
     let old_pan = session.panes[1].view.pan;
-    let aspects = session.panes.each_ref().map(|pane| pane.canvas_aspect);
+    let aspects = std::array::from_fn(|index| session.panes[index].canvas_aspect);
     session.panes[1].canvas_aspect = Some(4.);
     let before = views(&session);
     let result = session.display_links.update(Input {
-        panes: &session.panes,
+        panes: [&session.panes[0], &session.panes[1]],
         before: &before,
         before_aspects: aspects,
         active: 0,

@@ -274,14 +274,26 @@ Series previews use one idle-blocking worker, coalesce visible-row requests and
 reuse the decoded source cache. At most 32 small textures remain in RAM, with
 shared RAM/GPU reservations; closing the study cancels work and drops previews.
 
-Local two-series comparison owns independent latest-frame workers and pane state.
+Local comparison owns two or four independent latest-frame workers and pane states.
 Panes may use the original study/cache or a separately imported local source;
-all sources share process-wide admission pools. Optional slice
+all sources share process-wide admission pools. Extra panes reuse existing source
+capabilities when possible and choose other series from the loaded studies. There
+are at most four frame workers and four bounded geometry tasks; no additional
+study is imported while four panes are present. Optional slice
 linking validates header geometry on workers and uses a physical image-center
 point with nearest-plane lookup. Bounded navigation tables share prepared-source
-RAM admission; comparison does not materialize two volumes. The active pane owns
+RAM admission; comparison does not materialize dense volumes. The active pane owns
 tools, contrast and single-picture export. Click/drag/scroll or the pane buttons
 activate it; passive hover does not change its tools.
+
+Four panes use a two-by-two grid; two panes stack vertically at narrow widths.
+Only the chosen pair receives slice/display links and reference lines. Changing
+the pair clears link opt-ins and pending actions. Extra panes remain outside the
+two-pane saved schemas, and comparison-file operations refuse the four-pane
+layout. Closing extras requires an explicit keep/discard choice, releases their
+workers, marks and GPU slots, and restores the original pair. Marks in all panes
+participate in existing source-replacement and workspace-close guards. Image and
+illustration exports capture only the active pane.
 
 Optional reference lines use only matching completed frame/view pairs. Core clips
 thin-plane intersections to both declared image footprints and rejects unknown or
@@ -309,7 +321,7 @@ Replacing a source or restoring views clears these RAM-only opt-ins; saved
 comparison schemas and agent scope stay unchanged. Inversion stays per pane.
 
 Entering comparison revokes live and frozen grants, cancels review/shared work and
-removes agent composition. Dual-pane content is never published through MCP.
+removes agent composition. Comparison content is never published through MCP.
 Leaving comparison returns to its active series and requires fresh Allow to share.
 If the original source has unsaved labels, it remains the active source before
 leaving comparison; a separate source cannot replace it until the labels are handled.

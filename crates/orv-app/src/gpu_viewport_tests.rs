@@ -5,7 +5,7 @@ use egui_wgpu::CallbackTrait;
 use orv_core::WindowLevel;
 
 #[test]
-fn three_gpu_viewports_keep_independent_images_and_display_settings() {
+fn four_gpu_viewports_keep_independent_images_settings_and_release_closed_slots() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -18,17 +18,17 @@ fn three_gpu_viewports_keep_independent_images_and_display_settings() {
     let mut resources = egui_wgpu::CallbackResources::default();
     let mut encoder = device.create_command_encoder(&Default::default());
     let screen = egui_wgpu::ScreenDescriptor {
-        size_in_pixels: [6, 2],
+        size_in_pixels: [8, 2],
         pixels_per_point: 1.,
     };
-    let callbacks = (0..3)
+    let mut callbacks = (0..4)
         .map(|i| {
             let mut pixels = vec![(i + 1) as f32 * 64.; 4];
             if i == 1 {
                 pixels[0] = f32::NAN;
             }
             SliceCallback {
-                slot: i,
+                slot: 8 + i,
                 repaint: egui::Context::default(),
                 image: Arc::new(Frame {
                     slab: None,
@@ -68,7 +68,7 @@ fn three_gpu_viewports_keep_independent_images_and_display_settings() {
         );
     }
     let size = wgpu::Extent3d {
-        width: 6,
+        width: 8,
         height: 2,
         depth_or_array_layers: 1,
     };
@@ -92,7 +92,7 @@ fn three_gpu_viewports_keep_independent_images_and_display_settings() {
     {
         let mut pass = encoder
             .begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("three callbacks"),
+                label: Some("four callbacks"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -118,7 +118,7 @@ fn three_gpu_viewports_keep_independent_images_and_display_settings() {
                     viewport: rect,
                     clip_rect: rect,
                     pixels_per_point: 1.,
-                    screen_size_px: [6, 2],
+                    screen_size_px: [8, 2],
                 },
                 &mut pass,
                 &resources,
@@ -155,9 +155,12 @@ fn three_gpu_viewports_keep_independent_images_and_display_settings() {
         .unwrap()
         .unwrap();
     let bytes = buffer.get_mapped_range(..).unwrap();
-    for (y, row) in [[64u8, 64, 10, 128, 63, 63], [64, 64, 128, 128, 63, 63]]
-        .into_iter()
-        .enumerate()
+    for (y, row) in [
+        [64u8, 64, 10, 128, 63, 63, 255, 255],
+        [64, 64, 128, 128, 63, 63, 255, 255],
+    ]
+    .into_iter()
+    .enumerate()
     {
         for (x, value) in row.into_iter().enumerate() {
             for channel in &bytes[y * 256 + x * 4..y * 256 + x * 4 + 3] {
@@ -170,4 +173,16 @@ fn three_gpu_viewports_keep_independent_images_and_display_settings() {
     }
     drop(bytes);
     buffer.unmap();
+    let closed = [
+        Arc::downgrade(&callbacks[2].image),
+        Arc::downgrade(&callbacks[3].image),
+    ];
+    callbacks.truncate(2);
+    assert!(closed.iter().all(|image| image.upgrade().is_some()));
+    remove_slot(&mut resources, 10);
+    remove_slot(&mut resources, 11);
+    assert!(closed.iter().all(|image| image.upgrade().is_none()));
+    let retained = &resources.get::<ViewportRenderers>().unwrap().slots;
+    assert_eq!(retained.len(), 2);
+    assert!(retained.contains_key(&8) && retained.contains_key(&9));
 }

@@ -233,13 +233,12 @@ pub fn clear(frame: &eframe::Frame) {
 }
 
 pub fn clear_slot(frame: &eframe::Frame, slot: usize) {
-    if let Some(render) = frame.wgpu_render_state()
-        && let Some(renderers) = render
-            .renderer
-            .write()
-            .callback_resources
-            .get_mut::<ViewportRenderers>()
-    {
+    if let Some(render) = frame.wgpu_render_state() {
+        remove_slot(&mut render.renderer.write().callback_resources, slot);
+    }
+}
+fn remove_slot(resources: &mut egui_wgpu::CallbackResources, slot: usize) {
+    if let Some(renderers) = resources.get_mut::<ViewportRenderers>() {
         renderers.slots.remove(&slot);
     }
 }
