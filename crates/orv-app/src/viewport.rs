@@ -104,6 +104,8 @@ pub enum Tool {
     Distance,
     Angle,
     Roi,
+    EllipseRoi,
+    PolygonRoi,
 }
 
 pub fn interact(
@@ -166,7 +168,7 @@ pub fn interact(
             adjust_contrast(&mut view.window, delta);
         }
     }
-    if response.double_clicked() {
+    if response.double_clicked() && !tool.measures() {
         view.zoom = 1.0;
         view.pan = [0.0, 0.0];
     }
@@ -209,7 +211,10 @@ fn advance_slice(view: &mut ViewState, scroll: &mut f32, delta: f32, count: usiz
 
 impl Tool {
     pub fn measures(self) -> bool {
-        matches!(self, Self::Distance | Self::Angle | Self::Roi)
+        matches!(self, Self::Distance | Self::Angle) || self.roi()
+    }
+    pub fn roi(self) -> bool {
+        matches!(self, Self::Roi | Self::EllipseRoi | Self::PolygonRoi)
     }
 }
 

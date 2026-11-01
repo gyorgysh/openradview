@@ -6,11 +6,34 @@ struct Input {
     image: Arc<Frame>,
     points: Vec<[f64; 2]>,
     tool: Tool,
+    _memory: Arc<orv_core::resources::Reservation>,
+}
+pub(super) struct Report {
+    pub geometry_valid: bool,
+    pub text: String,
+}
+fn run(input: Input, cancel: &dyn Fn() -> bool) -> Result<Report, String> {
+    if input.tool.roi() {
+        let valid = roi_shape(input.tool, &input.points)
+            .and_then(|shape| shape.validate([input.image.width, input.image.height], cancel));
+        if let Err(error) = valid {
+            return Ok(Report {
+                geometry_valid: false,
+                text: format!("Invalid region: {error}"),
+            });
+        }
+    }
+    Ok(Report {
+        geometry_valid: true,
+        text: report(&input.image, &input.points, input.tool, cancel)
+            .unwrap_or_else(|error| format!("Measurement unavailable: {error}")),
+    })
 }
 #[derive(Default)]
 pub(super) struct Calculations {
-    worker: Option<Worker<Input, String>>,
+    worker: Option<Worker<Input, Report>>,
     pending: Option<(u64, u64, u64)>,
+    memory: Option<Arc<orv_core::resources::Reservation>>,
 }
 impl Calculations {
     pub fn start(
@@ -23,12 +46,12 @@ impl Calculations {
         ctx: &egui::Context,
     ) -> Result<(), String> {
         self.clear();
+        let memory = self
+            .memory
+            .clone()
+            .ok_or("Measurement storage is unavailable. Reopen the source and try again.")?;
         if self.worker.is_none() {
-            self.worker = Some(Worker::start(
-                ctx.clone(),
-                "orv-roi-statistics",
-                |input: Input, cancel| report(&input.image, &input.points, input.tool, cancel),
-            )?);
+            self.worker = Some(Worker::start(ctx.clone(), "orv-roi-statistics", run)?);
         }
         if let Some(worker) = &self.worker {
             self.pending = Some((
@@ -36,6 +59,7 @@ impl Calculations {
                     image,
                     points,
                     tool,
+                    _memory: memory,
                 }),
                 id,
                 revision,
@@ -45,6 +69,13 @@ impl Calculations {
     }
     pub fn is_busy(&self) -> bool {
         self.pending.is_some()
+    }
+    pub fn set_admission(&mut self, memory: Arc<orv_core::resources::Reservation>) {
+        self.memory = Some(memory);
+    }
+    pub fn release(&mut self) {
+        self.clear();
+        self.memory = None;
     }
     pub fn clear(&mut self) {
         self.pending = None;
@@ -57,7 +88,7 @@ impl Calculations {
             self.clear();
         }
     }
-    pub fn poll(&mut self) -> Option<(u64, u64, Result<String, String>)> {
+    pub fn poll(&mut self) -> Option<(u64, u64, Result<Report, String>)> {
         let (generation, result) = self.worker.as_ref()?.take()?;
         let (expected, id, revision) = self.pending?;
         if generation != expected {
@@ -85,6 +116,7 @@ mod tests {
         let image = orv_core::study::demo_study().series[0].frames[0].clone();
         let ctx = egui::Context::default();
         let mut annotations = Annotations::default();
+        annotations.ensure_admitted().unwrap();
         annotations.bind_image(&image, &ViewState::default());
         let key = annotations.image.clone().unwrap();
         annotations.marks = vec![
@@ -150,6 +182,8 @@ mod tests {
         let image = Arc::new(image);
         let ctx = egui::Context::default();
         let mut calculations = Calculations::default();
+        let pool = orv_core::resources::MemoryBudget::new(1024 * 1024);
+        calculations.set_admission(Arc::new(pool.reserve(1024 * 1024).unwrap()));
         calculations
             .start(
                 0,
@@ -164,7 +198,7 @@ mod tests {
         let label = loop {
             if let Some((id, revision, result)) = calculations.poll() {
                 assert_eq!((id, revision), (0, 7));
-                break result.unwrap();
+                break result.unwrap().text;
             }
             assert!(Instant::now() < deadline);
             std::thread::yield_now();
@@ -204,6 +238,7 @@ mod tests {
         let image = orv_core::study::demo_study().series[0].frames[0].clone();
         let ctx = egui::Context::default();
         let mut annotations = Annotations::default();
+        annotations.ensure_admitted().unwrap();
         annotations.bind_image(&image, &ViewState::default());
         annotations.marks.push(Mark {
             id: 0,

@@ -30,6 +30,9 @@ pub struct ObliqueSession {
     annotations: Annotations,
 }
 impl ObliqueSession {
+    pub(crate) fn cancel_measurement_interaction(&mut self, ctx: &egui::Context) {
+        self.annotations.cancel_interaction(ctx);
+    }
     pub(crate) fn picture(&self) -> Option<(crate::export::Pixels, [u32; 2])> {
         let (_, true) = self.shared_view()? else {
             return None;
@@ -262,10 +265,14 @@ impl ObliqueSession {
             ui.ctx(),
         );
         labels.draw_plane(ui, &response, &snapshot.image, &self.view, 0);
-        self.annotations
-            .show(ui, &response, &snapshot.image, &self.view, self.tool);
-        self.annotations
-            .status_overlay(ui, response.rect, self.tool);
+        if self.shared_view().is_some_and(|(_, ready)| ready) {
+            self.annotations
+                .show(ui, &response, &snapshot.image, &self.view, self.tool);
+            self.annotations
+                .status_overlay(ui, response.rect, self.tool);
+        } else {
+            self.annotations.cancel_interaction(ui.ctx());
+        }
         let [l, p, s] = snapshot.plane.center_mm;
         let status = if snapshot.preview {
             "Preview · refining"

@@ -19,7 +19,9 @@ use std::{
     },
 };
 
-const MAX_FILE_BYTES: u64 = 256 * 1024;
+const MAX_V1_BYTES: u64 = 256 * 1024;
+const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const SCRATCH_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,6 +35,7 @@ struct ComparisonFile {
 struct SavedPane {
     source_sha256: String,
     view: ViewState,
+    #[serde(deserialize_with = "crate::annotations::deserialize_marks")]
     marks: Vec<SavedMark>,
 }
 pub(super) struct Capture {
@@ -118,7 +121,15 @@ impl Task {
     }
     pub fn poll(&self) -> Option<Result<Outcome, &'static str>> {
         match self.receiver.try_recv() {
-            Ok(result) => Some(result),
+            Ok(result) => Some(if self.cancel.load(Ordering::Acquire) {
+                Err(if matches!(result, Ok(Outcome::Saved { .. })) {
+                    "The comparison file was written before cancellation. Current work was kept."
+                } else {
+                    "Comparison operation cancelled."
+                })
+            } else {
+                result
+            }),
             Err(mpsc::TryRecvError::Empty) => None,
             Err(mpsc::TryRecvError::Disconnected) => Some(Err("The comparison worker stopped.")),
         }
@@ -141,6 +152,19 @@ fn valid_view(view: &ViewState, series: &Series) -> Result<(), &'static str> {
     Ok(())
 }
 fn snapshot(capture: Capture, cancelled: &impl Fn() -> bool) -> Result<SavedPane, &'static str> {
+    if capture.marks.len() > crate::annotations::MAX_MARKS
+        || capture
+            .marks
+            .iter()
+            .try_fold(0usize, |total, mark| {
+                total
+                    .checked_add(mark.saved.points.len())
+                    .filter(|n| *n <= crate::annotations::MAX_POINTS)
+            })
+            .is_none()
+    {
+        return Err("The comparison exceeds the measurement mark or point allowance.");
+    }
     valid_view(&capture.view, &capture.source)?;
     let hash = fresh_series_fingerprint(&capture.source, cancelled)?;
     let actual = capture
@@ -160,6 +184,7 @@ fn snapshot(capture: Capture, cancelled: &impl Fn() -> bool) -> Result<SavedPane
         if !mark.matches(&frame) {
             return Err("A measurement no longer matches its source image.");
         }
+        mark.saved.validate(&frame, cancelled)?;
     }
     Ok(SavedPane {
         source_sha256: hash,
@@ -173,15 +198,40 @@ fn save(
     active: usize,
     cancelled: &impl Fn() -> bool,
 ) -> Result<Outcome, &'static str> {
+    if cancelled() {
+        return Err("Comparison save cancelled.");
+    }
+    if active > 1 {
+        return Err("Invalid active comparison pane.");
+    }
+    let _scratch = orv_core::resources::MemoryBudget::volumes()
+        .reserve(SCRATCH_BYTES)
+        .ok_or("Not enough memory for the comparison file.")?;
     let [left, right] = captures;
     let panes = [snapshot(left, cancelled)?, snapshot(right, cancelled)?];
     let file = ComparisonFile {
-        version: 1,
+        version: if panes
+            .iter()
+            .any(|pane| pane.marks.iter().any(|mark| mark.tool.extended()))
+        {
+            2
+        } else {
+            1
+        },
         active: active as u8,
         panes,
     };
+    for pane in &file.panes {
+        crate::annotations::validate_mark_counts(&pane.marks)?;
+    }
     let bytes = serde_json::to_vec_pretty(&file).map_err(|_| "Could not encode the comparison.")?;
-    if bytes.len() as u64 > MAX_FILE_BYTES {
+    if bytes.len() as u64
+        > if file.version == 1 {
+            MAX_V1_BYTES
+        } else {
+            MAX_FILE_BYTES
+        }
+    {
         return Err("Comparison exceeds the file size limit.");
     }
     if cancelled() {
@@ -212,6 +262,12 @@ fn open(
     sources: &[Arc<Series>; 2],
     cancelled: &impl Fn() -> bool,
 ) -> Result<Outcome, &'static str> {
+    if cancelled() {
+        return Err("Comparison opening cancelled.");
+    }
+    let _scratch = orv_core::resources::MemoryBudget::volumes()
+        .reserve(SCRATCH_BYTES)
+        .ok_or("Not enough memory for the comparison file.")?;
     let input = File::open(path).map_err(|_| "Could not open the comparison file.")?;
     let mut bytes = Vec::new();
     input
@@ -223,14 +279,24 @@ fn open(
     }
     let file: ComparisonFile =
         serde_json::from_slice(&bytes).map_err(|_| "Invalid comparison file.")?;
-    if file.version != 1 || file.active > 1 {
+    if !matches!(file.version, 1 | 2) || file.active > 1 {
         return Err("Unsupported comparison file version.");
+    }
+    if file.version == 1
+        && (bytes.len() as u64 > MAX_V1_BYTES
+            || file
+                .panes
+                .iter()
+                .any(|pane| pane.marks.iter().any(|mark| mark.tool.extended())))
+    {
+        return Err("The comparison version does not support these measurements or file size.");
     }
     let mut restored = Vec::with_capacity(2);
     for (pane, source) in file.panes.into_iter().zip(sources) {
-        if !is_sha256(&pane.source_sha256) || pane.marks.len() > 128 {
+        if !is_sha256(&pane.source_sha256) {
             return Err("Invalid comparison file.");
         }
+        crate::annotations::validate_mark_counts(&pane.marks)?;
         valid_view(&pane.view, source)?;
         if fresh_series_fingerprint(source, cancelled)? != pane.source_sha256 {
             return Err(
@@ -304,6 +370,10 @@ mod tests {
             Ok(Outcome::Saved { .. })
         ));
         let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).unwrap()["version"],
+            1
+        );
         assert!(!text.contains(folder.path().to_str().unwrap()));
         assert!(!text.contains("frame_of_reference"));
         assert!(!text.contains("pixels"));
@@ -364,5 +434,165 @@ mod tests {
             .is_err()
         );
         assert!(!cancelled.exists());
+    }
+    #[test]
+    fn extended_shapes_use_version_two_and_recompute_reports_from_verified_sources() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("regions.json");
+        let source = series();
+        let marks = vec![
+            SavedMark {
+                frame: 0,
+                tool: SavedTool::EllipseRoi,
+                points: vec![[0., 0.], [2., 2.]],
+            },
+            SavedMark {
+                frame: 0,
+                tool: SavedTool::PolygonRoi,
+                points: vec![[0., 0.], [3., 0.], [0., 3.]],
+            },
+        ];
+        save(
+            &path,
+            [
+                capture(source.clone(), &marks),
+                capture(source.clone(), &[]),
+            ],
+            0,
+            &|| false,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).unwrap()["version"],
+            2
+        );
+        assert!(!text.contains("mean"));
+        assert!(!text.contains("geometry"));
+        assert!(!text.contains(folder.path().to_str().unwrap()));
+        let Outcome::Restored { mut panes, active } =
+            open(&path, &[source.clone(), source.clone()], &|| false).unwrap()
+        else {
+            panic!("Expected regions");
+        };
+        assert_eq!(active, 0);
+        assert_eq!(panes[0].marks, marks);
+        panes[0]
+            .annotations
+            .bind_image(&source.frames[0], &ViewState::default());
+        let label = panes[0]
+            .annotations
+            .status(crate::viewport::Tool::PolygonRoi);
+        assert!(label.contains("Polygon ROI · n=10 · mean 5.00"));
+        assert!(label.contains("20.00 mm² sampled"));
+        assert!(label.contains("9.00 mm² shape"));
+    }
+    #[test]
+    fn new_kinds_under_old_versions_invalid_topology_and_all_collection_limits_are_refused() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("regions.json");
+        let source = series();
+        let sources = [source.clone(), source.clone()];
+        let mark = SavedMark {
+            frame: 0,
+            tool: SavedTool::PolygonRoi,
+            points: vec![[0., 0.], [3., 0.], [0., 3.]],
+        };
+        save(
+            &path,
+            [
+                capture(source.clone(), std::slice::from_ref(&mark)),
+                capture(source, &[]),
+            ],
+            0,
+            &|| false,
+        )
+        .unwrap();
+        let base: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let mut cases = Vec::new();
+        let mut bad = base.clone();
+        bad["version"] = serde_json::json!(1);
+        cases.push(bad);
+        let mut bad = base.clone();
+        bad["version"] = serde_json::json!(3);
+        cases.push(bad);
+        let mut bad = base.clone();
+        bad["panes"][0]["marks"][0]["tool"] = serde_json::json!("unknown");
+        cases.push(bad);
+        let mut bad = base.clone();
+        bad["panes"][0]["marks"][0]["points"] = serde_json::json!([[0, 0], [3, 3], [0, 3], [3, 0]]);
+        cases.push(bad);
+        let mut bad = base.clone();
+        bad["panes"][0]["marks"][0]["points"] = serde_json::json!([[0, 0], [1, 1]]);
+        cases.push(bad);
+        let mut bad = base.clone();
+        bad["panes"][0]["marks"][0]["tool"] = serde_json::json!("ellipse_roi");
+        bad["panes"][0]["marks"][0]["points"] = serde_json::json!([[1, 1], [1, 3]]);
+        cases.push(bad);
+        let mut bad = base.clone();
+        bad["panes"][0]["marks"] = serde_json::json!(vec![mark.clone(); 129]);
+        cases.push(bad);
+        let mut bad = base.clone();
+        bad["panes"][0]["marks"][0]["points"] = serde_json::json!(vec![[1., 1.]; 257]);
+        cases.push(bad);
+        let circle = (0..256)
+            .map(|i| {
+                let a = i as f64 * std::f64::consts::TAU / 256.;
+                [1.5 + a.cos(), 1.5 + a.sin()]
+            })
+            .collect::<Vec<_>>();
+        let mut bad = base;
+        bad["panes"][0]["marks"] = serde_json::json!(vec![
+            SavedMark {
+                points: circle,
+                ..mark
+            };
+            17
+        ]);
+        cases.push(bad);
+        for data in cases {
+            std::fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
+            assert!(open(&path, &sources, &|| false).is_err());
+        }
+    }
+    #[test]
+    fn version_one_keeps_its_original_byte_limit_and_late_cancel_never_restores_a_queued_result() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("comparison.json");
+        let source = series();
+        save(
+            &path,
+            [capture(source.clone(), &[]), capture(source.clone(), &[])],
+            0,
+            &|| false,
+        )
+        .unwrap();
+        let mut data = std::fs::read(&path).unwrap();
+        data.resize(MAX_V1_BYTES as usize + 1, b' ');
+        std::fs::write(&path, data).unwrap();
+        assert!(open(&path, &[source.clone(), source], &|| false).is_err());
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender
+            .send(Ok(Outcome::Restored {
+                panes: Box::new(std::array::from_fn(|_| RestoredPane {
+                    view: ViewState::default(),
+                    marks: Vec::new(),
+                    annotations: Annotations::default(),
+                })),
+                active: 0,
+            }))
+            .ok()
+            .unwrap();
+        let mut task = Task {
+            receiver,
+            cancel: Arc::new(AtomicBool::new(false)),
+            cancelling: false,
+        };
+        task.cancel();
+        assert!(matches!(
+            task.poll(),
+            Some(Err("Comparison operation cancelled."))
+        ));
     }
 }

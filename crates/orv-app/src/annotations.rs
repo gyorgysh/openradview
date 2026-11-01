@@ -8,7 +8,11 @@ use orv_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+mod creation;
+mod serialization;
 mod stats_worker;
+mod storage;
+pub(crate) use serialization::deserialize_marks;
 
 #[derive(Clone, Debug, PartialEq)]
 struct ImageKey {
@@ -17,7 +21,8 @@ struct ImageKey {
     geometry: Option<Geometry>,
     frame: Option<u32>,
 }
-const MAX_MARKS: usize = 128;
+pub(crate) const MAX_MARKS: usize = 128;
+pub(crate) const MAX_POINTS: usize = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,6 +30,8 @@ pub(crate) enum SavedTool {
     Distance,
     Angle,
     Roi,
+    EllipseRoi,
+    PolygonRoi,
 }
 impl SavedTool {
     fn tool(self) -> Tool {
@@ -32,7 +39,12 @@ impl SavedTool {
             Self::Distance => Tool::Distance,
             Self::Angle => Tool::Angle,
             Self::Roi => Tool::Roi,
+            Self::EllipseRoi => Tool::EllipseRoi,
+            Self::PolygonRoi => Tool::PolygonRoi,
         }
+    }
+    pub(crate) fn extended(self) -> bool {
+        matches!(self, Self::EllipseRoi | Self::PolygonRoi)
     }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -40,7 +52,57 @@ impl SavedTool {
 pub(crate) struct SavedMark {
     pub frame: u32,
     pub tool: SavedTool,
+    #[serde(deserialize_with = "serialization::deserialize_points")]
     pub points: Vec<[f64; 2]>,
+}
+impl SavedMark {
+    pub(crate) fn validate(
+        &self,
+        image: &Frame,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<(), &'static str> {
+        if cancelled() {
+            return Err("Comparison operation cancelled.");
+        }
+        let tool = self.tool.tool();
+        let count = match tool {
+            Tool::Angle => self.points.len() == 3,
+            Tool::PolygonRoi => {
+                (3..=measurements::MAX_POLYGON_VERTICES).contains(&self.points.len())
+            }
+            _ => self.points.len() == 2,
+        };
+        if !count {
+            return Err("Invalid measurement points.");
+        }
+        if image.slab.is_some()
+            || self
+                .points
+                .iter()
+                .any(|point| !sampled_point(image, *point))
+        {
+            return Err("Measurement points are outside the verified image.");
+        }
+        if tool.roi() {
+            roi_shape(tool, &self.points)?.validate([image.width, image.height], cancelled)?;
+        }
+        Ok(())
+    }
+}
+pub(crate) fn validate_mark_counts(marks: &[SavedMark]) -> Result<(), &'static str> {
+    if marks.len() > MAX_MARKS
+        || marks
+            .iter()
+            .try_fold(0usize, |total, mark| {
+                total
+                    .checked_add(mark.points.len())
+                    .filter(|n| *n <= MAX_POINTS)
+            })
+            .is_none()
+    {
+        return Err("The comparison exceeds the measurement mark or point allowance.");
+    }
+    Ok(())
 }
 pub(crate) struct CapturedMark {
     pub saved: SavedMark,
@@ -63,17 +125,31 @@ struct Mark {
     tool: Tool,
     label: String,
 }
+struct Candidate {
+    id: u64,
+    revision: u64,
+    image: ImageKey,
+    points: Vec<[f64; 2]>,
+    tool: Tool,
+    result: Option<Result<stats_worker::Report, String>>,
+    ready_repainted: bool,
+}
 #[derive(Default)]
 pub struct Annotations {
     calculation: stats_worker::Calculations,
     image: Option<ImageKey>,
     active_tool: Option<Tool>,
     pending: Vec<[f64; 2]>,
+    candidate: Option<Candidate>,
+    draft_error: Option<String>,
+    finish_requested: bool,
     marks: Vec<Mark>,
     selected: Option<u64>,
     next_id: u64,
     next_revision: u64,
     preserve_plane: bool,
+    memory: Option<Arc<orv_core::resources::Reservation>>,
+    canvas_id: Option<egui::Id>,
 }
 pub fn mapping(rect: Rect, image: &Frame, view: &ViewState) -> Option<ImageMapping> {
     ImageMapping::new(
@@ -91,10 +167,23 @@ pub fn screen_at(rect: Rect, image: &Frame, view: &ViewState, pixel: [f64; 2]) -
     let uv = mapping(rect, image, view)?.pixel_to_view(pixel)?;
     Some(rect.min + egui::vec2(uv[0] as f32 * rect.width(), uv[1] as f32 * rect.height()))
 }
+fn sampled_point(image: &Frame, point: [f64; 2]) -> bool {
+    image.width > 0
+        && image.height > 0
+        && point.iter().all(|v| v.is_finite())
+        && point[0] >= 0.
+        && point[1] >= 0.
+        && point[0] <= f64::from(image.width - 1)
+        && point[1] <= f64::from(image.height - 1)
+        && (point[1].round() as usize)
+            .checked_mul(image.width as usize)
+            .and_then(|index| index.checked_add(point[0].round() as usize))
+            .is_some_and(|index| image.has_sample(index))
+}
 
 impl Annotations {
     pub(crate) fn capture(&self) -> Result<Vec<CapturedMark>, &'static str> {
-        if !self.pending.is_empty() {
+        if !self.pending.is_empty() || self.candidate.is_some() {
             return Err("Finish or cancel the current measurement before saving.");
         }
         self.marks
@@ -104,6 +193,8 @@ impl Annotations {
                     Tool::Distance => SavedTool::Distance,
                     Tool::Angle => SavedTool::Angle,
                     Tool::Roi => SavedTool::Roi,
+                    Tool::EllipseRoi => SavedTool::EllipseRoi,
+                    Tool::PolygonRoi => SavedTool::PolygonRoi,
                     _ => return Err("Unsupported measurement"),
                 };
                 Ok(CapturedMark {
@@ -121,45 +212,33 @@ impl Annotations {
             .collect()
     }
     pub(crate) fn has_marks(&self) -> bool {
-        !self.marks.is_empty() || !self.pending.is_empty()
+        !self.marks.is_empty() || !self.pending.is_empty() || self.candidate.is_some()
     }
     pub(crate) fn restore(
         saved: &[SavedMark],
         series: &orv_core::study::Series,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self, &'static str> {
-        if saved.len() > MAX_MARKS {
-            return Err("Too many measurements in the comparison file.");
-        }
+        validate_mark_counts(saved)?;
         let mut annotations = Self::default();
+        if !saved.is_empty() {
+            annotations
+                .ensure_admitted()
+                .map_err(|_| "Not enough memory for restored measurements.")?;
+            annotations
+                .marks
+                .try_reserve_exact(saved.len())
+                .map_err(|_| "Not enough memory for restored measurements.")?;
+        }
         for mark in saved {
             if cancelled() {
                 return Err("Comparison operation cancelled.");
             }
             let tool = mark.tool.tool();
-            let expected = if tool == Tool::Angle { 3 } else { 2 };
-            if mark.points.len() != expected {
-                return Err("Invalid measurement points.");
-            }
             let image = series
                 .read_fresh_frame(mark.frame as usize, &cancelled)
                 .map_err(|_| "A measurement image is unavailable or changed.")?;
-            if image.slab.is_some()
-                || mark.points.iter().any(|point| {
-                    !point[0].is_finite()
-                        || !point[1].is_finite()
-                        || point[0] < 0.
-                        || point[1] < 0.
-                        || point[0] > f64::from(image.width.saturating_sub(1))
-                        || point[1] > f64::from(image.height.saturating_sub(1))
-                        || !image.has_sample(
-                            point[1].round() as usize * image.width as usize
-                                + point[0].round() as usize,
-                        )
-                })
-            {
-                return Err("Measurement points are outside the verified image.");
-            }
+            mark.validate(&image, &cancelled)?;
             let label = report(&image, &mark.points, tool, &cancelled)
                 .unwrap_or_else(|error| format!("Measurement unavailable: {error}"));
             if cancelled() {
@@ -190,10 +269,20 @@ impl Annotations {
         }
     }
     pub fn has_content(&self, tool: Tool) -> bool {
-        tool.measures() || self.visible_marks().next().is_some() || !self.pending.is_empty()
+        tool.measures()
+            || self.visible_marks().next().is_some()
+            || !self.pending.is_empty()
+            || self.candidate.is_some()
     }
     pub fn status_overlay(&mut self, ui: &mut egui::Ui, rect: Rect, tool: Tool) {
         self.poll();
+        if let Some(candidate) = self.candidate.as_mut()
+            && candidate.result.is_some()
+            && !candidate.ready_repainted
+        {
+            candidate.ready_repainted = true;
+            ui.ctx().request_repaint();
+        }
         if !self.has_content(tool) {
             return;
         }
@@ -225,14 +314,31 @@ impl Annotations {
             });
     }
     pub fn clear(&mut self) {
-        self.calculation.clear();
-        self.pending.clear();
-        self.marks.clear();
+        self.calculation.release();
+        self.candidate = None;
+        self.draft_error = None;
+        self.finish_requested = false;
+        self.pending = Vec::new();
+        self.marks = Vec::new();
         self.selected = None;
+        self.memory = None;
     }
     pub fn status(&self, tool: Tool) -> String {
+        if self.candidate.is_some() {
+            return "Checking region locally… Escape cancels.".into();
+        }
+        if let Some(error) = &self.draft_error {
+            return format!("{error} · Backspace removes the last point; Escape cancels.");
+        }
         if !self.pending.is_empty() {
-            return format!("{} point(s) placed · click to finish", self.pending.len());
+            return if tool == Tool::PolygonRoi {
+                format!(
+                    "{} vertices · Enter or Measurements → Finish polygon · Backspace removes a point",
+                    self.pending.len()
+                )
+            } else {
+                format!("{} point(s) placed · click to finish", self.pending.len())
+            };
         }
         if let Some(mark) = self.selected_mark() {
             return format!("#{} · {}", mark.id.saturating_add(1), mark.label);
@@ -240,13 +346,15 @@ impl Annotations {
         if self.marks.len() == MAX_MARKS {
             return format!("{MAX_MARKS} measurements in memory. Delete or clear to add more.");
         }
-        if tool == Tool::Roi && self.calculation.is_busy() {
-            return "A rectangle is still being calculated. Other measurement tools remain available.".into();
+        if tool.roi() && self.calculation.is_busy() {
+            return "Region statistics are still being calculated. Other measurement tools remain available.".into();
         }
         match tool {
             Tool::Distance => "Distance: click two points. Requires valid spacing.",
             Tool::Angle => "Angle: click endpoint, vertex, endpoint.",
             Tool::Roi => "ROI: click two corners. Scalar values or RGB codes follow the selected representation.",
+            Tool::EllipseRoi => "Ellipse ROI: click opposite corners of its bounds.",
+            Tool::PolygonRoi => "Polygon ROI: click vertices. Enter or Measurements → Finish polygon completes it. Backspace removes a point; Escape cancels.",
             _ => "Research measurements only",
         }
         .into()
@@ -259,61 +367,17 @@ impl Annotations {
         view: &ViewState,
         tool: Tool,
     ) {
-        if image.slab.is_some() {
-            return;
-        }
-        self.poll();
+        self.canvas_id = Some(response.id);
         self.bind_image(image, view);
         if self.active_tool != Some(tool) {
-            self.pending.clear();
+            self.cancel_draft();
             self.active_tool = Some(tool);
         }
-        if tool.measures()
-            && self.marks.len() < MAX_MARKS
-            && (tool != Tool::Roi || !self.calculation.is_busy())
-            && !crate::viewport::navigation_override(ui, response)
-            && response.clicked_by(egui::PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-            && let Some(pixel) = pixel_at(response.rect, image, view, pos)
-        {
-            let index =
-                pixel[1].round() as usize * image.width as usize + pixel[0].round() as usize;
-            if image.has_sample(index) {
-                self.pending.push(pixel);
-                let needed = if tool == Tool::Angle { 3 } else { 2 };
-                if self.pending.len() == needed {
-                    let id = self.next_id;
-                    self.next_id = self.next_id.wrapping_add(1);
-                    let revision = self.next_revision;
-                    self.next_revision = self.next_revision.wrapping_add(1);
-                    let label = if tool == Tool::Roi {
-                        match self.calculation.start(
-                            id,
-                            revision,
-                            image.clone(),
-                            self.pending.clone(),
-                            tool,
-                            ui.ctx(),
-                        ) {
-                            Ok(()) => "Calculating local rectangle statistics…".into(),
-                            Err(error) => format!("Measurement unavailable: {error}"),
-                        }
-                    } else {
-                        report(image, &self.pending, tool, || false)
-                            .unwrap_or_else(|error| format!("Measurement unavailable: {error}"))
-                    };
-                    self.marks.push(Mark {
-                        id,
-                        revision,
-                        image: self.image.clone().unwrap_or_else(|| self.key(image, view)),
-                        points: std::mem::take(&mut self.pending),
-                        tool,
-                        label,
-                    });
-                    self.selected = Some(id);
-                }
-            }
+        if image.slab.is_some() {
+            self.cancel_interaction(ui.ctx());
+            return;
         }
+        self.handle_creation(ui, response, image, view, tool);
         for mark in self.visible_marks() {
             paint(ui, response.rect, image, view, &mark.points, mark.tool);
             if let Some(point) = mark.points.first()
@@ -335,6 +399,16 @@ impl Annotations {
                     theme::PAPER,
                 );
             }
+        }
+        if let Some(candidate) = &self.candidate {
+            paint(
+                ui,
+                response.rect,
+                image,
+                view,
+                &candidate.points,
+                candidate.tool,
+            );
         }
         let mut draft = self.pending.clone();
         if !draft.is_empty()
@@ -360,7 +434,7 @@ impl Annotations {
     pub fn bind_image(&mut self, image: &Frame, view: &ViewState) {
         let key = self.key(image, view);
         if self.image.as_ref() != Some(&key) {
-            self.pending.clear();
+            self.cancel_draft();
             self.image = Some(key);
             self.selected = self.visible_marks().last().map(|mark| mark.id);
         }
@@ -395,6 +469,31 @@ impl Annotations {
                     self.marks.len()
                 ));
                 ui.weak("Only this image / plane is listed. Nothing is saved automatically.");
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(
+                            self.active_tool == Some(Tool::PolygonRoi)
+                                && self.pending.len() >= 3
+                                && self.candidate.is_none()
+                                && !self.calculation.is_busy(),
+                            egui::Button::new("Finish polygon"),
+                        )
+                        .clicked()
+                    {
+                        self.finish_requested = true;
+                        ui.close();
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.pending.is_empty() || self.candidate.is_some(),
+                            egui::Button::new("Cancel current measurement"),
+                        )
+                        .clicked()
+                    {
+                        self.cancel_draft();
+                        ui.close();
+                    }
+                });
                 let mut selected = self.selected;
                 egui::ScrollArea::vertical()
                     .max_height(180.)
@@ -423,7 +522,7 @@ impl Annotations {
                 }
                 if ui
                     .add_enabled(
-                        !self.marks.is_empty() || !self.pending.is_empty(),
+                        self.has_marks(),
                         egui::Button::new("Clear all measurements"),
                     )
                     .clicked()
@@ -434,31 +533,62 @@ impl Annotations {
             });
     }
     fn poll(&mut self) {
-        if let Some((id, revision, result)) = self.calculation.poll()
-            && let Some(mark) = self
-                .marks
-                .iter_mut()
-                .find(|mark| mark.id == id && mark.revision == revision)
+        let Some((id, revision, result)) = self.calculation.poll() else {
+            return;
+        };
+        if let Some(candidate) = self
+            .candidate
+            .as_mut()
+            .filter(|c| c.id == id && c.revision == revision)
         {
-            mark.label = result.unwrap_or_else(|error| format!("Measurement unavailable: {error}"));
+            candidate.result = Some(result);
+        } else if let Some(mark) = self
+            .marks
+            .iter_mut()
+            .find(|mark| mark.id == id && mark.revision == revision)
+        {
+            mark.label = result
+                .map(|report| report.text)
+                .unwrap_or_else(|error| format!("Measurement unavailable: {error}"));
         }
     }
 }
 
+fn roi_shape(tool: Tool, points: &[[f64; 2]]) -> Result<measurements::RoiShape<'_>, &'static str> {
+    match tool {
+        Tool::Roi | Tool::EllipseRoi if points.len() == 2 => {
+            let corners = [points[0], points[1]];
+            Ok(if tool == Tool::Roi {
+                measurements::RoiShape::Rectangle(corners)
+            } else {
+                measurements::RoiShape::Ellipse(corners)
+            })
+        }
+        Tool::PolygonRoi => Ok(measurements::RoiShape::Polygon(points)),
+        _ => Err("The region needs its complete source-coordinate points"),
+    }
+}
 fn report(
     image: &Frame,
     points: &[[f64; 2]],
     tool: Tool,
     cancelled: impl Fn() -> bool,
 ) -> Result<String, String> {
-    if tool == Tool::Roi {
+    if tool.roi() {
+        let region = roi_shape(tool, points).map_err(str::to_owned)?;
+        let name = match tool {
+            Tool::EllipseRoi => "Ellipse ROI",
+            Tool::PolygonRoi => "Polygon ROI",
+            _ => "ROI",
+        };
+        let shape_area = |area: Option<f64>| {
+            area.map(|v| format!(" · {v:.2} mm² shape"))
+                .unwrap_or_default()
+        };
         if image.rgba.is_some() {
-            let stats = measurements::color_roi_stats_cancellable(
-                image,
-                [points[0], points[1]],
-                &cancelled,
-            )
-            .map_err(str::to_owned)?;
+            let region = measurements::color_roi_shape_stats_cancellable(image, region, &cancelled)
+                .map_err(str::to_owned)?;
+            let stats = region.samples;
             let domain = match stats.domain {
                 measurements::ColorRoiDomain::BeforeIcc => "RGB codes before ICC/display",
                 measurements::ColorRoiDomain::SrgbPresentation => "sRGB presentation codes",
@@ -479,19 +609,29 @@ fn report(
                 .collect::<Vec<_>>()
                 .join("\n");
             return Ok(format!(
-                "{domain} · {}-bit · n={}{}\n{channels}",
-                stats.bits, stats.count, area
+                "{name} · {domain} · {}-bit · n={}{}{}\n{channels}",
+                stats.bits,
+                stats.count,
+                area,
+                shape_area(region.geometric_area_mm2)
             ));
         }
-        let stats = measurements::roi_stats_cancellable(image, [points[0], points[1]], &cancelled)
+        let region = measurements::roi_shape_stats_cancellable(image, region, &cancelled)
             .map_err(str::to_owned)?;
+        let stats = region.samples;
         let area = stats
             .area_mm2
             .map(|v| format!(" · {v:.2} mm² sampled"))
             .unwrap_or_default();
         return Ok(format!(
-            "ROI · n={} · mean {:.2} · SD {:.2}\nmin {:.2} · max {:.2}{}",
-            stats.count, stats.mean, stats.standard_deviation, stats.min, stats.max, area
+            "{name} · n={} · mean {:.2} · SD {:.2}\nmin {:.2} · max {:.2}{}{}",
+            stats.count,
+            stats.mean,
+            stats.standard_deviation,
+            stats.min,
+            stats.max,
+            area,
+            shape_area(region.geometric_area_mm2)
         ));
     }
     let g = image
@@ -525,17 +665,29 @@ fn paint(
         .iter()
         .filter_map(|p| screen_at(rect, image, view, *p))
         .collect::<Vec<_>>();
-    let stroke = egui::Stroke::new(1.5, theme::PAPER);
-    if tool == Tool::Roi && screen.len() > 1 {
-        painter.rect_stroke(
-            Rect::from_two_pos(screen[0], screen[1]),
-            0.0,
-            stroke,
-            egui::StrokeKind::Inside,
-        );
-    } else {
-        for pair in screen.windows(2) {
-            painter.line_segment([pair[0], pair[1]], stroke);
+    // The dark surround keeps geometry visible over bright source pixels.
+    for stroke in [
+        egui::Stroke::new(3.5, theme::INK),
+        egui::Stroke::new(1.5, theme::PAPER),
+    ] {
+        if matches!(tool, Tool::Roi | Tool::EllipseRoi) && screen.len() > 1 {
+            let bounds = Rect::from_two_pos(screen[0], screen[1]);
+            if tool == Tool::EllipseRoi {
+                painter.add(egui::Shape::ellipse_stroke(
+                    bounds.center(),
+                    bounds.size() / 2.,
+                    stroke,
+                ));
+            } else {
+                painter.rect_stroke(bounds, 0., stroke, egui::StrokeKind::Middle);
+            }
+        } else {
+            for pair in screen.windows(2) {
+                painter.line_segment([pair[0], pair[1]], stroke);
+            }
+            if tool == Tool::PolygonRoi && screen.len() > 2 {
+                painter.line_segment([screen[screen.len() - 1], screen[0]], stroke);
+            }
         }
     }
     for pos in screen {
