@@ -2,12 +2,12 @@
 //! Categorical labels on a thin plane; scalar interpolation never blends IDs.
 use super::Labels;
 use crate::{
+    plane_sampling::ThinPlane,
     resources::{MemoryBudget, Reservation},
     study::Frame,
-    vector::*,
 };
 
-pub const MAX_PLANE_PIXELS: usize = 4 * 1024 * 1024;
+pub const MAX_PLANE_PIXELS: usize = crate::plane_sampling::MAX_PIXELS;
 
 pub struct LabelPlane {
     dimensions: [usize; 2],
@@ -42,35 +42,9 @@ impl Labels {
         if cancelled() {
             return Err("Cancelled");
         }
-        if image.slab.is_some() {
-            return Err("Label overlays require a thin plane, not a slab projection");
-        }
-        let dimensions = [image.width as usize, image.height as usize];
-        let count = dimensions[0]
-            .checked_mul(dimensions[1])
-            .filter(|n| *n > 0 && *n <= MAX_PLANE_PIXELS)
-            .ok_or("Label planes are limited to four million pixels")?;
-        if !image.valid_dimensions() {
-            return Err("The completed image has invalid sample dimensions");
-        }
-        let geometry = image
-            .geometry
-            .as_ref()
-            .ok_or("Label overlays need plane geometry")?;
-        geometry
-            .validate()
-            .map_err(|_| "Label overlays need valid plane geometry")?;
-        let reference = self
-            .source
-            .frames()
-            .first()
-            .and_then(|frame| frame.geometry.as_ref())
-            .ok_or("Labels need source geometry")?;
-        if geometry.frame_of_reference != reference.frame_of_reference
-            || geometry.nifti_transform != reference.nifti_transform
-        {
-            return Err("Label plane and source references differ");
-        }
+        let plane = ThinPlane::new(&self.source, image)?;
+        let dimensions = plane.dimensions();
+        let count = plane.count();
         let reservation = MemoryBudget::volumes()
             .reserve(count as u64 * 2)
             .ok_or("Not enough memory for a label plane")?;
@@ -81,39 +55,17 @@ impl Labels {
         eligible
             .try_reserve_exact(count)
             .map_err(|_| "Not enough memory for label eligibility")?;
-        let source_size = self.source.dimensions();
-        let (column, row) = geometry.directions();
-        let column = mul(column, geometry.spacing[1]);
-        let row = mul(row, geometry.spacing[0]);
         for index in 0..count {
             if index.is_multiple_of(1024) && cancelled() {
                 return Err("Cancelled");
             }
-            let x = index % dimensions[0];
-            let y = index / dimensions[0];
-            let world = add(
-                geometry.position,
-                add(mul(column, x as f64), mul(row, y as f64)),
-            );
-            let voxel = self.source.world_to_voxel(world);
-            if !finite(world) || !finite(voxel) {
-                return Err("Label plane coordinates exceed the supported range");
-            }
-            if voxel
-                .iter()
-                .zip(source_size)
-                .any(|(v, size)| *v < -0.5 || *v >= size as f64 - 0.5)
-            {
+            let Some(cell) = plane.cell(index)? else {
                 ids.push(0);
                 eligible.push(0);
                 continue;
-            }
-            let [x, y, z] = voxel.map(|v| (v + 0.5).floor() as usize);
-            let pixel = y * source_size[0] + x;
-            ids.push(self.values[z * source_size[0] * source_size[1] + pixel]);
-            eligible.push(u8::from(
-                image.has_sample(index) && self.source.frames()[z].has_sample(pixel),
-            ));
+            };
+            ids.push(self.values[cell.index]);
+            eligible.push(u8::from(cell.eligible));
         }
         if cancelled() {
             return Err("Cancelled");

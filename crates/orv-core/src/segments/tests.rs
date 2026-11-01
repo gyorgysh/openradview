@@ -5,7 +5,7 @@ use crate::{
     study::{Frame, Geometry},
 };
 use std::cell::Cell;
-fn source(width: u32, height: u32) -> Arc<Volume> {
+pub(super) fn source(width: u32, height: u32) -> Arc<Volume> {
     Arc::new(
         Volume::new(
             (0..3)
@@ -43,8 +43,8 @@ fn source(width: u32, height: u32) -> Arc<Volume> {
         .unwrap(),
     )
 }
-const FRAMES: [(u16, usize); 4] = [(9, 2), (2, 0), (9, 0), (2, 1)];
-const DATA: [u8; 4] = [0xa9, 0xb2, 0xd0, 0xff];
+pub(super) const FRAMES: [(u16, usize); 4] = [(9, 2), (2, 0), (9, 0), (2, 1)];
+pub(super) const DATA: [u8; 4] = [0xa9, 0xb2, 0xd0, 0xff];
 #[test]
 fn bit_frames_cross_byte_boundaries_and_preserve_overlap_order_coverage_and_missing_source_cells() {
     let source = source(3, 2);

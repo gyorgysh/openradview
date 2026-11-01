@@ -86,6 +86,15 @@ import, resources are admitted before parsing/reading, and public results retain
 numeric IDs and masks without source UIDs or segment descriptions. This core API
 does not add a desktop import action or change ordinary snapshot scope.
 
+Manual labels and supplied segments share allocation-free nearest-cell mapping
+for completed thin planes. Supplied planes keep independent u64 positive and
+supplied-coverage bitsets, with bit positions bound to numeric segment order;
+omitted planes and overlapping segments remain distinguishable. A separate byte
+intersects source/output sample validity. Sampling admits 17 bytes per output
+pixel before allocation, caps planes at four million pixels and cancels without
+publishing partial buffers. Matching geometry alone does not bind a completed
+image to the source: the caller must preserve exact source/view identity.
+
 Import reports retain category counts and at most 64 generated item ordinals in
 RAM, without filenames, paths, raw tags or parser messages. Detailed errors retain
 the report even when no supported image loads. Uncertain representation failures
