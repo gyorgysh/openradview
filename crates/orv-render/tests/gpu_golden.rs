@@ -42,6 +42,16 @@ fn local_slice_target_can_be_composed_without_relabeling_an_ordinary_snapshot() 
     assert_eq!(target.size(), [2, 2]);
     assert_eq!(target.png(|| false).unwrap(), ordinary.png);
     assert!(target.png(|| true).is_err());
+    let original_rgba = target.rgba(|| false).unwrap();
+    assert_eq!(
+        original_rgba,
+        image::load_from_memory(&ordinary.png)
+            .unwrap()
+            .to_rgba8()
+            .as_raw()
+            .as_slice()
+    );
+    assert!(target.rgba(|| true).is_err());
     let view = target.view();
     let mut encoder = device.create_command_encoder(&Default::default());
     {
@@ -67,6 +77,33 @@ fn local_slice_target_can_be_composed_without_relabeling_an_ordinary_snapshot() 
         .unwrap()
         .to_rgba8();
     assert!(composed.pixels().all(|p| p.0 == [255, 0, 0, 255]));
+    let red_rgba = target.rgba(|| false).unwrap();
+    assert_eq!(red_rgba, composed.as_raw().as_slice());
+    let layout = orv_render::snapshot::mosaic::Layout::new(&[[2, 2]; 2], 2).unwrap();
+    let mut mosaic = orv_render::snapshot::mosaic::Mosaic::new(layout, || false).unwrap();
+    mosaic.copy_tile(0, &original_rgba, || false).unwrap();
+    mosaic.copy_tile(1, &red_rgba, || false).unwrap();
+    let mosaic = image::load_from_memory(&mosaic.png(|| false).unwrap())
+        .unwrap()
+        .to_rgba8();
+    assert_eq!(mosaic.dimensions(), (12, 2));
+    for y in 0..2 {
+        for x in 0..2 {
+            assert_eq!(
+                mosaic.get_pixel(x, y),
+                image::load_from_memory(&ordinary.png)
+                    .unwrap()
+                    .to_rgba8()
+                    .get_pixel(x, y)
+            );
+        }
+        for x in 2..10 {
+            assert_eq!(mosaic.get_pixel(x, y).0, [10, 10, 10, 255]);
+        }
+        for x in 10..12 {
+            assert_eq!(mosaic.get_pixel(x, y).0, [255, 0, 0, 255]);
+        }
+    }
     let separate = renderer.capture(&frame, &scene, || false).unwrap();
     assert_eq!(separate.png, ordinary.png);
     assert!(!separate.manifest.includes_ui_overlays);

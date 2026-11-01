@@ -108,6 +108,38 @@ pub(super) fn capture(
     }
     let layout = Layout::new(size)?;
     let (_cpu, _gpu) = layout.admit(&MemoryBudget::volumes(), &MemoryBudget::gpu())?;
+    let rgba = read_pixels(device, queue, target, size, &layout, cancelled)?;
+    encode_admitted(&rgba, size, layout.png_limit, cancelled)
+}
+
+pub(super) fn rgba(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    target: &wgpu::Texture,
+    size: [u32; 2],
+    cancelled: &impl Fn() -> bool,
+) -> Result<Vec<u8>, &'static str> {
+    if cancelled() {
+        return Err("Cancelled");
+    }
+    let layout = Layout::new(size)?;
+    let _cpu = MemoryBudget::volumes()
+        .reserve(layout.rgba_bytes as u64)
+        .ok_or("Not enough memory for snapshot pixels")?;
+    let _gpu = MemoryBudget::gpu()
+        .reserve(layout.gpu_bytes)
+        .ok_or("Not enough GPU allowance for snapshot readback")?;
+    read_pixels(device, queue, target, size, &layout, cancelled)
+}
+
+fn read_pixels(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    target: &wgpu::Texture,
+    size: [u32; 2],
+    layout: &Layout,
+    cancelled: &impl Fn() -> bool,
+) -> Result<Vec<u8>, &'static str> {
     let [width, height] = size;
     let row_bytes = layout.row_bytes;
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -165,13 +197,44 @@ pub(super) fn capture(
     if cancelled() {
         return Err("Cancelled");
     }
+    Ok(rgba)
+}
+
+pub(super) fn encode_mosaic(
+    rgba: &[u8],
+    size: [u32; 2],
+    cancelled: &impl Fn() -> bool,
+) -> Result<Vec<u8>, &'static str> {
+    let [width, height] = size;
+    if size.contains(&0)
+        || width > 2048
+        || height > 2048
+        || rgba.len() != width as usize * height as usize * 4
+    {
+        return Err("Local mosaic pixels exceed the bounded output dimensions");
+    }
+    if cancelled() {
+        return Err("Cancelled");
+    }
+    let limit = rgba.len() * 2 + 1024 * 1024;
+    let _scratch = MemoryBudget::volumes()
+        .reserve((2 * limit + 4 * 1024 * 1024) as u64)
+        .ok_or("Not enough memory for mosaic encoding")?;
+    encode_admitted(rgba, size, limit, cancelled)
+}
+fn encode_admitted(
+    rgba: &[u8],
+    [width, height]: [u32; 2],
+    limit: usize,
+    cancelled: &impl Fn() -> bool,
+) -> Result<Vec<u8>, &'static str> {
     let mut png = PngOutput {
         bytes: Vec::new(),
-        limit: layout.png_limit,
+        limit,
         cancelled,
     };
     PngEncoder::new(&mut png)
-        .write_image(&rgba, width, height, ExtendedColorType::Rgba8)
+        .write_image(rgba, width, height, ExtendedColorType::Rgba8)
         .map_err(|_| "Could not encode the snapshot")?;
     if cancelled() {
         return Err("Cancelled");
@@ -182,6 +245,18 @@ pub(super) fn capture(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mosaic_encoding_checks_its_separate_size_and_exact_pixel_length() {
+        for size in [[0, 1], [1, 0], [2049, 1], [1, 2049], [u32::MAX, u32::MAX]] {
+            assert!(encode_mosaic(&[], size, &|| false).is_err());
+        }
+        assert!(encode_mosaic(&[0; 3], [1, 1], &|| false).is_err());
+        assert!(encode_mosaic(&[0; 4], [1, 1], &|| true).is_err());
+        assert!(
+            Layout::new([2048, 2048]).is_err(),
+            "Ordinary readback keeps its own cap"
+        );
+    }
     #[test]
     fn readback_padding_bounds_and_two_pool_admission_are_checked_before_allocation() {
         for size in [[0, 1], [1, 0], [1025, 1], [1, 1025], [u32::MAX, u32::MAX]] {

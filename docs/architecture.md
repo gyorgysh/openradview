@@ -218,6 +218,14 @@ for nonrecursive cleanup; a failed second creation cannot delete another writer'
 file. The Workspace export lifetime closes both flows on source/mode changes.
 Ordinary snapshots/tool schemas retain their image-only contract.
 
+The renderer also provides a separate admitted CPU mosaic for at most16 bounded
+slice tiles. Its fixed-cell layout scales down to a2048-pixel output side without
+changing SceneState or shared snapshot/readback limits. Tiles can be read as RGBA,
+copied row by row and released before preparing the next; the mosaic encodes once
+with bounded PNG scratch. Duplicate, wrong-sized or incomplete tiles cannot produce
+a PNG. Callers must retain separate encoded-output and preview admissions. This
+renderer interface does not expose a desktop grid/contact-sheet action by itself.
+
 Window/level, zoom, pan, interpolation and validity use the same implementation
 for desktop and offscreen rendering. Repaint is driven by input, results, active
 playback and finite animation. Idle viewing does not require a polling loop.
