@@ -195,6 +195,12 @@ not publish a new point before its images are ready. Volumes retain an interacti
 preview while idle tiles refine with immutable per-dispatch parameters.
 
 GPU resources are owned per view, while immutable source frames are shared.
+Offscreen slices can also return a bounded worker-owned RGBA8 target for local
+composition, independently of snapshot manifests. Ordinary snapshots encode the
+untouched target and retain their image-only contract and existing size caps.
+Target textures and readback/encoding working storage have separate admissions;
+row copies and encoded-output growth are fallible and bounded. Callers retaining
+encoded bytes must account for that storage in their artifact/cache lifetime.
 Window/level, zoom, pan, interpolation and validity use the same implementation
 for desktop and offscreen rendering. Repaint is driven by input, results, active
 playback and finite animation. Idle viewing does not require a polling loop.
