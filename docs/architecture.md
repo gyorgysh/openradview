@@ -63,6 +63,16 @@ one undo checkpoint, so no voxel scan occurs on the UI thread. Replaced/cancelle
 results cannot publish after input invalidation. Current counts/exports remain
 applied-map operations and ordinary agent snapshot contracts do not include labels.
 
+The core read-only segment model retains a separate packed mask and source-plane
+coverage for each numeric segment ID. Omitted planes stay distinct from supplied
+zero masks; positive bits on missing source samples remain stored, with separate
+valid-source counts. Overlap counts source cells once even when three or more
+segments share them. Native one-bit frames concatenate before final even-byte
+padding, including frame boundaries within bytes. Construction admits retained
+masks/coverage/metadata and transient overlap bitsets before allocation, and
+cancellation discards the private result. This model requires callers to verify
+source association; it does not itself parse or validate DICOM references.
+
 Import reports retain category counts and at most 64 generated item ordinals in
 RAM, without filenames, paths, raw tags or parser messages. Detailed errors retain
 the report even when no supported image loads. Uncertain representation failures
