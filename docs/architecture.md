@@ -208,7 +208,23 @@ entries with fallible allocation and cancellation. Parsing validates the pointer
 decimal representation, nanosecond duration range, trim and delay without using
 recommended rates or absolute dates. Invalid optional timing does not alter image
 identity or ordinary browsing. These auxiliary catalogs add no saved schema or
-agent fields; playback remains manually paced.
+agent fields.
+
+Source playback is an explicit RAM-only opt-in bound to the selected catalog's
+timing Arc. Replacing its source clears the opt-in and releases that capability.
+Changing playback mode revokes live/pending/frozen sharing approval, without adding
+timing state to image or scene schemas. Existing completed-view freshness still
+governs every requested frame. Manual fps and Loop settings remain separate.
+
+The monotonic scheduler admits one requested image at a time. It waits for that
+exact completed image without a polling timer, then uses the interval before the
+next source frame. Deadlines use checked Instant arithmetic. Late UI/decode work
+never skips frames or queues catch-up requests. Source trim is inclusive; the last
+trimmed image stops playback immediately, without an invented end/wrap interval.
+Frame Delay stays acquisition metadata. Reported ready-to-ready pace and image
+wait include local scheduling; they are not a real-time reproduction guarantee.
+Pause clears outstanding timing state for focus, dialogs, manual input, errors,
+view/source changes and end. Paused views schedule no continuing timer.
 
 ## Rendering and interaction
 

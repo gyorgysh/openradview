@@ -9,6 +9,7 @@ use eframe::egui::{self, RichText, Vec2};
 impl Workspace {
     pub(super) fn image_ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.poll_image(ui.ctx());
+        let timing = self.playback_metadata();
         let before_input = self.view.clone();
         let before_tool = self.tool;
         let content_width = ui.available_width();
@@ -137,7 +138,16 @@ impl Workspace {
         if self.labels.region_preview_visible() {
             ui.weak("Connected edit preview only · Open Labels… to Apply or Discard");
         }
-        let size = Vec2::new(content_width, (ui.available_height() - 62.0).max(60.0));
+        let footer = if count > 1
+            && timing
+                .as_ref()
+                .is_some_and(|m| !matches!(m, orv_core::acquisition::CineMetadata::Absent))
+        {
+            140.
+        } else {
+            62.
+        };
+        let size = Vec2::new(content_width, (ui.available_height() - footer).max(60.0));
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
         let painting = self.labels.painting(self.selected);
         if !painting
@@ -209,6 +219,21 @@ impl Workspace {
         if !pending {
             self.annotations.status_overlay(ui, rect, self.tool);
         }
+        let failed = self
+            .decode_error
+            .as_ref()
+            .is_some_and(|(i, _)| *i == self.view.slice as usize);
+        if failed {
+            self.playback.pause();
+        }
+        let foreground = ui.input(|i| i.focused && i.viewport().minimized != Some(true));
+        let allowed = ui.is_enabled()
+            && foreground
+            && self.loading.is_none()
+            && !self.labels.open
+            && !painting
+            && !self.image_info.is_open()
+            && !failed;
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 RichText::new(displayed.as_ref().map_or_else(
@@ -220,36 +245,32 @@ impl Workspace {
                 .color(theme::SILVER),
             );
             controls::image_number(ui, &mut self.view.slice, count);
-            if self.view != before_input || self.tool != before_tool
+            if self.view != before_input
+                || self.tool != before_tool
                 || (response.hovered() && ui.input(|i| i.pointer.any_down()))
-                || self.labels.open || self.labels.painting(self.selected)
-                || self.image_info.is_open() || !ui.is_enabled()
-                || ui.input(|i| !i.focused || i.viewport().minimized == Some(true) || i.key_pressed(egui::Key::Escape))
+                || self.labels.open
+                || self.labels.painting(self.selected)
+                || self.image_info.is_open()
+                || !ui.is_enabled()
+                || ui.input(|i| {
+                    !i.focused
+                        || i.viewport().minimized == Some(true)
+                        || i.key_pressed(egui::Key::Escape)
+                })
             {
                 self.playback.pause();
             }
             if count > 1 {
-                let allowed = ui.is_enabled() && self.loading.is_none() && !self.labels.open && !painting && !self.image_info.is_open();
-                if ui.add_enabled(allowed, egui::Button::new(if self.playback.running { "Pause" } else { "Play" })).clicked() {
-                    if self.playback.running {
-                        self.playback.pause();
-                    } else {
-                        if self.view.slice as usize == count - 1 { self.view.slice = 0; }
-                        self.playback.start();
-                    }
-                }
-                ui.add(egui::DragValue::new(&mut self.playback.fps).range(1..=30).suffix(" fps"))
-                    .on_hover_text("Requested browsing speed. Slower decoding reduces playback speed; images are not skipped. This is not acquisition timing.");
-                ui.checkbox(&mut self.playback.repeat, "Loop");
+                self.playback
+                    .buttons(ui, &mut self.view.slice, count, allowed);
             }
         });
-        if self
-            .decode_error
-            .as_ref()
-            .is_some_and(|(i, _)| *i == self.view.slice as usize)
+        if count > 1
+            && let Some(enabled) = self.playback.source_controls(ui, timing.as_ref(), allowed)
         {
-            self.playback.pause();
+            self.set_source_playback(enabled);
         }
+        let was_running = self.playback.running;
         match self.playback.tick(
             std::time::Instant::now(),
             self.view.slice,
@@ -262,6 +283,9 @@ impl Workspace {
                 ui.ctx().request_repaint();
             }
             crate::playback::Step::Idle => (),
+        }
+        if was_running != self.playback.running {
+            ui.ctx().request_repaint();
         }
         if self.labels.painting(self.selected) {
             ui.weak(self.labels.pointer_controls());

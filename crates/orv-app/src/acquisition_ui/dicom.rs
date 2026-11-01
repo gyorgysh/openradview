@@ -72,7 +72,7 @@ impl Controls {
                         let trim = timing.trim(); ui.small(format!("Trim: images {}–{} of {}",trim[0]+1,trim[1]+1,timing.frame_count()));
                         if let Some(span) = timing.seconds_from_first(timing.frame_count()-1) { ui.small(format!("First to last frame: {} ms",number(span*1000.))); }
                         if let Some(delay) = timing.delay_ms() { ui.small(format!("Declared frame delay: {} ms",number(delay))); }
-                        ui.small("Intervals follow original object frame order. Play still uses the manually chosen fps.");
+                        ui.small("Intervals follow original object frame order. Enable Source intervals below the image to use them for playback; manual fps remains the default.");
                     }
                 }
             });

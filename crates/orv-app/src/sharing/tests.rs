@@ -4,7 +4,48 @@ use crate::workspace::Workspace;
 use orv_core::{Plane, study::demo_study};
 use std::time::{Duration, Instant};
 mod approval_priority;
+use crate::dicom_acquisition_phantom as cine_phantom;
 mod reconstruction;
+
+#[test]
+fn changing_source_playback_mode_revokes_live_and_pending_approval_in_both_directions() {
+    use orv_core::acquisition::{CineMetadata, DicomCatalog};
+    let ctx = egui::Context::default();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cine.dcm");
+    cine_phantom::cine(true).write_to_file(&path).unwrap();
+    let study = orv_core::index::index_paths(&[path], || false, |_| {}).unwrap();
+    let catalog = DicomCatalog::prepare(&study, || false).unwrap();
+    let CineMetadata::Available(timing) = catalog.cine(0).unwrap() else {
+        panic!("Known timing");
+    };
+    let mut workspace = workspace();
+    workspace.decoded_image = Some((2, study.series[0].read_frame(2, || false).unwrap()));
+    workspace.study = Some(Arc::new(study));
+    workspace.view.slice = 2;
+    workspace.playback.bind_source(Some(timing.clone()));
+    for enabled in [true, false] {
+        open(&mut workspace, &ctx);
+        approve(&mut workspace, &ctx);
+        let monitor = monitor_server(&workspace);
+        let session = workspace.sharing.live.as_ref().unwrap().session.clone();
+        let scene = session.current().unwrap();
+        workspace.set_source_playback(enabled);
+        assert!(session.is_revoked());
+        assert!(session.request_view(scene).is_err());
+        assert!(!workspace.sharing.is_active() && workspace.sharing.draft.is_none());
+        wait_for_server(&monitor);
+    }
+    open(&mut workspace, &ctx);
+    assert!(workspace.sharing.draft.is_some());
+    workspace.set_source_playback(true);
+    assert!(
+        workspace.sharing.draft.is_none(),
+        "Old preview survived a mode change"
+    );
+    workspace.close();
+    super::preview::finish_test_workers();
+}
 
 fn workspace() -> Workspace {
     let mut workspace = Workspace::default();

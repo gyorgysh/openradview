@@ -259,6 +259,7 @@ impl Workspace {
         self.close_now();
     }
     fn close_now(&mut self) {
+        self.playback.bind_source(None);
         self.export.close();
         self.picture_size = None;
         self.labels = Default::default();
@@ -300,10 +301,13 @@ impl Workspace {
         self.picture_size = None;
         self.pause_playback();
         self.image_info.close();
+        let playback_mode_changed = self.playback.bind_source(None);
         #[cfg(feature = "mcp")]
-        if self.selected != index {
+        if self.selected != index || playback_mode_changed {
             self.sharing.revoke();
         }
+        #[cfg(not(feature = "mcp"))]
+        let _ = playback_mode_changed;
         self.mpr = None;
         self.mode = ViewMode::Acquired;
         self.volume = None;
@@ -800,6 +804,31 @@ impl Workspace {
     pub(super) fn pause_playback(&mut self) {
         self.playback.pause();
     }
+    pub(super) fn playback_metadata(&mut self) -> Option<orv_core::acquisition::CineMetadata> {
+        use orv_core::acquisition::CineMetadata;
+        let metadata = self.browser.cine(self.selected).cloned();
+        let source = match &metadata {
+            Some(CineMetadata::Available(timing)) => Some(timing.clone()),
+            _ => None,
+        };
+        let changed = self.playback.bind_source(source);
+        #[cfg(feature = "mcp")]
+        if changed {
+            self.sharing.revoke();
+        }
+        #[cfg(not(feature = "mcp"))]
+        let _ = changed;
+        metadata
+    }
+    pub(super) fn set_source_playback(&mut self, enabled: bool) {
+        let changed = self.playback.set_source_mode(enabled);
+        #[cfg(feature = "mcp")]
+        if changed {
+            self.sharing.revoke();
+        }
+        #[cfg(not(feature = "mcp"))]
+        let _ = changed;
+    }
     fn open_comparison_right(&mut self, source: Source, ctx: &egui::Context) {
         if !self.bypass_comparison_guard
             && self
@@ -958,6 +987,47 @@ impl Workspace {
 #[cfg(test)]
 mod label_safety_tests {
     use super::*;
+    use crate::dicom_acquisition_phantom as cine_phantom;
+    #[test]
+    fn source_playback_is_opt_in_and_selection_or_close_releases_its_timing() {
+        use orv_core::acquisition::CineMetadata;
+        let ctx = egui::Context::default();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cine.dcm");
+        cine_phantom::cine(false).write_to_file(&path).unwrap();
+        let study = Arc::new(orv_core::index::index_paths(&[path], || false, |_| {}).unwrap());
+        let catalog = crate::series_browser::Catalog::build(&study, || false).unwrap();
+        let mut workspace = Workspace {
+            study: Some(study.clone()),
+            browser: crate::series_browser::SeriesBrowser::new(catalog, study, ctx),
+            ..Default::default()
+        };
+        let CineMetadata::Available(timing) = workspace.playback_metadata().unwrap() else {
+            panic!("Known timing");
+        };
+        let weak = Arc::downgrade(&timing);
+        drop(timing);
+        assert!(
+            workspace.playback.set_source_mode(true),
+            "Import opted into source mode"
+        );
+        workspace.playback.start_at(1, 5);
+        workspace.select(0);
+        assert!(!workspace.playback.running);
+        assert!(
+            !workspace.playback.set_source_mode(true),
+            "Selection retained its old timing capability"
+        );
+        workspace.playback_metadata();
+        assert!(
+            workspace.playback.set_source_mode(true),
+            "Selection retained the prior opt-in"
+        );
+        workspace.close_now();
+        assert!(!workspace.playback.running);
+        assert!(!workspace.playback.set_source_mode(true));
+        assert!(weak.upgrade().is_none(), "Closed source retained timing");
+    }
     #[test]
     fn cancelled_import_never_publishes_a_result_that_arrived_before_cancellation() {
         let ctx = egui::Context::default();
