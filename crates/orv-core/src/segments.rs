@@ -5,6 +5,8 @@ use crate::{
     volume::Volume,
 };
 use std::sync::Arc;
+mod sampling;
+pub use sampling::SegmentPlane;
 
 pub const MAX_SEGMENTS: usize = 64;
 pub const MAX_FRAMES: usize = 4096;
