@@ -1,49 +1,85 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Immutable image-only ROI work; no file I/O, retained study or UI-thread scans.
+//! Coalescing image-only statistics, bound to mark ID and geometry revision.
 use super::*;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc::{Receiver, sync_channel},
-};
-pub(super) struct Calculation {
-    pub result: Receiver<Result<String, String>>,
-    cancel: Arc<AtomicBool>,
+use crate::jobs::Worker;
+struct Input {
+    image: Arc<Frame>,
+    points: Vec<[f64; 2]>,
+    tool: Tool,
 }
-impl Calculation {
-    pub fn start(image: Arc<Frame>, points: Vec<[f64; 2]>, ctx: egui::Context) -> Self {
-        let (tx, result) = sync_channel(1);
-        let cancel = Arc::new(AtomicBool::new(false));
-        let worker = cancel.clone();
-        let failed = tx.clone();
-        let repaint = ctx.clone();
-        if std::thread::Builder::new()
-            .name("orv-roi-statistics".into())
-            .spawn(move || {
-                let result = report(&image, &points, Tool::Roi, || {
-                    worker.load(Ordering::Acquire)
-                });
-                if !worker.load(Ordering::Acquire) {
-                    let _ = tx.send(result);
-                    ctx.request_repaint();
-                }
-            })
-            .is_err()
-        {
-            let _ = failed.send(Err("Could not start the rectangle statistics worker".into()));
-            repaint.request_repaint();
+#[derive(Default)]
+pub(super) struct Calculations {
+    worker: Option<Worker<Input, String>>,
+    pending: Option<(u64, u64, u64)>,
+}
+impl Calculations {
+    pub fn start(
+        &mut self,
+        id: u64,
+        revision: u64,
+        image: Arc<Frame>,
+        points: Vec<[f64; 2]>,
+        tool: Tool,
+        ctx: &egui::Context,
+    ) -> Result<(), String> {
+        self.clear();
+        if self.worker.is_none() {
+            self.worker = Some(Worker::start(
+                ctx.clone(),
+                "orv-roi-statistics",
+                |input: Input, cancel| report(&input.image, &input.points, input.tool, cancel),
+            )?);
         }
-        Self { result, cancel }
+        if let Some(worker) = &self.worker {
+            self.pending = Some((
+                worker.submit(Input {
+                    image,
+                    points,
+                    tool,
+                }),
+                id,
+                revision,
+            ));
+        }
+        Ok(())
     }
-}
-impl Drop for Calculation {
-    fn drop(&mut self) {
-        self.cancel.store(true, Ordering::Release);
+    pub fn is_busy(&self) -> bool {
+        self.pending.is_some()
+    }
+    pub fn clear(&mut self) {
+        self.pending = None;
+        if let Some(worker) = &self.worker {
+            worker.clear();
+        }
+    }
+    pub fn cancel_for(&mut self, id: u64) {
+        if self.pending.is_some_and(|(_, mark, _)| mark == id) {
+            self.clear();
+        }
+    }
+    pub fn poll(&mut self) -> Option<(u64, u64, Result<String, String>)> {
+        let (generation, result) = self.worker.as_ref()?.take()?;
+        let (expected, id, revision) = self.pending?;
+        if generation != expected {
+            return None;
+        }
+        self.pending = None;
+        Some((id, revision, result))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
+    fn wait(annotations: &mut Annotations) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while annotations.calculation.is_busy() {
+            annotations.poll();
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+    }
     #[test]
     fn late_statistics_update_their_original_mark_and_deleting_cancels_that_work() {
         let image = orv_core::study::demo_study().series[0].frames[0].clone();
@@ -54,6 +90,7 @@ mod tests {
         annotations.marks = vec![
             Mark {
                 id: 0,
+                revision: 3,
                 image: key.clone(),
                 points: vec![[0., 0.], [3., 4.]],
                 tool: Tool::Roi,
@@ -61,16 +98,24 @@ mod tests {
             },
             Mark {
                 id: 1,
+                revision: 4,
                 image: key,
                 points: vec![[0., 0.], [3., 4.]],
                 tool: Tool::Distance,
                 label: "Distance · 5.00 mm".into(),
             },
         ];
-        annotations.calculation = Some((
-            0,
-            Calculation::start(image.clone(), vec![[0., 0.], [3., 4.]], ctx.clone()),
-        ));
+        annotations
+            .calculation
+            .start(
+                0,
+                3,
+                image.clone(),
+                vec![[0., 0.], [3., 4.]],
+                Tool::Roi,
+                &ctx,
+            )
+            .unwrap();
         annotations.bind_image(
             &image,
             &ViewState {
@@ -78,21 +123,18 @@ mod tests {
                 ..Default::default()
             },
         );
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while annotations.calculation.is_some() {
-            annotations.poll();
-            assert!(std::time::Instant::now() < deadline);
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
+        wait(&mut annotations);
         assert!(annotations.marks[0].label.starts_with("ROI · n=20"));
         assert_eq!(annotations.marks[1].label, "Distance · 5.00 mm");
         assert_eq!(annotations.visible_marks().count(), 0);
         annotations.bind_image(&image, &ViewState::default());
         annotations.selected = Some(0);
-        annotations.calculation =
-            Some((0, Calculation::start(image, vec![[0., 0.], [3., 4.]], ctx)));
+        annotations
+            .calculation
+            .start(0, 3, image, vec![[0., 0.], [3., 4.]], Tool::Roi, &ctx)
+            .unwrap();
         annotations.delete_selected();
-        assert!(annotations.calculation.is_none());
+        assert!(!annotations.calculation.is_busy());
         assert_eq!(annotations.marks.len(), 1);
         assert_eq!(annotations.marks[0].id, 1);
     }
@@ -106,37 +148,77 @@ mod tests {
             0, 10, 20, 255, 100, 110, 120, 255, 0, 10, 20, 255, 100, 110, 120, 255,
         ]));
         let image = Arc::new(image);
-        let points = vec![[0., 0.], [1., 1.]];
         let ctx = egui::Context::default();
-        let task = Calculation::start(image.clone(), points.clone(), ctx.clone());
-        let label = task
-            .result
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .unwrap()
+        let mut calculations = Calculations::default();
+        calculations
+            .start(
+                0,
+                7,
+                image.clone(),
+                vec![[0., 0.], [1., 1.]],
+                Tool::Roi,
+                &ctx,
+            )
             .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let label = loop {
+            if let Some((id, revision, result)) = calculations.poll() {
+                assert_eq!((id, revision), (0, 7));
+                break result.unwrap();
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        };
         assert!(label.contains("sRGB presentation codes"));
-        assert!(label.contains("R · mean 50.00"));
-        assert!(label.contains("G · mean 60.00"));
-        assert!(label.contains("B · mean 70.00"));
+        for channel in ["R · mean 50.00", "G · mean 60.00", "B · mean 70.00"] {
+            assert!(label.contains(channel));
+        }
         let mut annotations = Annotations {
+            calculation: calculations,
             marks: vec![Mark {
                 id: 0,
+                revision: 8,
                 image: ImageKey {
                     slab: None,
                     size: [2, 2],
                     geometry: image.geometry.clone(),
                     frame: Some(0),
                 },
-                points: points.clone(),
+                points: vec![[0., 0.], [1., 1.]],
                 tool: Tool::Roi,
                 label: "calculating".into(),
             }],
-            calculation: Some((0, Calculation::start(image, points, ctx))),
             ..Default::default()
         };
+        annotations
+            .calculation
+            .start(0, 8, image, vec![[0., 0.], [1., 1.]], Tool::Roi, &ctx)
+            .unwrap();
         annotations.clear();
         annotations.poll();
         assert!(annotations.marks.is_empty());
-        assert!(annotations.calculation.is_none());
+        assert!(!annotations.calculation.is_busy());
+    }
+    #[test]
+    fn changed_geometry_revision_rejects_a_completed_result_for_the_same_mark_id() {
+        let image = orv_core::study::demo_study().series[0].frames[0].clone();
+        let ctx = egui::Context::default();
+        let mut annotations = Annotations::default();
+        annotations.bind_image(&image, &ViewState::default());
+        annotations.marks.push(Mark {
+            id: 0,
+            revision: 11,
+            image: annotations.image.clone().unwrap(),
+            points: vec![[1., 1.], [2., 2.]],
+            tool: Tool::Roi,
+            label: "New geometry pending".into(),
+        });
+        annotations
+            .calculation
+            .start(0, 10, image, vec![[0., 0.], [3., 4.]], Tool::Roi, &ctx)
+            .unwrap();
+        wait(&mut annotations);
+        assert_eq!(annotations.marks[0].label, "New geometry pending");
+        assert_eq!(annotations.marks[0].points, [[1., 1.], [2., 2.]]);
     }
 }

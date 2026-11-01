@@ -3,7 +3,7 @@
 mod canvas;
 mod counts;
 mod display;
-mod jobs;
+use crate::jobs;
 mod overlay;
 mod regions;
 mod supplied;
