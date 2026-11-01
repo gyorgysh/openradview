@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Select supported declared DICOM temporal positions and echo times, with actual
+  values shown separately from dimension ordinals. Preserve organization and
+  unselected acquisition context; explain missing or ambiguous choices.
+- Inspect supported source frame intervals, trim and delay. Timing requires the
+  original object frame order; partitioned, reordered or mixed sources remain
+  independently viewable. Playback still uses the manually selected rate.
+
 - Select NIfTI time points, components, higher axes and complex views directly
   within their original input. Show declared time coordinates and steps in seconds,
   with frequency, unknown and invalid timing kept distinct. Index navigation

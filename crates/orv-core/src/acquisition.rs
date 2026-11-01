@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Explicit nonspatial coordinates. Families are local import capabilities, not names or UIDs.
 mod catalog;
+mod cine;
+mod dicom;
 use crate::nifti_view::NiftiView;
 pub use catalog::{NiftiCatalog, SelectionError};
+pub(crate) use cine::read_cine;
+pub use cine::{CineError, CineMetadata, CineTiming};
+pub use dicom::{AxesError, DicomAxes, DicomAxis, DicomCatalog, DimensionValue};
 use std::{
     hash::{Hash, Hasher},
     sync::Arc,

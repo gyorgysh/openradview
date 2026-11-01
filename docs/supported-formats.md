@@ -105,6 +105,27 @@ mappings are refused. Functional-group tables are limited to 65,536 frames and
 limited to 4,096 series/acquisitions. This is a supported subset, not general
 enhanced-DICOM or quantitative PET support; no HU/SUV unit is inferred.
 
+Acquisition axes offers supported declared Temporal Position Index and Effective
+Echo Time dimensions. Choices are numbered from one; captions retain the actual
+value and its separate dimension ordinal. Echo values are in milliseconds; a
+temporal position is an index, not elapsed time. Valid organization/pointer scopes
+and unselected acquisition context stay separate, including diffusion and stack
+context. Other declared dimensions stay fixed. Missing pointed values are explicit;
+inconsistent ordinal mappings, incomplete scopes and unsupported definitions do
+not acquire guessed selectors. Series selection retains its existing unsaved
+comparison, label-ownership and sharing rules. Classic echo/time partitions remain
+available through the series list without an inferred dimension organization.
+
+Source timing inspects one Frame Increment Pointer to Frame Time or Frame Time
+Vector, including bounded decimal vectors encoded as UN. Vectors need one value
+per original frame, an initial zero and positive finite later increments. A vector
+is limited to65,536 frames; fixed timing uses the existing image-count limit.
+Declared trim and optional delay remain separate from intervals. Unrepresentable
+durations, invalid trim, partitioned/reordered/mixed-object frames and malformed
+optional timing get an explanation while ordinary image browsing remains available.
+Display-rate recommendations, acquisition dates, audio and wrap/sweep intervals
+are not inferred. This is metadata inspection; Play still uses the selected fps.
+
 NIfTI spatial units are converted from metres/mm/micrometres into LPS millimetres.
 A valid known sform takes precedence over qform, including a negative qfac. The
 manifest preserves the chosen method and reference code: scanner, aligned,

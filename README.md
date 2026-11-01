@@ -37,7 +37,7 @@ Images stay on your device during local viewing. There is no app account, teleme
 | Capability | What is available |
 | --- | --- |
 | Open images | DICOM files, folders and ZIP/ZIP64; supported NIfTI-1/2 single or paired files, including gzip. Time points and components stay separate; complex presentations are explicit. |
-| Navigate | Slice scrolling, pan, zoom, contrast, presets, fit, invert, reset, 90° rotation and flips. NIfTI time/component/higher-axis and complex-view selectors, a searchable series list, temporary previews and decoder-paced image playback. |
+| Navigate | Slice scrolling, pan, zoom, contrast, presets, fit, invert, reset, 90° rotation and flips. NIfTI axis/complex-view and supported declared DICOM temporal/echo selectors, a searchable series list, temporary previews and decoder-paced image playback. Inspect supported source timing separately. |
 | Compare planes | Linked axial/coronal/sagittal MPR and oblique slices from a validated regular volume, including scalar maximum/minimum slabs with explicit thickness and sample counts. NIfTI scanner, aligned and template references stay distinct. |
 | Compare series | Two or four local source panes, with optional physical slice/pan/zoom links, compatible scalar-window links and finite reference lines for one chosen pair. Open separate files or folders and save views and marks in two-pane mode; extra panes stay in memory. Entering comparison ends agent sharing. |
 | View in 3D | Experimental GPU volume rendering and MIP with transfer controls and refinement after interaction. Projections use the loaded data; no anatomy is inferred. |
