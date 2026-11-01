@@ -3,6 +3,7 @@
 mod capture;
 mod render;
 mod save;
+mod sheets;
 mod ui;
 use super::{Input, Pixels};
 use crate::{annotations::Outlines, labels::CapturedMasks};
@@ -15,8 +16,9 @@ pub(super) use ui::Controller;
 pub(crate) struct FrozenInput {
     pub base: Input,
     pub outlines: Outlines,
-    pub masks: Option<CapturedMasks>,
+    pub masks: Option<Arc<CapturedMasks>>,
     pub mask_note: Option<&'static str>,
+    pub sheet: Option<sheets::Sheet>,
 }
 impl FrozenInput {
     fn image(&self) -> Result<&Arc<Frame>, &'static str> {
@@ -34,6 +36,8 @@ impl FrozenInput {
 struct Choice {
     marks: bool,
     masks: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sheet: Option<sheets::Settings>,
 }
 struct Request {
     input: Arc<FrozenInput>,

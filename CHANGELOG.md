@@ -6,6 +6,9 @@
   measurement outlines and applied manual/supplied masks on source/thin reformat
   views. Layer changes invalidate the preview; saves reuse its exact PNG bytes.
   Image-only exports and agent snapshots retain their existing scope.
+- Save a reviewed MPR grid or up to 16 selected source images in a contact sheet,
+  with explicit range, columns, layer choices and generic image/plane captions.
+  Sheets fit within 2048 pixels per side and render one bounded tile at a time.
 - Preserve files created by another writer when an export's exclusive output
   creation fails.
 

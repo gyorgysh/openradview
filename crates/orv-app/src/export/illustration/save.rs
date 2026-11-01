@@ -45,6 +45,7 @@ mod tests {
                 choice: Choice {
                     marks: true,
                     masks: true,
+                    ..Default::default()
                 },
             },
             &|| false,

@@ -66,7 +66,8 @@ fn captured_outlines_are_immutable_exact_plane_records_without_source_pixels_or_
 fn outline_pressure_keeps_current_work_and_admission_lasts_until_all_owners_drop() {
     let frame = image();
     let annotations = annotations(&frame);
-    let budget = MemoryBudget::new(OUTLINE_BYTES - 1);
+    let required = OUTLINE_BYTES + reference_bytes(&frame) as u64;
+    let budget = MemoryBudget::new(required - 1);
     assert!(
         annotations
             .outlines_with_budget(&frame, &ViewState::default(), &budget)
@@ -74,7 +75,7 @@ fn outline_pressure_keeps_current_work_and_admission_lasts_until_all_owners_drop
     );
     assert_eq!(budget.used(), 0);
     assert_eq!(annotations.marks[0].points, [[1., 1.], [3., 3.]]);
-    budget.set_limit(OUTLINE_BYTES);
+    budget.set_limit(required);
     let captured = Arc::new(
         annotations
             .outlines_with_budget(&frame, &ViewState::default(), &budget)
@@ -82,7 +83,7 @@ fn outline_pressure_keeps_current_work_and_admission_lasts_until_all_owners_drop
     );
     let worker = captured.clone();
     drop(captured);
-    assert_eq!(budget.used(), OUTLINE_BYTES);
+    assert_eq!(budget.used(), required);
     drop(worker);
     assert_eq!(budget.used(), 0);
     let empty = Annotations::default()
@@ -221,4 +222,89 @@ fn projected_ellipse_limit_is_checked_before_tessellation() {
             .unwrap_err()
             .contains("Zoom out")
     );
+}
+
+#[test]
+fn contact_outlines_keep_original_numbers_and_private_planes_without_other_frame_pixels() {
+    let frame = image();
+    let mut annotations = annotations(&frame);
+    let mut other = annotations.marks[0].image.clone();
+    other.frame = Some(3);
+    annotations.marks.push(Mark {
+        id: 7,
+        revision: 1,
+        image: other,
+        points: vec![[0., 0.], [2., 2.]],
+        tool: Tool::Roi,
+        label: "other report".into(),
+    });
+    let captured = annotations.source_outlines().unwrap();
+    assert_eq!(captured.count(), 2);
+    assert_eq!(Arc::strong_count(&frame), 1);
+    annotations.marks.clear();
+    let first = captured
+        .for_frame(&frame, &ViewState::default(), &|| false)
+        .unwrap();
+    assert_eq!(first.marks.len(), 1);
+    assert_eq!(first.marks[0].number, 1);
+    let third = ViewState {
+        slice: 3,
+        ..Default::default()
+    };
+    let second = captured.for_frame(&frame, &third, &|| false).unwrap();
+    assert_eq!(second.marks.len(), 1);
+    assert_eq!(second.marks[0].number, 8);
+    assert!(
+        captured
+            .for_frame(
+                &frame,
+                &ViewState {
+                    slice: 2,
+                    ..Default::default()
+                },
+                &|| false
+            )
+            .unwrap()
+            .marks
+            .is_empty()
+    );
+    assert!(captured.for_frame(&frame, &third, &|| true).is_err());
+    let mut changed = (*frame).clone();
+    changed.geometry.as_mut().unwrap().frame_of_reference = Some("changed reference".into());
+    assert!(captured.for_frame(&changed, &third, &|| false).is_err());
+    let json = serde_json::to_string(first.marks()).unwrap();
+    assert!(!json.contains("report") && !json.contains("reference"));
+}
+#[test]
+fn contact_capture_rejects_drafts_reformats_and_excessive_private_key_copies() {
+    let frame = image();
+    let mut annotations = annotations(&frame);
+    annotations.pending.push([1., 1.]);
+    assert!(annotations.source_outlines().is_err());
+    annotations.pending.clear();
+    annotations.preserve_plane = true;
+    assert!(annotations.source_outlines().is_err());
+    annotations.preserve_plane = false;
+    annotations.marks[0]
+        .image
+        .geometry
+        .as_mut()
+        .unwrap()
+        .frame_of_reference = Some("x".repeat(128 * 1024 + 1));
+    assert!(annotations.source_outlines().is_err());
+}
+
+#[test]
+fn empty_outlines_do_not_copy_private_references_and_nonempty_reference_copies_are_admitted() {
+    let mut frame = (*image()).clone();
+    frame.geometry.as_mut().unwrap().frame_of_reference = Some("x".repeat(128 * 1024 + 1));
+    let empty = Annotations::default()
+        .outlines_with_budget(&frame, &ViewState::default(), &MemoryBudget::new(0))
+        .unwrap();
+    assert!(empty.key.geometry.is_none());
+    empty
+        .validate(&frame, &ViewState::default(), &|| false)
+        .unwrap();
+    let annotations = annotations(&frame);
+    assert!(annotations.outlines(&frame, &ViewState::default()).is_err());
 }

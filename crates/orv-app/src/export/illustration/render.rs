@@ -12,6 +12,8 @@ use std::io::{self, Write};
 const MIB: u64 = 1024 * 1024;
 const MANIFEST_LIMIT: usize = 2 * 1024 * 1024;
 const MESH_LIMIT: usize = 16 * 1024 * 1024;
+#[path = "render_sheets.rs"]
+mod sheet_render;
 #[cfg(test)]
 #[path = "render_tests.rs"]
 pub(super) mod tests;
@@ -70,6 +72,17 @@ struct OutlineStyle {
     handles: bool,
     results: bool,
 }
+fn outline_style() -> OutlineStyle {
+    OutlineStyle {
+        stroke_pixels: 1.5,
+        surround_pixels: 3.5,
+        number_font: "bundled IBM Plex Mono",
+        number_pixels: 11.,
+        number_background: "opaque dark surround",
+        handles: false,
+        results: false,
+    }
+}
 struct LimitedBytes {
     bytes: Vec<u8>,
 }
@@ -95,6 +108,9 @@ pub(super) fn prepare(
     cancel: &dyn Fn() -> bool,
 ) -> Result<Arc<Artifact>, String> {
     orv_core::resources::refresh_memory_policy();
+    if request.choice.sheet.is_some() {
+        return sheet_render::prepare(request, cancel);
+    }
     let Request { input, choice } = request;
     input.base.scene.validate()?;
     let image = input.image()?;
@@ -123,7 +139,7 @@ pub(super) fn prepare(
         SnapshotRenderer::with_device(input.base.device.clone(), input.base.queue.clone());
     let target = renderer.render_slice_image(image, &scene, cancel)?;
     let (_composition, mask_record) = if choice.marks || choice.masks {
-        let (memory, record) = compose(&input, choice, &target, cancel)?;
+        let (memory, record) = compose(&input, &scene, choice, &target, None, cancel)?;
         (Some(memory), record)
     } else {
         (None, None)
@@ -142,21 +158,42 @@ pub(super) fn prepare(
         image: ImageMetadata::from_frame(image),
         png_sha256: hash(&png, cancel)?,
         layers: choice,
-        outline_style: choice.marks.then_some(OutlineStyle {
-            stroke_pixels: 1.5,
-            surround_pixels: 3.5,
-            number_font: "bundled IBM Plex Mono",
-            number_pixels: 11.,
-            number_background: "opaque dark surround",
-            handles: false,
-            results: false,
-        }),
+        outline_style: choice.marks.then(outline_style),
         marks: choice.marks.then(|| input.outlines.marks()),
         masks: mask_record,
     };
     let mut json = LimitedBytes { bytes: Vec::new() };
     serde_json::to_writer_pretty(&mut json, &manifest)
         .map_err(|_| "Could not encode the bounded illustration metadata")?;
+    finish(
+        Request { input, choice },
+        source_sha256,
+        Rendered {
+            png,
+            manifest: json.bytes,
+            size: [width, height],
+        },
+        memory,
+        cancel,
+    )
+}
+struct Rendered {
+    png: Vec<u8>,
+    manifest: Vec<u8>,
+    size: [u32; 2],
+}
+fn finish(
+    request: Request,
+    source_sha256: String,
+    rendered: Rendered,
+    memory: Reservation,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Arc<Artifact>, String> {
+    let Rendered {
+        png,
+        manifest,
+        size: [width, height],
+    } = rendered;
     if cancel() {
         return Err("Illustration cancelled".into());
     }
@@ -174,11 +211,11 @@ pub(super) fn prepare(
         return Err("Illustration cancelled".into());
     }
     Ok(Arc::new(Artifact {
-        input,
-        choice,
+        input: request.input,
+        choice: request.choice,
         source_sha256,
         png,
-        manifest: json.bytes,
+        manifest,
         preview,
         size: [width, height],
         _memory: memory,
@@ -259,10 +296,30 @@ fn composition_admission(
         .reserve(bytes)
         .ok_or("Not enough GPU allowance for illustration drawing")
 }
+#[derive(Clone, Copy, Serialize)]
+#[serde(tag = "kind", content = "image", rename_all = "snake_case")]
+enum Caption {
+    Source(u32),
+    Axial,
+    Coronal,
+    Sagittal,
+}
+impl Caption {
+    fn text(self) -> String {
+        match self {
+            Self::Source(number) => format!("Image {number}"),
+            Self::Axial => "Axial".into(),
+            Self::Coronal => "Coronal".into(),
+            Self::Sagittal => "Sagittal".into(),
+        }
+    }
+}
 fn compose<'a>(
     input: &'a FrozenInput,
+    scene: &SceneState,
     choice: Choice,
     target: &SliceImage,
+    caption: Option<Caption>,
     cancel: &dyn Fn() -> bool,
 ) -> Result<(CompositionMemory, Option<MaskRecord<'a>>), String> {
     let mut memory = CompositionMemory {
@@ -326,15 +383,23 @@ fn compose<'a>(
             }
             if let Some(handle) = &texture
                 && let Some(masks) = &input.masks
-                && let Err(error) =
-                    masks.paint(&painter, rect, image, &input.base.scene.view, handle.id())
+                && let Err(error) = masks.paint(&painter, rect, image, &scene.view, handle.id())
             {
                 paint_error = Some(error);
             }
             if choice.marks {
-                input
-                    .outlines
-                    .paint(&painter, rect, image, &input.base.scene.view);
+                input.outlines.paint(&painter, rect, image, &scene.view);
+            }
+            if let Some(caption) = caption {
+                let galley = painter.layout_no_wrap(
+                    caption.text(),
+                    egui::FontId::monospace(11.),
+                    crate::theme::PAPER,
+                );
+                let bounds =
+                    egui::Rect::from_min_size(rect.min + egui::vec2(8., 8.), galley.size());
+                painter.rect_filled(bounds.expand(2.), 0., crate::theme::INK);
+                painter.galley(bounds.min, galley, crate::theme::PAPER);
             }
         },
     );
