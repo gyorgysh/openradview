@@ -33,92 +33,96 @@ pub fn color_roi_stats_cancellable(
     corners: [[f64; 2]; 2],
     cancelled: impl Fn() -> bool,
 ) -> Result<ColorRoiStats, &'static str> {
+    color_roi_shape_stats_cancellable(frame, RoiShape::Rectangle(corners), cancelled)
+        .map(|stats| stats.samples)
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct ColorRegionStats {
+    pub samples: ColorRoiStats,
+    pub geometric_area_mm2: Option<f64>,
+}
+pub fn color_roi_shape_stats(
+    frame: &Frame,
+    shape: RoiShape<'_>,
+) -> Result<ColorRegionStats, &'static str> {
+    color_roi_shape_stats_cancellable(frame, shape, || false)
+}
+/// Worker-only RGB code reduction; source precision and ICC domain remain separate.
+pub fn color_roi_shape_stats_cancellable(
+    frame: &Frame,
+    region: RoiShape<'_>,
+    cancelled: impl Fn() -> bool,
+) -> Result<ColorRegionStats, &'static str> {
     if cancelled() {
         return Err("Cancelled");
+    }
+    if frame.slab.is_some() {
+        return Err("Slab projections are not physical measurement planes");
     }
     let rgba = frame
         .rgba
         .as_ref()
         .ok_or("RGB statistics need a color image")?;
-    let count = u64::from(frame.width) * u64::from(frame.height);
-    if count == 0
-        || !frame.pixels.is_empty()
-        || Some(rgba.len() as u64) != count.checked_mul(4)
+    let count = (frame.width as usize)
+        .checked_mul(frame.height as usize)
+        .filter(|n| *n > 0)
+        .ok_or("ROI coordinates or image are invalid")?;
+    if !frame.pixels.is_empty()
+        || count.checked_mul(4) != Some(rgba.len())
+        || frame
+            .validity
+            .as_ref()
+            .is_some_and(|mask| mask.len() != count)
         || frame.color.as_ref().is_some_and(|data| {
-            Some(data.rgb.len() as u64) != count.checked_mul(3)
-                || !(1..=16).contains(&data.info.bits)
+            count.checked_mul(3) != Some(data.rgb.len()) || !(1..=16).contains(&data.info.bits)
         })
-        || corners.iter().flatten().any(|v| !v.is_finite())
     {
         return Err("ROI coordinates or image are invalid");
     }
-    let min: [f64; 2] = std::array::from_fn(|i| corners[0][i].min(corners[1][i]));
-    let max: [f64; 2] = std::array::from_fn(|i| corners[0][i].max(corners[1][i]));
-    if min[0] < 0.
-        || min[1] < 0.
-        || max[0] > (frame.width - 1) as f64
-        || max[1] > (frame.height - 1) as f64
-    {
-        return Err("ROI must lie inside the image");
-    }
-    let mut stats = ColorRoiStats {
-        count: 0,
-        channels: std::array::from_fn(|_| ChannelStats {
-            min: f64::INFINITY,
-            max: f64::NEG_INFINITY,
-            mean: 0.,
-            standard_deviation: 0.,
-        }),
-        bits: frame.color.as_ref().map_or(8, |data| data.info.bits),
-        domain: if frame.color.is_some() {
-            ColorRoiDomain::BeforeIcc
-        } else {
-            ColorRoiDomain::SrgbPresentation
-        },
-        area_mm2: None,
-    };
-    let mut m2 = [0.; 3];
-    for y in min[1].ceil() as u32..=max[1].floor() as u32 {
-        if cancelled() {
-            return Err("Cancelled");
+    let region = region.prepare([frame.width, frame.height], &cancelled)?;
+    let maximum = frame.color.as_ref().map_or(255, |data| data.info.maximum());
+    let mut moments: [reduction::Moments; 3] = std::array::from_fn(|_| Default::default());
+    region.visit(frame.width, &cancelled, |index| {
+        if !frame.has_sample(index) {
+            return Ok(());
         }
-        for x in min[0].ceil() as u32..=max[0].floor() as u32 {
-            let index = (y * frame.width + x) as usize;
-            if !frame.has_sample(index) {
-                continue;
+        for (channel, moment) in moments.iter_mut().enumerate() {
+            let value = frame
+                .color
+                .as_ref()
+                .map_or(u16::from(rgba[index * 4 + channel]), |data| {
+                    data.rgb[index * 3 + channel]
+                });
+            if value > maximum {
+                return Err("RGB code values exceed the declared precision");
             }
-            stats.count += 1;
-            for (c, m2) in m2.iter_mut().enumerate() {
-                let value = frame
-                    .color
-                    .as_ref()
-                    .map_or(rgba[index * 4 + c] as f64, |data| {
-                        data.rgb[index * 3 + c] as f64
-                    });
-                let s = &mut stats.channels[c];
-                if value > frame.color.as_ref().map_or(255, |data| data.info.maximum()) as f64 {
-                    return Err("RGB code values exceed the declared precision");
-                }
-                let delta = value - s.mean;
-                s.mean += delta / stats.count as f64;
-                *m2 += delta * (value - s.mean);
-                s.min = s.min.min(value);
-                s.max = s.max.max(value);
-            }
+            moment.add(f64::from(value));
         }
-    }
-    if stats.count == 0 {
+        Ok(())
+    })?;
+    let count = moments[0].count;
+    if count == 0 {
         return Err("The ROI contains no color samples");
     }
-    for (s, m2) in stats.channels.iter_mut().zip(m2) {
-        s.standard_deviation = (m2 / stats.count as f64).max(0.).sqrt();
-    }
-    stats.area_mm2 = frame
-        .geometry
-        .as_ref()
-        .filter(|g| g.validate().is_ok())
-        .map(|g| stats.count as f64 * g.spacing[0] * g.spacing[1]);
-    Ok(stats)
+    Ok(ColorRegionStats {
+        samples: ColorRoiStats {
+            count,
+            channels: moments.map(|m| ChannelStats {
+                min: m.min,
+                max: m.max,
+                mean: m.mean,
+                standard_deviation: m.standard_deviation(),
+            }),
+            bits: frame.color.as_ref().map_or(8, |data| data.info.bits),
+            domain: if frame.color.is_some() {
+                ColorRoiDomain::BeforeIcc
+            } else {
+                ColorRoiDomain::SrgbPresentation
+            },
+            area_mm2: shape::area_mm2(frame, count as f64),
+        },
+        geometric_area_mm2: shape::area_mm2(frame, region.area_pixels),
+    })
 }
 #[cfg(test)]
 mod tests {
