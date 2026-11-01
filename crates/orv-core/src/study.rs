@@ -311,10 +311,16 @@ impl Series {
 pub struct Study {
     pub series: Vec<Series>,
     pub skipped_files: usize,
+    pub import_report: crate::import_report::ImportReport,
     pub synthetic: bool,
 }
 
 impl Study {
+    pub(crate) fn skipped(&mut self, item: usize, reason: crate::import_report::SkipReason) {
+        self.skipped_files += 1;
+        self.import_report.skip(item, reason);
+    }
+
     pub fn frame_count(&self) -> usize {
         self.series.iter().map(Series::frame_count).sum()
     }
@@ -381,5 +387,6 @@ pub fn demo_study() -> Study {
         }],
         synthetic: true,
         skipped_files: 0,
+        import_report: Default::default(),
     }
 }

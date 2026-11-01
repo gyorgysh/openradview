@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Explain skipped local inputs with bounded reason counts, including when no
+  supported images load. Distinguish known unsupported encodings and DICOM object
+  types, missing NIfTI companions, malformed metadata and uncertain input failures.
+
 ## 1.2.0 — 2026-10-28
 
 - Open a separate local source in the right comparison pane, including when the

@@ -25,6 +25,13 @@ metadata, expanded data, frame counts and materialized volumes have explicit
 bounds. Load, decode, filtering, statistics and export run on cancellable workers.
 [Exact limits](supported-formats.md)
 
+Import reports retain category counts and at most 64 generated item ordinals in
+RAM, without filenames, paths, raw tags or parser messages. Detailed errors retain
+the report even when no supported image loads. Uncertain representation failures
+remain explicitly unsupported-or-invalid; cancellation, changed sources and hard
+resource limits remain failures rather than skipped inputs. Reports create no
+automatic files and add no agent scope.
+
 RAM-only slice-cache entries, prepared CPU volumes and GPU resources use
 process-wide reservation pools with physical-memory-based ceilings. The policy
 keeps headroom for the OS/transients and accounts for CPU/GPU competition on

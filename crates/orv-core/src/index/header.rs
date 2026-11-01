@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded structural metadata parsing stops before allocating pixel data.
-use crate::{load::LoadError, study::Geometry};
+use crate::{
+    import_report::{InputFailure, SkipReason},
+    load::LoadError,
+    study::Geometry,
+};
 use dicom_core::Tag;
 use dicom_encoding::transfer_syntax::TransferSyntaxIndex;
 use dicom_object::{DefaultDicomObject, FileMetaTable, OpenFileOptions};
@@ -105,9 +109,33 @@ impl<R: Read, F: Fn() -> bool> Read for Recording<'_, R, F> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn read_header(
     reader: &mut impl Read,
     cancelled: impl Fn() -> bool,
+) -> Result<Header, LoadError> {
+    read_header_detailed(reader, cancelled).map_err(|failure| failure.error)
+}
+
+pub(super) fn read_header_detailed(
+    reader: &mut impl Read,
+    cancelled: impl Fn() -> bool,
+) -> Result<Header, InputFailure> {
+    let mut reason = SkipReason::UnrecognizedInput;
+    read_header_inner(reader, &cancelled, &mut reason).map_err(|error| InputFailure {
+        error: if cancelled() {
+            LoadError::Cancelled
+        } else {
+            error
+        },
+        reason,
+    })
+}
+
+fn read_header_inner(
+    reader: &mut impl Read,
+    cancelled: &impl Fn() -> bool,
+    reason: &mut SkipReason,
 ) -> Result<Header, LoadError> {
     let mut first = [0u8; 132];
     reader
@@ -124,6 +152,7 @@ pub(super) fn read_header(
         }
         128
     };
+    *reason = SkipReason::MalformedMetadata;
     let mut prefix = first[..start + 4].to_vec();
     let mut group = [0u8; 12];
     reader
@@ -151,6 +180,21 @@ pub(super) fn read_header(
     validate_meta(&prefix[start + 4..])?;
     let mut meta = FileMetaTable::from_reader(Cursor::new(&prefix[start..]))
         .map_err(|_| LoadError::Unsupported)?;
+    let class = meta.media_storage_sop_class_uid();
+    if class == "1.2.840.10008.1.3.10"
+        || class.starts_with("1.2.840.10008.5.1.4.1.1.88.")
+        || class.starts_with("1.2.840.10008.5.1.4.1.1.11.")
+        || class.starts_with("1.2.840.10008.5.1.4.1.1.104.")
+        || matches!(
+            class,
+            "1.2.840.10008.5.1.4.1.1.66.4"
+                | "1.2.840.10008.5.1.4.1.1.481.3"
+                | "1.2.840.10008.5.1.4.1.1.481.5"
+        )
+    {
+        *reason = SkipReason::UnsupportedObject;
+        return Err(LoadError::Unsupported);
+    }
     let syntax = meta.transfer_syntax().to_owned();
     let dataset_start = prefix.len();
     let deflated_at = (syntax == "1.2.840.10008.1.2.1.99").then_some(dataset_start as u64);
@@ -161,9 +205,14 @@ pub(super) fn read_header(
     } else {
         Box::new(reader)
     };
+    *reason = SkipReason::UnsupportedEncoding;
     let ts = TransferSyntaxRegistry
         .get(meta.transfer_syntax())
         .ok_or(LoadError::Unsupported)?;
+    if !ts.can_decode_all() {
+        return Err(LoadError::Unsupported);
+    }
+    *reason = SkipReason::MalformedMetadata;
     let position = Cell::new(prefix.len() as u64);
     let mut dataset = DataSetReader::new_with_ts(
         Recording {
@@ -195,6 +244,12 @@ pub(super) fn read_header(
         match token {
             DataToken::ElementHeader(header) if depth == 0 && header.tag == Tag(0x7fe0, 0x0010) => {
                 break (header.len.get().map(u64::from), before as usize);
+            }
+            DataToken::ElementHeader(header)
+                if depth == 0 && matches!(header.tag, Tag(0x7fe0, 0x0008 | 0x0009)) =>
+            {
+                *reason = SkipReason::UnsupportedOrInvalid;
+                return Err(LoadError::Unsupported);
             }
             DataToken::PixelSequenceStart if depth == 0 => break (None, before as usize),
             DataToken::ElementHeader(header) => {
@@ -246,6 +301,7 @@ pub(super) fn read_header(
             .from_reader(Cursor::new(&prefix))
             .map_err(|_| LoadError::Unsupported)?
     };
+    *reason = SkipReason::UnsupportedOrInvalid;
     let width = crate::load::integer(&object, "Columns").ok_or(LoadError::Unsupported)?;
     let height = crate::load::integer(&object, "Rows").ok_or(LoadError::Unsupported)?;
     let frames = crate::load::integer(&object, "NumberOfFrames").unwrap_or(1);

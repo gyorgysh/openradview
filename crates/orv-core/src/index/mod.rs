@@ -8,7 +8,7 @@ mod nifti;
 mod nifti_input;
 mod pairs;
 mod readers;
-pub use import::index_paths;
+pub use import::{index_paths, index_paths_detailed};
 mod source;
 #[cfg(test)]
 mod tests;

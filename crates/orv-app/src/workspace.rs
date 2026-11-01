@@ -677,7 +677,9 @@ impl Workspace {
             if active_study.is_some_and(|study| study.synthetic) {
                 theme::eyebrow(ui, "SYNTHETIC DEMO · NO PATIENT DATA");
             }
-            let skipped_files = active_study.map_or(0, |study| study.skipped_files);
+            if let Some(study) = active_study {
+                crate::import_info::summary(ui, &study.import_report);
+            }
             let active_series = self
                 .comparison
                 .as_ref()
@@ -694,16 +696,6 @@ impl Workspace {
             };
             let select = browser.ui(ui, active_series, frame.wgpu_render_state());
             ui.add_space(18.0);
-            if skipped_files > 0 {
-                ui.label(
-                    RichText::new(format!(
-                        "{} unsupported or non-image files skipped",
-                        skipped_files
-                    ))
-                    .small()
-                    .color(theme::SILVER),
-                );
-            }
             if let Some(index) = select {
                 if self.mode == ViewMode::Compare
                     && let Some(comparison) = &mut self.comparison
