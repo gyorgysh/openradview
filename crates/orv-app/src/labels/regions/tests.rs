@@ -31,6 +31,26 @@ fn preview(state: &LabelUi) -> Preview {
     *preview
 }
 #[test]
+fn an_unapplied_connected_preview_is_refused_for_illustration_without_discarding_it() {
+    let mut state = state();
+    let map = state.current.as_ref().unwrap().clone();
+    state.regions.preview = Some(preview(&state));
+    assert!(state.region_preview_visible());
+    assert!(state.illustration_masks(0).is_err());
+    assert!(state.region_preview_visible());
+    assert!(Arc::ptr_eq(state.current.as_ref().unwrap(), &map));
+    assert!(!state.dirty);
+    state.apply_region_preview(Some(1));
+    let captured = state.illustration_masks(0).unwrap().unwrap();
+    let pixels = captured
+        .prepare(&map.source_arc().frames()[1], 8, &|| false)
+        .unwrap();
+    assert_eq!(
+        pixels.image.pixels.iter().filter(|p| p.a() != 0).count(),
+        64
+    );
+}
+#[test]
 fn preview_is_private_and_explicit_apply_creates_one_undo_checkpoint() {
     let mut state = state();
     let original = state.current.as_ref().unwrap().clone();

@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 mod readback;
 mod volume;
+pub const RENDERER_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -235,7 +236,7 @@ fn finish(
     png: Vec<u8>,
 ) -> Result<Snapshot, &'static str> {
     let manifest = SnapshotManifest {
-        renderer_version: 8, // Physical clipping and scalar slab provenance.
+        renderer_version: RENDERER_VERSION, // Physical clipping and scalar slab provenance.
         scene: scene.clone(),
         scene_sha256: scene.hash()?,
         png_sha256: hex(&Sha256::digest(&png)),

@@ -112,6 +112,10 @@ struct Prepared {
     cpu: Reservation,
     gpu: Reservation,
 }
+pub(super) struct PlanePixels {
+    pub image: egui::ColorImage,
+    pub _cpu: Reservation,
+}
 struct Cached {
     texture: egui::TextureHandle,
     _cpu: Reservation,
@@ -263,27 +267,16 @@ fn render<M: OverlayMap>(
         if image.width as usize > input.side || image.height as usize > input.side {
             return Err("The mask plane exceeds this device's texture size limit".into());
         }
-        let plane = input.labels.plane(image, cancel)?;
-        let size = plane.dimensions();
-        let count = size[0] * size[1];
-        let cpu = MemoryBudget::volumes()
-            .reserve(count as u64 * 4)
-            .ok_or("Not enough memory for mask display pixels")?;
+        let PlanePixels {
+            image: pixels,
+            _cpu: cpu,
+        } = plane_pixels(input.labels.as_ref(), image, &input.display, cancel)?;
+        let count = pixels.size[0] * pixels.size[1];
         let gpu = MemoryBudget::gpu()
             .reserve(count as u64 * 4)
             .ok_or("Not enough texture allowance for masks")?;
-        let mut pixels = Vec::new();
-        pixels
-            .try_reserve_exact(count)
-            .map_err(|_| "Not enough memory for mask display pixels")?;
-        for index in 0..count {
-            if index.is_multiple_of(1024) && cancel() {
-                return Err("Cancelled".into());
-            }
-            pixels.push(M::color(&plane, index, &input.display));
-        }
         layers.push(Prepared {
-            image: egui::ColorImage::new(size, pixels),
+            image: pixels,
             cpu,
             gpu,
         });
@@ -292,6 +285,39 @@ fn render<M: OverlayMap>(
         return Err("Cancelled".into());
     }
     Ok(layers)
+}
+pub(super) fn plane_pixels<M: OverlayMap>(
+    map: &M,
+    image: &Frame,
+    display: &M::Display,
+    cancel: &dyn Fn() -> bool,
+) -> Result<PlanePixels, String> {
+    let plane = map.plane(image, cancel)?;
+    let size = plane.dimensions();
+    let count = size[0]
+        .checked_mul(size[1])
+        .filter(|n| *n > 0 && *n <= 4 * 1024 * 1024)
+        .ok_or("The mask plane exceeds the bounded pixel allowance")?;
+    let cpu = MemoryBudget::volumes()
+        .reserve(count as u64 * 4)
+        .ok_or("Not enough memory for mask display pixels")?;
+    let mut pixels = Vec::new();
+    pixels
+        .try_reserve_exact(count)
+        .map_err(|_| "Not enough memory for mask display pixels")?;
+    for index in 0..count {
+        if index.is_multiple_of(1024) && cancel() {
+            return Err("Cancelled".into());
+        }
+        pixels.push(M::color(&plane, index, display));
+    }
+    if cancel() {
+        return Err("Cancelled".into());
+    }
+    Ok(PlanePixels {
+        image: egui::ColorImage::new(size, pixels),
+        _cpu: cpu,
+    })
 }
 fn edge(plane: &LabelPlane, index: usize) -> bool {
     let [width, height] = plane.dimensions();

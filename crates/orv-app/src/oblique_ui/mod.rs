@@ -33,6 +33,13 @@ impl ObliqueSession {
     pub(crate) fn cancel_measurement_interaction(&mut self, ctx: &egui::Context) {
         self.annotations.cancel_interaction(ctx);
     }
+    pub(crate) fn illustration_outlines(
+        &self,
+        image: &orv_core::study::Frame,
+        view: &orv_core::ViewState,
+    ) -> Result<crate::annotations::Outlines, &'static str> {
+        self.annotations.outlines(image, view)
+    }
     pub(crate) fn picture(&self) -> Option<(crate::export::Pixels, [u32; 2])> {
         let (_, true) = self.shared_view()? else {
             return None;

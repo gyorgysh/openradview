@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Explicit local picture export. No networking, automatic saves or UI readback.
+mod illustration;
 #[cfg(test)]
 mod tests;
 mod worker;
@@ -12,11 +13,13 @@ use orv_core::{
 use std::sync::Arc;
 use worker::Task;
 
+#[derive(Clone)]
 pub(crate) enum Pixels {
     Image(Arc<Frame>),
     Volume(Arc<Volume>),
     Reformat(Arc<Frame>, Arc<Volume>),
 }
+#[derive(Clone)]
 pub(crate) struct Input {
     pub series: Arc<Series>,
     pub scene: SceneState,
@@ -31,10 +34,11 @@ pub(super) struct PictureExport {
     input: Option<Input>,
     task: Option<Task>,
     notice: Option<&'static str>,
+    illustration: illustration::Controller,
 }
 impl PictureExport {
     pub fn is_open(&self) -> bool {
-        self.open
+        self.open || self.illustration.is_open()
     }
     pub fn open(&mut self, input: Input) {
         self.close();
@@ -45,6 +49,7 @@ impl PictureExport {
         *self = Self::default();
     }
     pub fn show(&mut self, ctx: &egui::Context) {
+        self.illustration.show(ctx);
         if !self.open {
             return;
         }
@@ -93,25 +98,22 @@ impl crate::workspace::Workspace {
     }
     pub(super) fn open_picture_export(&mut self, frame: &eframe::Frame) {
         self.pause_playback();
+        if let Some(input) = self.picture_input(frame) {
+            self.export.open(input);
+        }
+    }
+    fn picture_input(&self, frame: &eframe::Frame) -> Option<Input> {
         if self.mode == crate::workspace::ViewMode::Compare {
-            let Some((index, spec, pixels, output_size)) = self
+            let (index, spec, pixels, output_size) = self
                 .comparison
                 .as_ref()
-                .and_then(|comparison| comparison.picture())
-            else {
-                return;
-            };
-            let Some(series) = self
+                .and_then(|comparison| comparison.picture())?;
+            let series = self
                 .comparison
                 .as_ref()
-                .map(|comparison| comparison.active_source())
-            else {
-                return;
-            };
-            let Some(gpu) = frame.wgpu_render_state() else {
-                return;
-            };
-            self.export.open(Input {
+                .map(|comparison| comparison.active_source())?;
+            let gpu = frame.wgpu_render_state()?;
+            return Some(Input {
                 series,
                 scene: SceneState {
                     schema_version: 1,
@@ -127,21 +129,15 @@ impl crate::workspace::Workspace {
                 device: gpu.device.clone(),
                 queue: gpu.queue.clone(),
             });
-            return;
         }
         let Some((spec, true)) = self.rendered_view() else {
-            return;
+            return None;
         };
-        let Some(series) = self
+        let series = self
             .study
             .as_ref()
-            .and_then(|s| s.series.get(self.selected))
-        else {
-            return;
-        };
-        let Some(gpu) = frame.wgpu_render_state() else {
-            return;
-        };
+            .and_then(|s| s.series.get(self.selected))?;
+        let gpu = frame.wgpu_render_state()?;
         let captured = match self.mode {
             crate::workspace::ViewMode::Acquired => self
                 .current_image()
@@ -151,10 +147,8 @@ impl crate::workspace::Workspace {
             crate::workspace::ViewMode::Volume => self.volume.as_ref().and_then(|m| m.picture()),
             crate::workspace::ViewMode::Compare => None,
         };
-        let Some((pixels, output_size)) = captured else {
-            return;
-        };
-        self.export.open(Input {
+        let (pixels, output_size) = captured?;
+        Some(Input {
             series: Arc::new(series.clone()),
             scene: SceneState {
                 schema_version: if spec.reconstruction.is_some() { 2 } else { 1 },
@@ -169,6 +163,6 @@ impl crate::workspace::Workspace {
             pixels,
             device: gpu.device.clone(),
             queue: gpu.queue.clone(),
-        });
+        })
     }
 }

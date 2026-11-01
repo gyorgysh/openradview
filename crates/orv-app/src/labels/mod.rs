@@ -3,7 +3,9 @@
 mod canvas;
 mod counts;
 mod display;
+mod illustration;
 use crate::jobs;
+pub(crate) use illustration::{CapturedMasks, MaskDescription};
 mod overlay;
 mod regions;
 mod supplied;

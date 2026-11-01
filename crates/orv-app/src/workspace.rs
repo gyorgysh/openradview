@@ -548,6 +548,12 @@ impl Workspace {
                         self.open_picture_export(frame);
                         ui.close();
                     }
+                    if ui.add_enabled(ready && self.mode != ViewMode::Volume, egui::Button::new("Export illustration…"))
+                        .on_hover_text("Review selected completed marks and applied masks before saving a local PNG.")
+                        .clicked() {
+                        self.open_illustration_export(frame);
+                        ui.close();
+                    }
                     if ui.button("Close study").clicked() { self.close(); ui.close(); }
                 });
             }

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Review an explicit current-pane illustration before saving, with selected completed
+  measurement outlines and applied manual/supplied masks on source/thin reformat
+  views. Layer changes invalidate the preview; saves reuse its exact PNG bytes.
+  Image-only exports and agent snapshots retain their existing scope.
+- Preserve files created by another writer when an export's exclusive output
+  creation fails.
+
 - Draw ellipse and simple polygon regions on source and thin reformat planes.
   Report scalar/RGB statistics with sampled area separate from continuous shape
   area. Explicitly saved comparisons preserve the new shapes; earlier comparison
