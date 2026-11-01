@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Usage: cargo run -p orv-core --example generate_media -- test-data/generated-media
 //! Add --label-phantom for two disconnected boxes in a 16×12×5 source grid.
+//! Add --segmentation-phantom for those images and overlapping supplied-mask fixtures.
+#[path = "../tests/support/generated_segments.rs"]
+mod generated_segments;
 #[path = "../tests/support/media.rs"]
 mod media;
 #[path = "../tests/support/mod.rs"]
@@ -14,9 +17,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .next()
             .ok_or("Pass an output directory for generated media")?,
     );
-    let phantom = match arguments.next() {
-        None => false,
-        Some(flag) if flag == "--label-phantom" => true,
+    let (phantom, segments) = match arguments.next() {
+        None => (false, false),
+        Some(flag) if flag == "--label-phantom" => (true, false),
+        Some(flag) if flag == "--segmentation-phantom" => (true, true),
         Some(_) => return Err("Unknown option".into()),
     };
     if arguments.next().is_some() {
@@ -89,6 +93,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if phantom {
         println!(
             "Generated boxes at source values 100 and 50 occupy 60 and 8 voxels (240 and 32 mm³). No anatomy is represented."
+        );
+    }
+    if segments {
+        generated_segments::write(&output)?;
+        println!(
+            "Generated read-only masks: IDs 9/65535/2 contain 8/60/24 cells (32/240/96 mm³), with 8 overlap cells. The wrong-reference fixture must be refused."
         );
     }
     Ok(())

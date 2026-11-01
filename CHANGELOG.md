@@ -2,8 +2,11 @@
 
 ## Unreleased
 
-- Keep supplied segmentation object types out of ordinary image imports, including
-  label maps and height maps, and report their unsupported object type.
+- Explicitly load matching local BINARY DICOM segmentation masks on source,
+  thin MPR and oblique planes. Preserve overlapping segments and sparse coverage,
+  with numeric visibility, styles and source counts. Supplied masks stay read-only
+  and separate from manual labels; ordinary image imports exclude segmentation
+  object types. No model is used or downloaded.
 
 - Preview and explicitly apply local seeded region growing, keep a selected label
   component or remove small islands. Use four neighbors on one source image or

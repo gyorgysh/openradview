@@ -36,14 +36,57 @@ impl Default for Display {
         }
     }
 }
-struct Key {
-    map: Weak<Labels>,
+pub(super) trait SampledPlane {
+    fn dimensions(&self) -> [usize; 2];
+}
+impl SampledPlane for LabelPlane {
+    fn dimensions(&self) -> [usize; 2] {
+        LabelPlane::dimensions(self)
+    }
+}
+pub(super) trait OverlayMap: Send + Sync + 'static {
+    type Display: Clone + Eq + Send + 'static;
+    type Plane: SampledPlane;
+    fn source_arc(&self) -> Arc<Volume>;
+    fn plane(&self, image: &Frame, cancel: &dyn Fn() -> bool) -> Result<Self::Plane, &'static str>;
+    fn color(plane: &Self::Plane, index: usize, display: &Self::Display) -> egui::Color32;
+}
+impl OverlayMap for Labels {
+    type Display = Display;
+    type Plane = LabelPlane;
+    fn source_arc(&self) -> Arc<Volume> {
+        Labels::source_arc(self)
+    }
+    fn plane(&self, image: &Frame, cancel: &dyn Fn() -> bool) -> Result<LabelPlane, &'static str> {
+        self.sample_plane(image, cancel)
+    }
+    fn color(plane: &LabelPlane, index: usize, display: &Display) -> egui::Color32 {
+        let size = plane.dimensions();
+        let id = plane.ids()[index];
+        let visible =
+            id != 0 && plane.eligibility()[index] == 1 && display.visible_ids[id as usize];
+        let mark = match display.mode {
+            Mode::Fill => true,
+            Mode::Hatched => {
+                edge(plane, index) || ((index % size[0]) + (index / size[0]) + id as usize) % 6 < 2
+            }
+            Mode::Outline => edge(plane, index),
+        };
+        if visible && mark {
+            egui::Color32::from_gray(160 + (u16::from(id) * 37 % 96) as u8)
+        } else {
+            egui::Color32::TRANSPARENT
+        }
+    }
+}
+struct Key<M: OverlayMap> {
+    map: Weak<M>,
     images: Vec<Weak<Frame>>,
     view: OverlayView,
-    display: Display,
+    display: M::Display,
     side: usize,
 }
-impl Key {
+impl<M: OverlayMap> Key<M> {
     fn same(&self, other: &Self) -> bool {
         self.map.ptr_eq(&other.map)
             && self.view == other.view
@@ -57,11 +100,11 @@ impl Key {
                 .all(|(a, b)| a.ptr_eq(b))
     }
 }
-struct Input {
-    labels: Arc<Labels>,
+struct Input<M: OverlayMap = Labels> {
+    labels: Arc<M>,
     source: Arc<Volume>,
     images: Vec<Arc<Frame>>,
-    display: Display,
+    display: M::Display,
     side: usize,
 }
 struct Prepared {
@@ -74,14 +117,23 @@ struct Cached {
     _cpu: Reservation,
     _gpu: Reservation,
 }
-#[derive(Default)]
-pub(super) struct Overlays {
-    worker: Option<Worker<Input, Vec<Prepared>>>,
-    request: Option<(Key, u64)>,
+pub(super) struct Overlays<M: OverlayMap = Labels> {
+    worker: Option<Worker<Input<M>, Vec<Prepared>>>,
+    request: Option<(Key<M>, u64)>,
     textures: Vec<Cached>,
     pub error: Option<String>,
 }
-impl Overlays {
+impl<M: OverlayMap> Default for Overlays<M> {
+    fn default() -> Self {
+        Self {
+            worker: None,
+            request: None,
+            textures: Vec::new(),
+            error: None,
+        }
+    }
+}
+impl<M: OverlayMap> Overlays<M> {
     pub fn clear(&mut self) {
         if self.request.take().is_some()
             && let Some(worker) = &self.worker
@@ -93,11 +145,11 @@ impl Overlays {
     }
     pub fn prepare(
         &mut self,
-        labels: Arc<Labels>,
+        labels: Arc<M>,
         source: &Arc<Volume>,
         images: &[Arc<Frame>],
         view: OverlayView,
-        display: &Display,
+        display: &M::Display,
         ctx: &egui::Context,
     ) {
         if !Arc::ptr_eq(&labels.source_arc(), source)
@@ -119,7 +171,7 @@ impl Overlays {
         if self.request.as_ref().is_none_or(|(old, _)| !old.same(&key)) {
             self.clear();
             if self.worker.is_none() {
-                match Worker::start(ctx.clone(), "orv-label-overlays", render) {
+                match Worker::start(ctx.clone(), "orv-mask-overlays", render::<M>) {
                     Ok(worker) => self.worker = Some(worker),
                     Err(error) => {
                         self.error = Some(error);
@@ -159,14 +211,14 @@ impl Overlays {
                         .any(|v| *v > ctx.input(|i| i.max_texture_side))
                 }) {
                     self.error =
-                        Some("The label plane exceeds this device's texture size limit".into());
+                        Some("The mask plane exceeds this device's texture size limit".into());
                     return;
                 }
                 self.textures = images
                     .into_iter()
                     .map(|Prepared { image, cpu, gpu }| Cached {
                         texture: ctx.load_texture(
-                            "local-label-plane",
+                            "local-mask-plane",
                             image,
                             egui::TextureOptions::NEAREST,
                         ),
@@ -182,8 +234,8 @@ impl Overlays {
         &self,
         index: usize,
         image: &Arc<Frame>,
-        labels: &Arc<Labels>,
-        display: &Display,
+        labels: &Arc<M>,
+        display: &M::Display,
     ) -> Option<egui::TextureId> {
         let (key, _) = self.request.as_ref()?;
         if !key.map.ptr_eq(&Arc::downgrade(labels))
@@ -195,53 +247,40 @@ impl Overlays {
         Some(self.textures.get(index)?.texture.id())
     }
 }
-fn render(input: Input, cancel: &dyn Fn() -> bool) -> Result<Vec<Prepared>, String> {
+fn render<M: OverlayMap>(
+    input: Input<M>,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Vec<Prepared>, String> {
     orv_core::resources::refresh_memory_policy();
     if input.images.is_empty() || input.images.len() > 3 {
-        return Err("Label display needs one to three completed planes".into());
+        return Err("Mask display needs one to three completed planes".into());
     }
     if !Arc::ptr_eq(&input.labels.source_arc(), &input.source) {
-        return Err("Label source changed".into());
+        return Err("Mask source changed".into());
     }
     let mut layers = Vec::with_capacity(input.images.len());
     for image in &input.images {
         if image.width as usize > input.side || image.height as usize > input.side {
-            return Err("The label plane exceeds this device's texture size limit".into());
+            return Err("The mask plane exceeds this device's texture size limit".into());
         }
-        let plane = input.labels.sample_plane(image, cancel)?;
+        let plane = input.labels.plane(image, cancel)?;
         let size = plane.dimensions();
-        let count = plane.ids().len();
+        let count = size[0] * size[1];
         let cpu = MemoryBudget::volumes()
             .reserve(count as u64 * 4)
-            .ok_or("Not enough memory for label display pixels")?;
+            .ok_or("Not enough memory for mask display pixels")?;
         let gpu = MemoryBudget::gpu()
             .reserve(count as u64 * 4)
-            .ok_or("Not enough texture allowance for labels")?;
+            .ok_or("Not enough texture allowance for masks")?;
         let mut pixels = Vec::new();
         pixels
             .try_reserve_exact(count)
-            .map_err(|_| "Not enough memory for label display pixels")?;
+            .map_err(|_| "Not enough memory for mask display pixels")?;
         for index in 0..count {
             if index.is_multiple_of(1024) && cancel() {
                 return Err("Cancelled".into());
             }
-            let id = plane.ids()[index];
-            let visible = id != 0
-                && plane.eligibility()[index] == 1
-                && input.display.visible_ids[id as usize];
-            let mark = match input.display.mode {
-                Mode::Fill => true,
-                Mode::Hatched => {
-                    edge(&plane, index)
-                        || ((index % size[0]) + (index / size[0]) + id as usize) % 6 < 2
-                }
-                Mode::Outline => edge(&plane, index),
-            };
-            pixels.push(if visible && mark {
-                egui::Color32::from_gray(160 + (u16::from(id) * 37 % 96) as u8)
-            } else {
-                egui::Color32::TRANSPARENT
-            });
+            pixels.push(M::color(&plane, index, &input.display));
         }
         layers.push(Prepared {
             image: egui::ColorImage::new(size, pixels),
@@ -268,7 +307,143 @@ fn edge(plane: &LabelPlane, index: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orv_core::segments::Segments;
     use std::time::{Duration, Instant};
+    fn supplied() -> Arc<Segments> {
+        let mut bytes = [255; 16];
+        bytes[8..].fill(0xf0);
+        Arc::new(
+            Segments::from_binary(
+                crate::labels::tests::labels().source_arc(),
+                &[u16::MAX, 2],
+                &[(u16::MAX, 1), (2, 1)],
+                &bytes,
+                None,
+                || false,
+            )
+            .unwrap(),
+        )
+    }
+    #[test]
+    fn supplied_overlap_visibility_and_boundaries_preserve_large_ids_and_source_counts() {
+        let masks = supplied();
+        let source = masks.source_arc();
+        let mut display = <Segments as OverlayMap>::Display::default();
+        let request = |display, image| Input {
+            labels: masks.clone(),
+            source: source.clone(),
+            images: vec![image],
+            display,
+            side: 8,
+        };
+        let layer = render(
+            request(display.clone(), source.frames()[1].clone()),
+            &|| false,
+        )
+        .unwrap()
+        .remove(0);
+        assert_eq!(marked(&layer), 64);
+        assert_eq!(layer.image.pixels[0], egui::Color32::from_gray(187));
+        assert_eq!(layer.image.pixels[4], egui::Color32::from_gray(150));
+        assert_eq!(layer.image.pixels[6], egui::Color32::WHITE);
+        display.visible = 1;
+        let layer = render(
+            request(display.clone(), source.frames()[1].clone()),
+            &|| false,
+        )
+        .unwrap()
+        .remove(0);
+        assert!(
+            layer
+                .image
+                .pixels
+                .iter()
+                .all(|pixel| *pixel == egui::Color32::from_gray(187))
+        );
+        display.visible = 2;
+        display.mode = Mode::Outline;
+        let layer = render(
+            request(display.clone(), source.frames()[1].clone()),
+            &|| false,
+        )
+        .unwrap()
+        .remove(0);
+        assert_eq!(marked(&layer), 20);
+        display.mode = Mode::Fill;
+        let mut missing = (*source.frames()[1]).clone();
+        let mut validity = vec![1; 64];
+        validity[28] = 0;
+        missing.validity = Some(validity.into());
+        let layer = render(request(display.clone(), Arc::new(missing)), &|| false)
+            .unwrap()
+            .remove(0);
+        assert_eq!(marked(&layer), 31);
+        assert_eq!(layer.image.pixels[28], egui::Color32::TRANSPARENT);
+        display.visible = 0;
+        assert_eq!(
+            marked(&render(request(display, source.frames()[1].clone()), &|| false).unwrap()[0]),
+            0
+        );
+        assert_eq!(masks.overlap_cells(), 32);
+        assert_eq!(
+            masks
+                .infos()
+                .map(|info| info.positive_cells)
+                .collect::<Vec<_>>(),
+            [64, 32]
+        );
+    }
+    #[test]
+    fn supplied_cache_binds_exact_source_map_and_completed_frame() {
+        let masks = supplied();
+        let ctx = egui::Context::default();
+        let source = masks.source_arc();
+        let images = vec![source.frames()[1].clone()];
+        let display = <Segments as OverlayMap>::Display::default();
+        let mut overlays = Overlays::<Segments>::default();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            overlays.prepare(
+                masks.clone(),
+                &source,
+                &images,
+                OverlayView::Mpr {
+                    generation: 7,
+                    preview: false,
+                },
+                &display,
+                &ctx,
+            );
+            if overlays.texture(0, &images[0], &masks, &display).is_some() {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        assert!(
+            overlays
+                .texture(0, &Arc::new((*images[0]).clone()), &masks, &display)
+                .is_none()
+        );
+        assert!(
+            overlays
+                .texture(0, &images[0], &supplied(), &display)
+                .is_none()
+        );
+        let different = Arc::new(Volume::new(source.frames().to_vec()).unwrap());
+        overlays.prepare(
+            masks.clone(),
+            &different,
+            &images,
+            OverlayView::Source,
+            &display,
+            &ctx,
+        );
+        assert!(overlays.texture(0, &images[0], &masks, &display).is_none());
+        let key = Arc::downgrade(&masks);
+        drop(masks);
+        assert!(key.upgrade().is_none());
+    }
     fn filled() -> Arc<Labels> {
         let original = crate::labels::tests::labels();
         let mut labels = original.try_clone(|| false).unwrap();

@@ -6,6 +6,7 @@ mod display;
 mod jobs;
 mod overlay;
 mod regions;
+mod supplied;
 pub(crate) use overlay::OverlayView;
 #[cfg(test)]
 mod tests;
@@ -35,6 +36,8 @@ pub struct LabelUi {
     counts: counts::Counts,
     display: overlay::Display,
     regions: regions::Regions,
+    supplied: supplied::Supplied,
+    supplied_active: bool,
     stroke: Vec<[f64; 2]>,
     pub discard_question: bool,
     stroke_slice: Option<usize>,
@@ -61,6 +64,8 @@ impl Default for LabelUi {
             counts: Default::default(),
             display: Default::default(),
             regions: regions::Regions::new(),
+            supplied: Default::default(),
+            supplied_active: false,
             stroke: Vec::new(),
             discard_question: false,
             stroke_slice: None,
@@ -69,6 +74,7 @@ impl Default for LabelUi {
 }
 impl LabelUi {
     pub fn poll(&mut self) {
+        self.supplied.poll();
         let result = self.task.as_ref().and_then(Task::poll);
         let Some(result) = result else { return };
         self.task = None;
@@ -134,6 +140,15 @@ impl LabelUi {
             task.cancel();
         }
     }
+    pub fn discard_manual(&mut self) {
+        let supplied = std::mem::take(&mut self.supplied);
+        let supplied_active = self.supplied_active;
+        *self = Self {
+            supplied,
+            supplied_active,
+            ..Default::default()
+        };
+    }
     pub fn stop_painting(&mut self) {
         self.paint = false;
         self.stroke.clear();
@@ -141,7 +156,8 @@ impl LabelUi {
         self.regions.invalidate();
     }
     pub fn painting(&self, selected: usize) -> bool {
-        (self.paint || self.regions.picking)
+        !self.supplied_active
+            && (self.paint || self.regions.picking)
             && self.current.is_some()
             && self.series == selected
             && !self.open
@@ -162,7 +178,21 @@ impl LabelUi {
             );
         }
         let mut open = self.open;
-        crate::dialogs::window("Local labels",ctx).open(&mut open).default_width(500.).default_height(620.).vscroll(true).show(ctx,|ui| {
+        crate::dialogs::window("Labels and supplied masks",ctx).open(&mut open).default_width(500.).default_height(620.).vscroll(true).show(ctx,|ui| {
+            let previous_group = self.supplied_active;
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.supplied_active, false, "Manual labels");
+                ui.selectable_value(&mut self.supplied_active, true, "Supplied masks");
+            });
+            if previous_group != self.supplied_active {
+                self.stop_painting();
+                self.clear_overlays();
+            }
+            ui.separator();
+            if self.supplied_active {
+                self.supplied.controls(ui, selected, series, ctx);
+                return;
+            }
             ui.label("Draw or load your own labels. No model or anatomical inference is used.");
             ui.label("Labels appear on source images and thin MPR/oblique planes. Painting stays on the source grid. Slabs, 3D and agent snapshots exclude labels. Keep a matching copy of the original images.");
             if self.task.is_some() {ui.horizontal(|ui| {ui.spinner();ui.label("Working locally…");if ui.button("Cancel").clicked() && let Some(task)=&self.task{task.cancel();}});}

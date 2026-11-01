@@ -12,6 +12,12 @@ impl LabelUi {
         view: &ViewState,
         selected: usize,
     ) {
+        if self.supplied_active {
+            self.overlays.clear();
+            self.supplied.canvas(ui, response, image, view, selected);
+            return;
+        }
+        self.supplied.clear_overlays();
         if self.series != selected {
             return;
         }

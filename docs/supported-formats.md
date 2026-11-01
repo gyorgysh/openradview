@@ -13,6 +13,7 @@ that an image, orientation, reconstruction or measurement is correct for care.
 | NIfTI-1/2 | Single-file `.nii`/`.nii.gz` and paired `.hdr`/`.img` (either member may be gzipped), little/big endian; uint8/int8, uint16/int16, uint32/int32, uint64/int64, float32/float64, complex64/complex128. Time, vector/tensor and higher axes become separately labelled scalar subseries; complex views are magnitude, phase in radians, real and imaginary. | Up to 4,096 subseries and one million displayed frames per import. No RGB/RGBA, binary, float128/complex256 or Analyze. Components are viewed individually, without vector/tensor reorientation, tractography or temporal analysis. Values become f32 and may lose integer/f64 precision. Enabled nonfinite scaling or voxel values are refused. Header descriptions/extensions are ignored. |
 | Local sources | Files, folders, ZIP and ZIP64 with stored/deflated members; supported NIfTI including gzip and same-directory pairs can be inside ZIP | No extraction, uploads or pixel disk cache. ZIP/gzip integrity and expanded length are checked on a cancellable background worker. Selected files must remain available. |
 | DICOMDIR | Select a local `DICOMDIR` alone, or a ZIP containing one file-set index. Explicit-VR little-endian Basic Directory; direct IMAGE references under PATIENT/STUDY/SERIES records. Defined/undefined sequence and item lengths, file-relative record offsets, extensionless files and unique case-insensitive names are supported. | Read-only subset: no indirect/MRDR references or directory writing. Non-image records are counted as unsupported. Cycles, orphan active records, contradictory hierarchy, duplicate files/instances, unsafe paths, links/reparse points and ambiguous names are refused. At most 16 MiB, 50,000 records and 16 hierarchy levels. |
+| Supplied DICOM masks | Explicit local selection through Labels… → Supplied masks. Read-only BINARY SEG, native implicit/explicit little endian, one-bit MONOCHROME2, matching loaded DICOM source grid and explicit source references. Overlap and sparse coverage are preserved on source/thin MPR/oblique views. | Up to 64 numeric segment IDs, 4,096 source/mask frames, 32 million source voxels and four million pixels per source/output plane; 128 MiB packed masks and 128 MiB pixel payload, subject to shared memory admission. No resampling, editing, supplied-mask export, slabs, 3D or ordinary agent snapshots. |
 
 A media index selects only its referenced images. Each accepted image's own SOP
 class/instance, transfer syntax, study and series must match its record. Missing
@@ -34,7 +35,23 @@ that were not listed by an index.
 
 Recognized segmentation, surface segmentation, label map and height map objects
 are excluded from ordinary image imports, even when they carry pixel data. They
-are reported as unsupported object types; supplied DICOM masks are not yet read.
+are reported as unsupported object types. Supplied masks require the explicit
+selection above; they never attach automatically. The initial reader requires one
+derivation/source reference per mask frame, matching frame of reference, rows,
+columns, spacing, orientation and position. Multiframe sources need one explicit
+original frame number. Missing/wrong/ambiguous references and duplicate segment/
+source-plane pairs are refused. Metadata is bounded to 8 MiB, 100,000 tokens and
+64 nesting levels; repeated attributes in one dataset are refused. The supported
+file ends at its exactly sized, even-padded native pixel payload. Compressed or
+deflated masks, fractional/label-map/surface/height-map objects, concatenations and
+different grids are unsupported.
+
+Each supplied segment retains its own positive bits and source-plane coverage.
+An omitted plane is unknown for that segment; a supplied all-zero plane is known
+empty. Counts separate stored positives from positives on valid image samples.
+Segment volumes can overlap and must not be added. Display uses numeric IDs,
+visibility, fill/outline/hatching and overlap crosshatching; supplied names are not
+retained. The manual NIfTI label map has independent editing, undo and export.
 
 Import keeps reason counts for skipped inputs in memory. Known unsupported
 encodings and object families, missing paired files, malformed DICOM metadata
@@ -185,8 +202,9 @@ Load a scalar NIfTI label volume with integer values0–255 (zero background), e
 dimensions/affine and the same NIfTI spatial-reference code. DICOM sources accept
 scanner-reference NIfTI labels with matching numeric geometry. Numeric equality
 does not establish anatomical correspondence: the user must verify the overlay.
-Import does not register or resample a map to another grid. No DICOM SEG/RTSTRUCT
-import/export is provided.
+Import does not register or resample a map to another grid. Supplied BINARY DICOM
+SEG has the separate read-only import described above. DICOM SEG export and
+RTSTRUCT import/export are unsupported.
 
 Export explicitly to a new .nii filename: NIfTI-2 uint8, label intent1002, exact
 f64 sform in RAS millimetres, without source pixels/names/identifiers. Existing
