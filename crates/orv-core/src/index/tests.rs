@@ -25,6 +25,7 @@ mod nifti_axes;
 mod nifti_expanded;
 mod padding;
 mod presentation;
+mod presentation_state;
 mod real_world;
 mod resources;
 mod segments;

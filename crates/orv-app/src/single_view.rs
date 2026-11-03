@@ -127,10 +127,26 @@ impl Workspace {
         if self.view.window != before {
             self.initialize_window = false;
         }
-        if let Some((_, image)) = self.current_image()
-            && image.presentation.is_some()
-        {
-            crate::toolbar::row(ui, |ui| self.source_layers.controls(ui, &image));
+        let monochrome1 = self
+            .current_image()
+            .is_some_and(|(_, image)| image.monochrome1);
+        let layers = self
+            .current_image()
+            .filter(|(_, image)| image.presentation.is_some());
+        let applied = crate::toolbar::row(ui, |ui| {
+            let applied = (!color)
+                && self
+                    .presentation
+                    .controls(ui, series, &mut self.view, monochrome1);
+            if let Some((_, image)) = &layers {
+                self.source_layers.controls(ui, image);
+            }
+            applied
+        })
+        .inner;
+        if applied || self.presentation.follow(&mut self.view) {
+            self.initialize_window = false;
+            ui.ctx().request_repaint();
         }
         if self.labels.painting(self.selected) {
             ui.horizontal(|ui| {

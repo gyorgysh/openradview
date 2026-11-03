@@ -31,6 +31,7 @@ mod mpr_worker;
 mod oblique_ui;
 mod playback;
 mod preferences;
+mod presentation_ui;
 #[cfg(feature = "qa")]
 mod qa;
 mod rendered;
