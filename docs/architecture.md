@@ -471,6 +471,16 @@ missing and outside samples stay missing. The result has no planar geometry,
 which keeps measurements unavailable, and exposes an exact source position per
 pixel plus a curve/sampling digest. It has no desktop editor or export yet.
 
+A brick-layout prototype addresses one measured GPU-residency failure: a
+generated 4096×512×256 f32 volume is admitted on the CPU but exceeds Metal's
+2048-voxel 3D texture side. Bricks own cells along each axis and store one halo
+voxel, so brick-local trilinear sampling matches the dense sampler, missing
+samples included. Extraction is admitted against the GPU budget one brick at a
+time. The dense CPU source stays resident; there is no disk spill. The volume
+renderer does not yet ray-march across bricks, so 3D still refuses such volumes.
+On the test Mac the dense path's binding limit for ordinary shapes was CPU
+admission, not GPU memory.
+
 Optional physical LPS clipping intersects the original affine source ray domain
 before sampling. It changes neither source data nor opacity distance units; its
 validated bounds participate in scene hashes, exact approval and snapshots.
