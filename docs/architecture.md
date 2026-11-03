@@ -169,6 +169,14 @@ one frame for codec metadata, without materializing an entire packed sequence.
 Source padding uses the same code reader. Codecs keep their validated decoded
 sample representation. No inverse mapping reconstructs discarded stored codes.
 
+Float Pixel Data has its own reader. It never passes through integer Bits Stored,
+padding or codec decoding. Indexed reads take one frame's bytes in transfer-syntax
+order. Eager reads use the parsed OF values. Both share one sampler that marks
+float padding and nonfinite values missing with a finite placeholder, so display
+ranges, statistics and sampling all use the existing validity mask. The bounded
+metadata prefix stops at the OF element, so import requires that payload to end
+the object instead of reading on to look for an integer Pixel Data element.
+
 Scalar context owns the bounded immutable table and an optional fixed-size
 descriptor/digest. Table outputs are unsigned; later VOI input interpretation
 uses that domain. The metadata omits entries, explanations and raw unit codes.

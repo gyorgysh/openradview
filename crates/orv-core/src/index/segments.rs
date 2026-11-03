@@ -398,7 +398,8 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
     if expected > MAX_INPUT_BYTES {
         return Err(SegmentationError::Limit);
     }
-    if prefix.pixel_length != Some(expected as u64)
+    if prefix.pixel_vr == dicom_core::VR::OF
+        || prefix.pixel_length != Some(expected as u64)
         || prefix.pixel_offset.checked_add(expected as u64) != Some(before.len())
     {
         return Err(SegmentationError::Encoding);

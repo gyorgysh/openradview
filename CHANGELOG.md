@@ -5,6 +5,10 @@
 - Open supported integer DICOM modality tables, with declared units, stored-code
   padding and endpoint clipping. Apply them before interpolation and VOI display;
   preserve uniform mapping context in reformats and picture metadata.
+- Open native 32-bit DICOM Float Pixel Data with its stored values, float padding
+  and source windows. NaN and infinite samples count as missing.
+- Keep contrast for very wide windows over extreme float values, which could
+  render as uniform gray, and show such window values in compact notation.
 - Correct native big-endian eight-bit OW image ordering across frame boundaries
   and packed eight-bit grayscale table word ordering.
 - Include retained scalar metadata in resident import memory admission.

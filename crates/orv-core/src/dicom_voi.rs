@@ -141,24 +141,38 @@ fn info(
     root: &Object,
     transform: Option<&Object>,
     modality: Option<&crate::dicom_modality::Mapping>,
+    float: bool,
 ) -> Result<(ScalarInfo, Option<[u8; 32]>), LoadError> {
-    if modality.is_some() && transform.is_some() {
+    if (modality.is_some() || float) && transform.is_some() {
         return Err(LoadError::Unsupported);
     }
     let integer = |tag| root.element(tag).ok()?.to_int::<u16>().ok();
-    let signed = match integer(Tag(0x0028, 0x0103)) {
-        Some(0) => false,
-        Some(1) => true,
-        _ => return Err(LoadError::Unsupported),
+    let (storage, bits) = if float {
+        // Integer descriptions and rescale are refused by dicom_float::validate.
+        (Storage::Float, 32)
+    } else {
+        let signed = match integer(Tag(0x0028, 0x0103)) {
+            Some(0) => false,
+            Some(1) => true,
+            _ => return Err(LoadError::Unsupported),
+        };
+        let bits = integer(Tag(0x0028, 0x0101)).ok_or(LoadError::Unsupported)?;
+        let allocated = integer(Tag(0x0028, 0x0100)).ok_or(LoadError::Unsupported)?;
+        if !matches!(allocated, 1 | 8 | 16 | 32)
+            || !(1..=allocated).contains(&bits)
+            || integer(Tag(0x0028, 0x0102)) != Some(bits - 1)
+        {
+            return Err(LoadError::Unsupported);
+        }
+        (
+            if signed {
+                Storage::SignedInteger
+            } else {
+                Storage::UnsignedInteger
+            },
+            bits,
+        )
     };
-    let bits = integer(Tag(0x0028, 0x0101)).ok_or(LoadError::Unsupported)?;
-    let allocated = integer(Tag(0x0028, 0x0100)).ok_or(LoadError::Unsupported)?;
-    if !matches!(allocated, 1 | 8 | 16 | 32)
-        || !(1..=allocated).contains(&bits)
-        || integer(Tag(0x0028, 0x0102)) != Some(bits - 1)
-    {
-        return Err(LoadError::Unsupported);
-    }
     let context = transform.unwrap_or(root);
     let slope = value(context, Tag(0x0028, 0x1053))?;
     let intercept = value(context, Tag(0x0028, 0x1052))?;
@@ -208,11 +222,7 @@ fn info(
     let info = ScalarInfo {
         modality_lut: modality.map(|mapping| mapping.lut.info()),
         value_type: crate::scalar::ValueType::F32,
-        storage: if signed {
-            Storage::SignedInteger
-        } else {
-            Storage::UnsignedInteger
-        },
+        storage,
         stored_bits: bits,
         unit,
         rescale,
@@ -428,6 +438,7 @@ fn luts(
 pub(crate) fn read(
     object: &DefaultDicomObject,
     frame_count: u32,
+    float: bool,
     cancelled: &impl Fn() -> bool,
 ) -> Result<Presentations, LoadError> {
     if !matches!(
@@ -458,7 +469,7 @@ pub(crate) fn read(
         }
         let local = per_frame.and_then(|frames| frames.get(frame));
         let transform = crate::dicom_geometry::group(shared, local, TRANSFORM)?;
-        let (info, unit) = info(object, transform, modality.as_ref())?;
+        let (info, unit) = info(object, transform, modality.as_ref(), float)?;
         let voi = crate::dicom_geometry::group(shared, local, VOI)?.unwrap_or(object);
         contexts.push((info, unit, voi));
     }

@@ -92,11 +92,20 @@ impl ImageInfo {
         ui.weak("Local pixel values. Nothing in this window is sent or saved.");
         if let Some(scalar) = &image.scalar {
             let info = scalar.info();
-            ui.small(format!(
-                "Source: {}-bit {} · values converted to 32-bit float",
-                info.stored_bits,
-                info.storage.label()
-            ));
+            ui.small(
+                if info.storage == orv_core::scalar::Storage::Float
+                    && info.stored_bits == 32
+                    && info.rescale.is_none()
+                {
+                    "Source: 32-bit floating point · stored values kept unchanged".to_owned()
+                } else {
+                    format!(
+                        "Source: {}-bit {} · values converted to 32-bit float",
+                        info.stored_bits,
+                        info.storage.label()
+                    )
+                },
+            );
             ui.small(info.unit.label());
             if let Some(table) = info.modality_lut {
                 ui.small(format!(

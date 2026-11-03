@@ -314,7 +314,7 @@ fn zero_descriptor_count_means_65536_and_mapping_cancellation_publishes_no_parti
             PrimitiveValue::U16((0..65536u32).map(|v| v as u16).collect()),
         ));
     });
-    let scalar = crate::dicom_voi::read(&object, 1, &|| false).unwrap();
+    let scalar = crate::dicom_voi::read(&object, 1, false, &|| false).unwrap();
     assert_eq!(
         scalar.get(0).unwrap().info().modality_lut.unwrap().entries,
         65536
