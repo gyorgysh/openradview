@@ -17,7 +17,7 @@ mod presentation_state;
 mod segments;
 mod source;
 pub use presentation_state::{PresentationError, PresentationState, read_presentation_state};
-pub use segments::{SegmentationError, read_segmentation};
+pub use segments::{SegmentationError, read_segmentation, read_segmentation_bytes};
 #[cfg(test)]
 mod tests;
 
@@ -247,43 +247,6 @@ impl IndexedSeries {
             });
         }
         header.scalar.get(entry.frame)?.choices().original()
-    }
-    /// Declared laterality, view and patient orientation of a source frame.
-    pub fn projection_labels(&self, index: usize) -> Option<crate::inspection::ProjectionLabels> {
-        let object = self.frames.get(index)?.header.dicom().ok()?;
-        let text = |group: u16, element: u16| {
-            object
-                .element(dicom_core::Tag(group, element))
-                .ok()
-                .and_then(|e| e.to_str().ok())
-                .map(|s| s.trim().to_owned())
-                .filter(|s| !s.is_empty())
-        };
-        let laterality =
-            text(0x20, 0x62)
-                .or_else(|| text(0x20, 0x60))
-                .and_then(|value| match value.as_str() {
-                    "R" => Some("R"),
-                    "L" => Some("L"),
-                    "B" => Some("Both sides"),
-                    "U" => Some("Unpaired"),
-                    _ => None,
-                });
-        let view = text(0x18, 0x5101).filter(|value| {
-            value.len() <= 16
-                && value
-                    .chars()
-                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_' || c == ' ')
-        });
-        let orientation = text(0x20, 0x20).and_then(|value| {
-            crate::inspection::patient_orientation(&value.split('\\').collect::<Vec<_>>())
-        });
-        let labels = crate::inspection::ProjectionLabels {
-            laterality,
-            view,
-            orientation,
-        };
-        (!labels.is_empty()).then_some(labels)
     }
     pub fn supports_window(&self, index: usize, window: crate::WindowLevel) -> bool {
         let Some(entry) = self.frames.get(index) else {

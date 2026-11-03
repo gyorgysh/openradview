@@ -171,6 +171,7 @@ impl LabelUi {
         selected: usize,
         series: Option<Arc<Series>>,
         slice: Option<usize>,
+        demo_mask: Option<&'static [u8]>,
     ) {
         self.poll();
         if let Some(map) = &self.current {
@@ -193,7 +194,7 @@ impl LabelUi {
             }
             ui.separator();
             if self.supplied_active {
-                self.supplied.controls(ui, selected, series, ctx);
+                self.supplied.controls(ui, selected, series, demo_mask, ctx);
                 return;
             }
             ui.label("Draw or load your own labels. No model or anatomical inference is used.");

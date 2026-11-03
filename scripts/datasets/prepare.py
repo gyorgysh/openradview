@@ -26,6 +26,21 @@ ImagePositionPatient ImageOrientationPatient RescaleIntercept RescaleSlope
 RescaleType WindowCenter WindowWidth VOILUTFunction PixelPaddingValue
 PixelPaddingRangeLimit PixelAspectRatio NumberOfFrames SpacingBetweenSlices
 SliceThickness""".split()
+# IDC's anonymous public buckets; a series lives in exactly one of them.
+IDC_BUCKETS = {"idc-open-data", "idc-open-data-two"}
+# Opt-in per dataset, so archives prepared before these existed keep their hashes.
+EXTRA_FIELDS = {"ImageLaterality", "ViewPosition", "ViewCodeSequence", "PatientOrientation",
+                "SequenceOfUltrasoundRegions", "Units"}
+# Supplied mask objects keep their structural sequences whole: segment, frame and
+# source-reference groups. Patient, date, institution and creator tags are omitted.
+MASK_FIELDS = """SOPClassUID SOPInstanceUID StudyInstanceUID SeriesInstanceUID
+FrameOfReferenceUID Modality SeriesNumber InstanceNumber ImageType Rows Columns
+SamplesPerPixel PhotometricInterpretation BitsAllocated BitsStored HighBit
+PixelRepresentation LossyImageCompression NumberOfFrames SegmentationType
+SegmentationFractionalType MaximumFractionalValue SegmentsOverlap SegmentSequence
+DimensionOrganizationType DimensionOrganizationSequence DimensionIndexSequence
+SharedFunctionalGroupsSequence PerFrameFunctionalGroupsSequence
+ReferencedSeriesSequence PixelData""".split()
 
 
 def digest(data):
@@ -33,6 +48,12 @@ def digest(data):
 
 
 def download(dataset):
+    fetch_series(dataset, dataset["sources"])
+    if "mask" in dataset:
+        fetch_series(dataset["mask"], [dataset["mask"]["source"]])
+
+
+def fetch_series(dataset, sources):
     folder = ORIGINALS / dataset["id"]
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -41,7 +62,10 @@ def download(dataset):
         if path.exists() and digest(path.read_bytes()) == source["sha256"]:
             return
         # URLs are reviewed public IDC objects, with no credentials or study upload.
-        expected = "https://s3.amazonaws.com/idc-open-data/" + dataset["idc_series_uuid"] + "/"
+        bucket = dataset.get("aws_bucket", "idc-open-data")
+        if bucket not in IDC_BUCKETS:
+            raise ValueError("Source is outside the reviewed IDC buckets")
+        expected = f"https://s3.amazonaws.com/{bucket}/" + dataset["idc_series_uuid"] + "/"
         if not source["url"].startswith(expected) or Path(source["file"]).name != source["file"]:
             raise ValueError("Source is outside the reviewed IDC series")
         with urllib.request.urlopen(source["url"], timeout=60) as response:
@@ -51,7 +75,41 @@ def download(dataset):
         path.write_bytes(data)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(fetch, dataset["sources"]))
+        list(pool.map(fetch, sources))
+
+
+def clean_copy(original, fields):
+    import pydicom
+    clean = pydicom.dataset.Dataset()
+    for keyword in fields:
+        if keyword in original:
+            clean.add(copy.deepcopy(original.data_element(keyword)))
+    clean.file_meta = pydicom.dataset.FileMetaDataset()
+    clean.file_meta.TransferSyntaxUID = original.file_meta.TransferSyntaxUID
+    clean.file_meta.MediaStorageSOPClassUID = clean.SOPClassUID
+    clean.file_meta.MediaStorageSOPInstanceUID = clean.SOPInstanceUID
+    output = io.BytesIO()
+    clean.save_as(output, enforce_file_format=True)
+    saved = pydicom.dcmread(io.BytesIO(output.getvalue()))
+    assert bytes(saved.PixelData) == bytes(original.PixelData)
+    assert all(element.keyword in fields for element in saved)
+    return output.getvalue()
+
+
+def prepare_mask(mask):
+    import pydicom
+    source = mask["source"]
+    raw = (ORIGINALS / mask["id"] / source["file"]).read_bytes()
+    if digest(raw) != source["sha256"]:
+        raise ValueError("Original changed")
+    original = pydicom.dcmread(io.BytesIO(raw))
+    data = clean_copy(original, MASK_FIELDS)
+    path = ASSETS / (mask["id"] + ".dcm")
+    path.write_bytes(data)
+    mask["output_sha256"] = digest(data)
+    mask["output_bytes"] = len(data)
+    mask["pixel_sha256"] = digest(bytes(original.PixelData))
+    mask["changes"] = "Structural segmentation tag allowlist; segment, frame and source-reference sequences, pixels and UIDs unchanged. Patient, date, institution and creator tags omitted."
 
 
 def prepare(dataset):
@@ -64,20 +122,11 @@ def prepare(dataset):
         if digest(raw) != source["sha256"]:
             raise ValueError("Original changed")
         original = pydicom.dcmread(io.BytesIO(raw))
-        clean = pydicom.dataset.Dataset()
-        for keyword in FIELDS:
-            if keyword in original:
-                clean.add(copy.deepcopy(original.data_element(keyword)))
-        clean.file_meta = pydicom.dataset.FileMetaDataset()
-        clean.file_meta.TransferSyntaxUID = original.file_meta.TransferSyntaxUID
-        clean.file_meta.MediaStorageSOPClassUID = clean.SOPClassUID
-        clean.file_meta.MediaStorageSOPInstanceUID = clean.SOPInstanceUID
-        output = io.BytesIO()
-        clean.save_as(output, enforce_file_format=True)
-        saved = pydicom.dcmread(io.BytesIO(output.getvalue()))
-        assert bytes(saved.PixelData) == bytes(original.PixelData)
-        assert all(element.keyword in FIELDS for element in saved)
-        frames.append((int(original.InstanceNumber), source["url"], output.getvalue(),
+        extra = set(dataset.get("extra_fields", []))
+        if not extra <= EXTRA_FIELDS:
+            raise ValueError("Unreviewed extra field")
+        data = clean_copy(original, FIELDS + sorted(extra))
+        frames.append((int(original.InstanceNumber), source["url"], data,
                        digest(bytes(original.PixelData))))
     frames.sort(key=lambda frame: (frame[0], frame[1]))
     path = ASSETS / (dataset["id"] + ".zip")
@@ -91,6 +140,8 @@ def prepare(dataset):
     dataset["archive_bytes"] = path.stat().st_size
     dataset["pixel_sha256"] = [frame[3] for frame in frames]
     dataset["changes"] = "Display/geometry tag allowlist; source pixels, UIDs, dimensions and geometry unchanged; deterministic ZIP with generic filenames. No resampling, cropping or pixel redaction."
+    if "mask" in dataset:
+        prepare_mask(dataset["mask"])
 
 
 def main():
@@ -111,6 +162,10 @@ def main():
         archive = ASSETS / (dataset["id"] + ".zip")
         if digest(archive.read_bytes()) != dataset["archive_sha256"]:
             raise ValueError("Bundled demo failed integrity check: " + dataset["id"])
+        if "mask" in dataset:
+            mask = dataset["mask"]
+            if digest((ASSETS / (mask["id"] + ".dcm")).read_bytes()) != mask["output_sha256"]:
+                raise ValueError("Bundled mask failed integrity check: " + mask["id"])
         print(dataset["id"], dataset["frames"], "images;", dataset["archive_bytes"], "bytes; SHA-256 verified")
     if args.prepare:
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")

@@ -4,6 +4,8 @@ fn frame(position: [f64; 3], orientation: [f64; 6], size: [u32; 2]) -> Arc<Frame
     Arc::new(Frame {
         presentation: None,
         calibration: None,
+        projection: None,
+        sop: None,
         slab: None,
         scalar: None,
         validity: None,

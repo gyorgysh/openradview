@@ -33,15 +33,22 @@ fn mammograms_for_presentation_and_processing_open_as_2d_with_declared_labels() 
         let series = &study.series[0];
         assert_eq!(series.modality, "MG");
         let source = series.source.as_ref().unwrap();
-        let frame = source.materialize(|| false).unwrap().remove(0);
-        assert!(frame.geometry.is_none());
-        assert!(frame.monochrome1);
-        let labels = source.projection_labels(0).unwrap();
-        assert_eq!(labels.summary().as_deref(), Some("R · MLO"));
-        assert_eq!(
-            labels.edges().unwrap(),
-            ["P", "A", "HL", "FR"].map(String::from)
-        );
+        let indexed = source.materialize(|| false).unwrap().remove(0);
+        let eager = crate::load::decode(&fs::read(temp.0.join("right.dcm")).unwrap())
+            .unwrap()
+            .frames
+            .remove(0);
+        assert!(eager.sop.is_some() && indexed.sop.is_none());
+        for frame in [indexed, eager] {
+            assert!(frame.geometry.is_none());
+            assert!(frame.monochrome1);
+            let labels = frame.projection.as_ref().unwrap();
+            assert_eq!(labels.summary().as_deref(), Some("R · MLO"));
+            assert_eq!(
+                labels.edges().unwrap(),
+                ["P", "A", "HL", "FR"].map(String::from)
+            );
+        }
     }
 }
 
@@ -55,14 +62,13 @@ fn malformed_projection_labels_are_ignored_instead_of_guessed() {
         ["X", "mlo", "AA\\R"],
     );
     let study = index_paths(std::slice::from_ref(&temp.0), || false, |_| {}).unwrap();
-    assert_eq!(
-        study.series[0]
-            .source
-            .as_ref()
-            .unwrap()
-            .projection_labels(0),
-        None
-    );
+    let frames = study.series[0]
+        .source
+        .as_ref()
+        .unwrap()
+        .materialize(|| false)
+        .unwrap();
+    assert_eq!(frames[0].projection, None);
     for bad in [
         &["A"][..],
         &["A", "R", "F"],
@@ -76,4 +82,39 @@ fn malformed_projection_labels_are_ignored_instead_of_guessed() {
         crate::inspection::patient_orientation(&["L", "F"]),
         Some(["L".into(), "F".into()])
     );
+}
+
+#[test]
+fn coded_mammography_views_fill_in_for_a_missing_view_position() {
+    use dicom_core::{DataElement, DicomValue, Length};
+    for (code, expected) in [
+        ("399368009", Some("MLO")),
+        ("R-10242", Some("CC")),
+        ("12345", None),
+    ] {
+        let temp = Temp::new();
+        let path = temp.0.join("coded.dcm");
+        write_mammogram(&path, FOR_PRESENTATION, 3, ["L", "MLO", "A\\R"]);
+        let mut object = dicom_object::open_file(&path).unwrap();
+        object.remove_element(Tag(0x18, 0x5101));
+        object.put(DataElement::new(
+            Tag(0x54, 0x220),
+            VR::SQ,
+            DicomValue::new_sequence(
+                vec![dicom_object::InMemDicomObject::from_element_iter([
+                    DataElement::new(Tag(8, 0x100), VR::SH, code),
+                    DataElement::new(Tag(8, 0x102), VR::SH, "SCT"),
+                ])],
+                Length::UNDEFINED,
+            ),
+        ));
+        object.write_to_file(&path).unwrap();
+        let frame = crate::load::decode(&fs::read(&path).unwrap())
+            .unwrap()
+            .frames
+            .remove(0);
+        let labels = frame.projection.as_ref().unwrap();
+        assert_eq!(labels.view.as_deref(), expected, "{code}");
+        assert_eq!(labels.laterality, Some("L"));
+    }
 }

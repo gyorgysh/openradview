@@ -90,6 +90,8 @@ pub(super) fn decode(
         return Ok(Arc::new(Frame {
             presentation: header.presentation.clone(),
             calibration: header.calibration.clone(),
+            projection: header.projection.clone(),
+            sop: None,
             slab: None,
             scalar: None,
             validity: None,
@@ -138,6 +140,8 @@ pub(super) fn decode(
     Ok(Arc::new(Frame {
         presentation: header.presentation.clone(),
         calibration: header.calibration.clone(),
+        projection: header.projection.clone(),
+        sop: None,
         slab: None,
         scalar: Some(scalar),
         validity,
@@ -192,6 +196,8 @@ fn float(
     Ok(Arc::new(Frame {
         presentation: header.presentation.clone(),
         calibration: header.calibration.clone(),
+        projection: header.projection.clone(),
+        sop: None,
         slab: None,
         scalar: Some(scalar),
         validity,

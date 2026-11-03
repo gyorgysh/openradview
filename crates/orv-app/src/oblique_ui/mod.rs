@@ -249,7 +249,7 @@ impl ObliqueSession {
                 "OBLIQUE · RESEARCH ONLY"
             },
         );
-        crate::image_overlay::draw(ui, &response, &snapshot.image, &self.view, None);
+        crate::image_overlay::draw(ui, &response, &snapshot.image, &self.view);
         labels.prepare_planes(
             selected,
             &snapshot.volume,

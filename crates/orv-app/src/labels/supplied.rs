@@ -18,13 +18,18 @@ use std::sync::Arc;
 pub(super) struct Supplied {
     current: Option<Arc<Segments>>,
     series: usize,
-    worker: Option<Worker<Arc<Series>, Option<Arc<Segments>>>>,
+    worker: Option<Worker<Request, Option<Arc<Segments>>>>,
     pending: Option<(u64, usize)>,
     overlays: Overlays<Segments>,
     display: overlay::Display,
     visible: bool,
     opacity: f32,
     message: String,
+}
+/// A mask import: a file the user picks, or a mask embedded with a bundled demo.
+pub(super) struct Request {
+    series: Arc<Series>,
+    embedded: Option<&'static [u8]>,
 }
 impl Default for Supplied {
     fn default() -> Self {
@@ -84,7 +89,7 @@ impl Supplied {
             Err(error) => self.message = error,
         }
     }
-    fn start(&mut self, series: Arc<Series>, selected: usize, ctx: &egui::Context) {
+    fn start(&mut self, request: Request, selected: usize, ctx: &egui::Context) {
         if self.worker.is_none() {
             match Worker::start(ctx.clone(), "orv-supplied-mask-import", read) {
                 Ok(worker) => self.worker = Some(worker),
@@ -95,7 +100,7 @@ impl Supplied {
             }
         }
         if let Some(worker) = &self.worker {
-            self.pending = Some((worker.submit(series), selected));
+            self.pending = Some((worker.submit(request), selected));
             self.message.clear();
         }
     }
@@ -113,6 +118,7 @@ impl Supplied {
         ui: &mut egui::Ui,
         selected: usize,
         series: Option<Arc<Series>>,
+        demo_mask: Option<&'static [u8]>,
         ctx: &egui::Context,
     ) {
         ui.label("Inspect supplied masks on the selected DICOM series. No model is run.");
@@ -134,9 +140,32 @@ impl Supplied {
                         egui::Button::new("Load matching DICOM masks…"),
                     )
                     .clicked()
-                    && let Some(series) = series
+                    && let Some(series) = series.clone()
                 {
-                    self.start(series, selected, ctx);
+                    self.start(
+                        Request {
+                            series,
+                            embedded: None,
+                        },
+                        selected,
+                        ctx,
+                    );
+                }
+                if let Some(mask) = demo_mask
+                    && ui
+                        .add_enabled(series.is_some(), egui::Button::new("Load demo AI mask"))
+                        .on_hover_text("A DICOM SEG made by an AI model for this public example, included with the app. OpenRadView runs no model.")
+                        .clicked()
+                    && let Some(series) = series.clone()
+                {
+                    self.start(
+                        Request {
+                            series,
+                            embedded: Some(mask),
+                        },
+                        selected,
+                        ctx,
+                    );
                 }
                 if self.current.is_some() && ui.button("Remove masks").clicked() {
                     self.current = None;
@@ -307,9 +336,15 @@ impl Supplied {
     }
 }
 
-fn read(series: Arc<Series>, cancel: &dyn Fn() -> bool) -> Result<Option<Arc<Segments>>, String> {
+fn read(request: Request, cancel: &dyn Fn() -> bool) -> Result<Option<Arc<Segments>>, String> {
     if cancel() {
         return Ok(None);
+    }
+    let series = request.series;
+    if let Some(bytes) = request.embedded {
+        return orv_core::index::read_segmentation_bytes(bytes, &series, cancel)
+            .map(|masks| Some(Arc::new(masks)))
+            .map_err(|error| error.to_string());
     }
     let Some(path) = rfd::FileDialog::new()
         .set_title("Load masks for the selected DICOM source")

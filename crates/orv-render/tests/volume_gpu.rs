@@ -32,6 +32,8 @@ fn volume(constant: Option<f32>, monochrome1: bool) -> Arc<Volume> {
                     Arc::new(Frame {
                         presentation: None,
                         calibration: None,
+                        projection: None,
+                        sop: None,
                         slab: None,
                         scalar: None,
                         validity: None,
@@ -440,6 +442,8 @@ fn refined_steps_follow_voxel_speed_in_a_strongly_sheared_volume() {
             Arc::new(Frame {
                 presentation: None,
                 calibration: None,
+                projection: None,
+                sop: None,
                 slab: None,
                 scalar: None,
                 validity: None,

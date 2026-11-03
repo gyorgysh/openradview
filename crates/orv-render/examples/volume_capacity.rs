@@ -68,6 +68,8 @@ fn run(
         frames.push(Arc::new(Frame {
             presentation: None,
             calibration: None,
+            projection: None,
+            sop: None,
             slab: None,
             scalar: None,
             width: width as u32,

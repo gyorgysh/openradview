@@ -25,6 +25,8 @@ fn map(missing: &[usize]) -> Labels {
             Arc::new(Frame {
                 presentation: None,
                 calibration: None,
+                projection: None,
+                sop: None,
                 width: 5,
                 height: 4,
                 pixels: values.into(),

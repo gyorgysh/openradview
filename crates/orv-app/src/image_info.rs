@@ -21,7 +21,6 @@ pub struct ImageInfo {
     error: Option<&'static str>,
     channel: usize,
     logarithmic: bool,
-    projection: Option<inspection::ProjectionLabels>,
 }
 impl ImageInfo {
     pub fn is_open(&self) -> bool {
@@ -39,10 +38,6 @@ impl ImageInfo {
         ctx: egui::Context,
     ) {
         self.close();
-        self.projection = series
-            .source
-            .as_ref()
-            .and_then(|source| source.projection_labels(index));
         self.task = Some(worker::Task::start(image.clone(), series, ctx));
         self.image = Some(image);
         self.index = index;
@@ -137,7 +132,7 @@ impl ImageInfo {
         } else {
             ui.small("Physical orientation/spacing unavailable · source pixel grid only");
         }
-        if let Some(projection) = &self.projection {
+        if let Some(projection) = &image.projection {
             let mut parts: Vec<String> = projection.summary().into_iter().collect();
             if let Some([row, column]) = &projection.orientation {
                 parts.push(format!("patient orientation {row} \\ {column}"));

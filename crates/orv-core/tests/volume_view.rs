@@ -16,6 +16,8 @@ fn volume() -> Volume {
                 Arc::new(Frame {
                     presentation: None,
                     calibration: None,
+                    projection: None,
+                    sop: None,
                     slab: None,
                     scalar: None,
                     validity: None,

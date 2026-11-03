@@ -78,6 +78,19 @@ pub struct Frame {
     /// Supplied ultrasound region calibration of the source pixel grid. Never set
     /// on reformats, projections or derived frames.
     pub calibration: Option<Arc<crate::calibration::Calibration>>,
+    /// Declared laterality, view and patient orientation of a 2D source image.
+    pub projection: Option<Arc<crate::inspection::ProjectionLabels>>,
+    /// The source object of a frame decoded in memory, for explicit mask
+    /// association. Indexed frames keep this in their private headers instead.
+    pub sop: Option<Arc<SopReference>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SopReference {
+    pub class: String,
+    pub instance: String,
+    /// Frames in the source object; a single-frame object may omit frame numbers.
+    pub frames: u32,
 }
 
 impl Frame {
@@ -373,6 +386,8 @@ pub fn demo_study() -> Study {
         frames.push(Arc::new(Frame {
             presentation: None,
             calibration: None,
+            projection: None,
+            sop: None,
             slab: None,
             scalar: None,
             validity: None,
