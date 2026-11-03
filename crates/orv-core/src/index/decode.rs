@@ -88,6 +88,7 @@ pub(super) fn decode(
         let presentation =
             crate::dicom_color::present(&object, decoded.as_ref(), color, 0, padding, cancelled)?;
         return Ok(Arc::new(Frame {
+            presentation: header.presentation.clone(),
             slab: None,
             scalar: None,
             validity: None,
@@ -134,6 +135,7 @@ pub(super) fn decode(
         .original()
         .unwrap_or_else(|| crate::dicom_padding::automatic_window(&pixels, validity.as_deref()));
     Ok(Arc::new(Frame {
+        presentation: header.presentation.clone(),
         slab: None,
         scalar: Some(scalar),
         validity,
@@ -186,6 +188,7 @@ fn float(
         .original()
         .unwrap_or_else(|| crate::dicom_padding::automatic_window(&pixels, validity.as_deref()));
     Ok(Arc::new(Frame {
+        presentation: header.presentation.clone(),
         slab: None,
         scalar: Some(scalar),
         validity,
@@ -215,10 +218,12 @@ fn frame_object(
         source
             .iter()
             .filter(|element| {
+                // Overlay bitmaps are parsed once into Header layers.
                 !matches!(
                     element.header().tag,
                     Tag(0x5200, 0x9229 | 0x9230) | Tag(0x0028, 0x3000 | 0x3010)
-                )
+                ) && !(element.header().tag.group() & 0xffe1 == 0x6000
+                    && element.header().tag.element() == 0x3000)
             })
             .cloned(),
     )

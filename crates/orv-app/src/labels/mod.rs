@@ -9,6 +9,7 @@ pub(crate) use illustration::{CapturedMasks, MaskDescription};
 mod overlay;
 mod regions;
 mod supplied;
+pub(crate) use canvas::overlay_mesh;
 pub(crate) use overlay::OverlayView;
 #[cfg(test)]
 mod tests;

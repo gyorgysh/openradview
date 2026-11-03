@@ -72,6 +72,9 @@ pub struct Frame {
     pub frame_index: u32,
     pub monochrome1: bool,
     pub default_window: WindowLevel,
+    /// Supplied overlay and shutter layers of the source object. Display-only and
+    /// never set on reformats, projections or derived frames.
+    pub presentation: Option<Arc<crate::presentation::Layers>>,
 }
 
 impl Frame {
@@ -365,6 +368,7 @@ pub fn demo_study() -> Study {
             }
         }
         frames.push(Arc::new(Frame {
+            presentation: None,
             slab: None,
             scalar: None,
             validity: None,

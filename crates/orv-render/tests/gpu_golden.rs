@@ -269,6 +269,7 @@ fn production_snapshot_png_matches_pixels_manifest_and_cancellation() {
     use orv_render::snapshot::{SnapshotManifest, SnapshotRenderer};
     use sha2::{Digest, Sha256};
     let frame = Frame {
+        presentation: None,
         slab: None,
         scalar: None,
         validity: None,
@@ -344,6 +345,7 @@ fn offscreen_scalar_golden_including_inversion() {
         pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))
             .unwrap();
     let frame = Frame {
+        presentation: None,
         slab: None,
         scalar: None,
         validity: None,
@@ -492,6 +494,7 @@ fn color_snapshot_png_manifest_and_pan_match_the_same_renderer() {
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 128, 64, 32, 255,
     ];
     let frame = Frame {
+        presentation: None,
         slab: None,
         scalar: None,
         validity: None,
@@ -555,6 +558,7 @@ fn color_interpolation_is_linear_light_and_missing_pixels_keep_the_background() 
     use orv_core::scene::SceneState;
     use orv_render::snapshot::SnapshotRenderer;
     let mut frame = Frame {
+        presentation: None,
         slab: None,
         scalar: None,
         validity: None,
@@ -996,6 +1000,7 @@ fn interactive_windows_spanning_extreme_finite_values_keep_their_scale_on_the_gp
         pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))
             .unwrap();
     let frame = Frame {
+        presentation: None,
         slab: None,
         scalar: None,
         validity: None,

@@ -104,7 +104,7 @@ impl LabelUi {
     }
 }
 
-pub(super) fn overlay_mesh(
+pub(crate) fn overlay_mesh(
     rect: egui::Rect,
     image: &Frame,
     view: &ViewState,

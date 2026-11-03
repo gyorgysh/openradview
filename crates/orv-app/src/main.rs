@@ -39,6 +39,7 @@ mod series_browser;
 mod sharing;
 mod single_view;
 mod slab_controls;
+mod source_layers;
 mod startup;
 mod theme;
 mod toolbar;

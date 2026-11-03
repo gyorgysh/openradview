@@ -51,6 +51,7 @@ fn run(cpu_only: bool, depth: usize) -> Result<serde_json::Value, Box<dyn Error>
         values.try_reserve_exact(1024 * 768)?;
         values.extend((0..1024 * 768).map(|index| z as f32 + (index % 1024) as f32 * 0.001));
         frames.push(Arc::new(Frame {
+            presentation: None,
             slab: None,
             scalar: None,
             width: 1024,
