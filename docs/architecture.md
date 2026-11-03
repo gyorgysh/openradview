@@ -428,8 +428,10 @@ unchanged. The source-to-viewport map is shared by probes, measurements, label
 meshes/brush footprints and overlays; the slice shader applies its inverse.
 Transforms participate in scene serialization/hashes and exact-view consent.
 Volume projections use their camera orientation and reject 2D transforms.
-Scalar slabs sample bounded discrete extrema along an explicit physical plane
-normal, excluding missing samples before display mapping. CPU workers publish a
+Scalar slabs sample bounded discrete extrema or a mean along an explicit physical
+plane normal, excluding missing samples before display mapping. The mean sums at
+most 257 finite samples in f64 and divides by the valid count. Slab hashes keep
+their original projection bytes and give the mean a new one. CPU workers publish a
 small coherent preview, then refine once input is quiet. Projection parameters
 and the sampling grid travel through scenes/snapshots; public image metadata does
 not label them as measurement geometry. Measurements refuse projected frames.

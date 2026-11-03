@@ -341,9 +341,12 @@ fn hash_validity(
 fn hash_scalar(frame: &Frame, digest: &mut Sha256) {
     if let Some(slab) = frame.slab {
         digest.update(b"OpenRadView slab extrema v1\0");
-        digest.update([u8::from(
-            slab.projection == crate::slab::SlabProjection::Minimum,
-        )]);
+        // Maximum 0 and minimum 1 keep their original bytes.
+        digest.update([match slab.projection {
+            crate::slab::SlabProjection::Maximum => 0u8,
+            crate::slab::SlabProjection::Minimum => 1,
+            crate::slab::SlabProjection::Mean => 2,
+        }]);
         digest.update(slab.thickness_mm.to_le_bytes());
         digest.update(slab.intervals.to_le_bytes());
     }
