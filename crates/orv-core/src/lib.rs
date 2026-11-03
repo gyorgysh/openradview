@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! UI-independent image/view domain. No network access or implicit persistence.
 pub mod acquisition;
+pub mod bricks;
 pub mod color;
 pub mod curved;
 mod dicom_codec;
