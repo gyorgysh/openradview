@@ -25,6 +25,9 @@ pub(super) fn decode(
     if let super::header::Format::Nifti(nifti) = &header.format {
         return nifti.decode(source, header, frame, state, cancelled);
     }
+    if header.pixel_vr == VR::OF {
+        return float(source, header, frame, state, cancelled);
+    }
     let object = if header.native {
         native::object(source, header, frame, state, cancelled)?
     } else if header.pixel_length.is_none() {
@@ -144,6 +147,53 @@ pub(super) fn decode(
         instance: header.instance,
         frame_index: frame,
         monochrome1: crate::load::text(&object, "PhotometricInterpretation").as_deref()
+            == Some("MONOCHROME1"),
+        default_window: window,
+    }))
+}
+
+fn float(
+    source: &Source,
+    header: &Header,
+    frame: u32,
+    state: &mut ReadState,
+    cancelled: &impl Fn() -> bool,
+) -> Result<Arc<Frame>, LoadError> {
+    let object = header.dicom()?;
+    let length = u64::from(header.width) * u64::from(header.height) * 4;
+    let offset = length
+        .checked_mul(u64::from(frame))
+        .and_then(|start| header.offset.checked_add(start))
+        .ok_or(LoadError::Limit)?;
+    let bytes = source.range(offset, length as usize, state, cancelled)?;
+    let (pixels, validity) =
+        crate::dicom_float::from_bytes(&bytes, header.big_endian, header.float_padding, cancelled)?;
+    if pixels.len() as u64 != u64::from(header.width) * u64::from(header.height) {
+        return Err(LoadError::Unsupported);
+    }
+    let scalar = header
+        .scalar
+        .get(frame)
+        .cloned()
+        .ok_or(LoadError::Unsupported)?;
+    let window = scalar
+        .choices()
+        .original()
+        .unwrap_or_else(|| crate::dicom_padding::automatic_window(&pixels, validity.as_deref()));
+    Ok(Arc::new(Frame {
+        slab: None,
+        scalar: Some(scalar),
+        validity,
+        color: None,
+        nifti: None,
+        rgba: None,
+        width: header.width,
+        height: header.height,
+        pixels: pixels.into(),
+        geometry: header.geometry_for(frame).cloned(),
+        instance: header.instance,
+        frame_index: frame,
+        monochrome1: crate::load::text(object, "PhotometricInterpretation").as_deref()
             == Some("MONOCHROME1"),
         default_window: window,
     }))

@@ -183,7 +183,8 @@ pub fn window(
                 egui::DragValue::new(&mut window.width)
                     .clamp_existing_to_range(false)
                     .range(minimum..=100_000.0)
-                    .speed(2.0),
+                    .speed(2.0)
+                    .custom_formatter(window_number),
             )
             .on_hover_text("Contrast range (window width)");
             crate::toolbar::number(
@@ -192,7 +193,8 @@ pub fn window(
                 egui::DragValue::new(&mut window.center)
                     .clamp_existing_to_range(false)
                     .range(-1_000_000.0..=1_000_000.0)
-                    .speed(1.0),
+                    .speed(1.0)
+                    .custom_formatter(window_number),
             )
             .on_hover_text("Brightness centre (window level)");
         }
@@ -203,6 +205,15 @@ pub fn window(
             *invert = false;
         }
     });
+}
+/// Float sources can produce windows far outside typical integer ranges. Show
+/// those compactly instead of widening the toolbar with dozens of digits.
+fn window_number(value: f64, decimals: std::ops::RangeInclusive<usize>) -> String {
+    if value.abs() >= 1_000_000. {
+        format!("{value:.4e}")
+    } else {
+        egui::emath::format_with_decimals_in_range(value, decimals)
+    }
 }
 pub fn window_function(ui: &mut egui::Ui, window: &mut WindowLevel) {
     use orv_core::VoiFunction;

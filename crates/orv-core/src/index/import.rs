@@ -70,8 +70,15 @@ impl Builder {
             if header.dicom().is_ok() && !length.is_multiple_of(2) {
                 return Err(LoadError::Unsupported);
             }
+            // The bounded prefix stops at Float Pixel Data, so a later integer
+            // Pixel Data element would go unseen. Require the float payload to
+            // end the object instead of guessing which element is the image.
+            let float = header.pixel_vr == dicom_core::VR::OF;
             if expected > length
                 || length - expected > 1
+                || (float
+                    && (length != expected
+                        || header.offset.checked_add(length) != Some(source.length)))
                 || header
                     .offset
                     .checked_add(length)

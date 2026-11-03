@@ -27,7 +27,9 @@ pub(super) struct Header {
     pub format: Format,
     pub offset: u64,
     pub pixel_length: Option<u64>,
+    /// OF identifies native Float Pixel Data.
     pub pixel_vr: dicom_core::VR,
+    pub float_padding: Option<crate::dicom_float::Padding>,
     pub width: u32,
     pub height: u32,
     pub frames: u32,
@@ -266,6 +268,15 @@ pub(super) fn read_prefix_with_syntax(
             {
                 break (header.len.get().map(u64::from), before as usize, header.vr);
             }
+            // Float Pixel Data uses its own OF element. Double Float Pixel Data
+            // stays refused until a retained double representation is designed.
+            DataToken::ElementHeader(header)
+                if scopes.depth() == 0
+                    && header.tag == crate::dicom_float::FLOAT
+                    && header.vr == dicom_core::VR::OF =>
+            {
+                break (header.len.get().map(u64::from), before as usize, header.vr);
+            }
             DataToken::ElementHeader(header)
                 if scopes.depth() == 0 && matches!(header.tag, Tag(0x7fe0, 0x0008 | 0x0009)) =>
             {
@@ -323,7 +334,11 @@ pub(super) fn read_prefix_with_syntax(
         .with_exact_meta(meta)
     } else {
         OpenFileOptions::new()
-            .read_until(Tag(0x7fe0, 0x0010))
+            .read_until(if pixel_vr == dicom_core::VR::OF {
+                crate::dicom_float::FLOAT
+            } else {
+                Tag(0x7fe0, 0x0010)
+            })
             .from_reader(Cursor::new(&prefix))
             .map_err(|_| LoadError::Unsupported)?
     };
@@ -371,6 +386,11 @@ fn read_header_inner(
         return Err(LoadError::Limit);
     }
     let bits = crate::load::integer(&object, "BitsAllocated").ok_or(LoadError::Unsupported)?;
+    let float = pixel_vr == dicom_core::VR::OF;
+    let float_padding = float
+        .then(|| crate::dicom_float::validate(&object))
+        .transpose()?
+        .flatten();
     let native_syntax = matches!(
         syntax.as_str(),
         "1.2.840.10008.1.2"
@@ -378,7 +398,11 @@ fn read_header_inner(
             | "1.2.840.10008.1.2.2"
             | "1.2.840.10008.1.2.1.99"
     );
+    if float && (!native_syntax || pixel_length.is_none()) {
+        return Err(LoadError::Unsupported);
+    }
     if native_syntax
+        && !float
         && (!matches!(pixel_vr, dicom_core::VR::OB | dicom_core::VR::OW)
             || (bits > 8 && pixel_vr != dicom_core::VR::OW))
     {
@@ -398,7 +422,7 @@ fn read_header_inner(
     let uid =
         crate::load::identifier(&object, "SeriesInstanceUID")?.ok_or(LoadError::Unsupported)?;
     let spatial = crate::dicom_geometry::read(&object, frames as u32, &cancelled)?;
-    let scalar = crate::dicom_voi::read(&object, frames as u32, &cancelled)?;
+    let scalar = crate::dicom_voi::read(&object, frames as u32, float, &cancelled)?;
     let modality = match crate::load::text(&object, "Modality").as_deref() {
         Some("CT") => "CT",
         Some("MR") => "MR",
@@ -421,6 +445,7 @@ fn read_header_inner(
         offset: pixel_offset,
         pixel_length,
         pixel_vr,
+        float_padding,
         width: width as u32,
         height: height as u32,
         frames: frames as u32,

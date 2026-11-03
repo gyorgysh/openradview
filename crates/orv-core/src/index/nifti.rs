@@ -176,6 +176,7 @@ pub(super) fn read_headers(
             let scalar = ScalarData::new(info, choices).map_err(|_| LoadError::Unsupported)?;
             headers.push(Header {
                 pixel_vr: dicom_core::VR::UN,
+                float_padding: None,
                 format: Format::Nifti(Nifti {
                     datatype,
                     slope,

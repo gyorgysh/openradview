@@ -123,6 +123,14 @@ pub(crate) fn decode_with_metadata(
     {
         return Err(LoadError::Limit);
     }
+    let float = obj.element(crate::dicom_float::FLOAT).is_ok();
+    let float_padding = if float {
+        crate::dicom_float::validate(&obj)?
+    } else if obj.element(crate::dicom_float::DOUBLE).is_ok() {
+        return Err(LoadError::Unsupported);
+    } else {
+        None
+    };
     let color = crate::dicom_color::layout(&obj)?;
     let padding = crate::dicom_padding::Padding::read(&obj)?;
     if color.is_some() && samples * 3 > MAX_SAMPLES {
@@ -130,8 +138,8 @@ pub(crate) fn decode_with_metadata(
     }
     let photometric = text(&obj, "PhotometricInterpretation").ok_or(LoadError::Unsupported)?;
     crate::dicom_codec::validate(&obj)?;
-    let grayscale = crate::dicom_voi::read(&obj, count as u32, cancelled)?;
-    let decoded = if color == Some(crate::dicom_color::Color::PackedYbr) {
+    let grayscale = crate::dicom_voi::read(&obj, count as u32, float, cancelled)?;
+    let decoded = if float || color == Some(crate::dicom_color::Color::PackedYbr) {
         None
     } else {
         Some(
@@ -178,7 +186,14 @@ pub(crate) fn decode_with_metadata(
             return Err(LoadError::Cancelled);
         }
         let size = (width * height) as usize;
-        let pixels: Vec<f32> = if color.is_none() {
+        let mut float_frame = float
+            .then(|| {
+                crate::dicom_float::from_object(&obj, frame_index, size, float_padding, cancelled)
+            })
+            .transpose()?;
+        let pixels: Vec<f32> = if let Some((pixels, _)) = float_frame.as_mut() {
+            std::mem::take(pixels)
+        } else if color.is_none() {
             let scalar = grayscale
                 .get(frame_index as u32)
                 .ok_or(LoadError::Unsupported)?;
@@ -197,7 +212,9 @@ pub(crate) fn decode_with_metadata(
         } else {
             Vec::new()
         };
-        let validity = if color.is_none() {
+        let validity = if let Some((_, validity)) = float_frame {
+            validity
+        } else if color.is_none() {
             crate::dicom_voi::mask(
                 &obj,
                 decoded.as_ref().ok_or(LoadError::Unsupported)?,

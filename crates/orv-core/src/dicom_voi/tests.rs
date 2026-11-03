@@ -146,12 +146,15 @@ fn malformed_unknown_or_inexact_presentation_is_explicitly_refused() {
             }
         }
         assert!(
-            matches!(read(&object, 1, &|| false), Err(LoadError::Unsupported)),
+            matches!(
+                read(&object, 1, false, &|| false),
+                Err(LoadError::Unsupported)
+            ),
             "variant {variant}"
         );
     }
     assert!(matches!(
-        read(&object(), 1, &|| true),
+        read(&object(), 1, false, &|| true),
         Err(LoadError::Cancelled)
     ));
 }
@@ -170,7 +173,7 @@ fn shared_and_per_frame_voi_macros_cannot_override_each_other() {
         SHARED,
         vec![Object::from_element_iter([voi.clone()])],
     ));
-    let shared = read(&object, 1, &|| false).unwrap();
+    let shared = read(&object, 1, false, &|| false).unwrap();
     assert_eq!(
         shared
             .get(0)
@@ -183,7 +186,7 @@ fn shared_and_per_frame_voi_macros_cannot_override_each_other() {
     );
     object.put(sequence(PER_FRAME, vec![Object::from_element_iter([voi])]));
     assert!(matches!(
-        read(&object, 1, &|| false),
+        read(&object, 1, false, &|| false),
         Err(LoadError::Unsupported)
     ));
 }
@@ -194,7 +197,7 @@ fn units_require_declarations_and_conflicts_are_not_silently_relabelled() {
     object.put_str(Tag(0x0008, 0x0060), VR::CS, "CT");
     object.remove_element(Tag(0x0028, 0x1054));
     assert_eq!(
-        read(&object, 1, &|| false)
+        read(&object, 1, false, &|| false)
             .unwrap()
             .get(0)
             .unwrap()
@@ -206,14 +209,14 @@ fn units_require_declarations_and_conflicts_are_not_silently_relabelled() {
     for other in ["BQML", "GML"] {
         object.put_str(Tag(0x0054, 0x1001), VR::CS, other);
         assert!(matches!(
-            read(&object, 1, &|| false),
+            read(&object, 1, false, &|| false),
             Err(LoadError::Unsupported)
         ));
     }
     object.put_str(Tag(0x0028, 0x1054), VR::LO, "US");
     object.put_str(Tag(0x0054, 0x1001), VR::CS, "BQML");
     assert_eq!(
-        read(&object, 1, &|| false)
+        read(&object, 1, false, &|| false)
             .unwrap()
             .get(0)
             .unwrap()
@@ -257,7 +260,7 @@ fn implicit_lut_descriptor_signedness_follows_each_frames_rescaled_domain() {
         )])
     });
     object.put(sequence(PER_FRAME, frames.into()));
-    let data = read(&object, 2, &|| false).unwrap();
+    let data = read(&object, 2, false, &|| false).unwrap();
     let a = data.get(0).unwrap();
     let b = data.get(1).unwrap();
     assert_eq!(a.choices().luts()[0].first(), 65534);
@@ -306,7 +309,7 @@ fn full_size_tables_deduplicate_and_unique_metadata_is_bounded_during_parsing() 
         })
         .collect();
     object.put(sequence(PER_FRAME, groups));
-    let data = read(&object, 80, &|| false).unwrap();
+    let data = read(&object, 80, false, &|| false).unwrap();
     assert!(data.metadata_bytes < 140_000);
     assert!(
         data.frames
@@ -328,7 +331,7 @@ fn full_size_tables_deduplicate_and_unique_metadata_is_bounded_during_parsing() 
         .collect();
     object.put(sequence(PER_FRAME, groups));
     assert!(matches!(
-        read(&object, 80, &|| false),
+        read(&object, 80, false, &|| false),
         Err(LoadError::Limit)
     ));
 }

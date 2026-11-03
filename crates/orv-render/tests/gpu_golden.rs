@@ -915,3 +915,198 @@ fn applied_modality_tables_keep_known_pixels_voi_padding_and_snapshot_identity_o
         }
     }
 }
+#[test]
+fn float_pixels_keep_extreme_finite_values_fractional_windows_and_missing_samples_on_the_gpu() {
+    use orv_core::{
+        VoiFunction,
+        scalar::{ScalarData, ScalarInfo, Storage, Unit, ValueType, VoiChoices},
+        scene::SceneState,
+    };
+    use orv_render::snapshot::SnapshotRenderer;
+    use std::sync::Arc;
+    let mut renderer = pollster::block_on(SnapshotRenderer::new()).expect("Real GPU required");
+    let scalar = ScalarData::new(
+        ScalarInfo {
+            modality_lut: None,
+            value_type: ValueType::F32,
+            storage: Storage::Float,
+            stored_bits: 32,
+            unit: Unit::Unknown,
+            rescale: None,
+            resampled: false,
+        },
+        VoiChoices::new(vec![], vec![]).unwrap(),
+    )
+    .unwrap();
+    let mut frame = (*orv_core::study::demo_study().series[0].frames[0]).clone();
+    frame.width = 5;
+    frame.height = 1;
+    frame.geometry = None;
+    frame.scalar = Some(scalar.clone());
+    frame.rgba = None;
+    frame.color = None;
+    frame.monochrome1 = false;
+    // The fourth sample stands for a padding or nonfinite source value.
+    frame.pixels = Arc::from([-1e30f32, -0.5, 0.5, 0., 3e38]);
+    frame.validity = Some(Arc::from([1, 1, 1, 0, 1]));
+    // LINEAR_EXACT: ((x - c) / w + 0.5) * 255 for a width-2 window at 0.
+    let window = WindowLevel {
+        width: 2.,
+        center: 0.,
+        function: VoiFunction::LinearExact,
+    };
+    let scene = SceneState {
+        schema_version: 1,
+        source_sha256: "0".repeat(64),
+        series_index: 0,
+        view: ViewState {
+            window,
+            ..Default::default()
+        },
+        crosshair_mm: None,
+        reformat_side: 2,
+        output_size: [5, 1],
+        reconstruction: None,
+    };
+    let result = renderer.capture(&frame, &scene, || false).unwrap();
+    let png = image::load_from_memory(&result.png).unwrap().to_rgba8();
+    for (index, (pixel, expected)) in png.pixels().zip([0u8, 64, 191, 10, 255]).enumerate() {
+        assert!(
+            pixel.0[..3].iter().all(|v| v.abs_diff(expected) <= 1),
+            "{index}: {pixel:?} vs{expected}"
+        );
+    }
+    let info = result.manifest.image.unwrap().scalar.unwrap();
+    assert_eq!((info.storage, info.stored_bits), (Storage::Float, 32));
+}
+#[test]
+fn interactive_windows_spanning_extreme_finite_values_keep_their_scale_on_the_gpu() {
+    use orv_core::VoiFunction;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: orv_render::configured_backends().expect("Native backend selection"),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+        .expect("GPU test requires a real adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))
+            .unwrap();
+    let frame = Frame {
+        slab: None,
+        scalar: None,
+        validity: None,
+        color: None,
+        nifti: None,
+        rgba: None,
+        width: 4,
+        height: 1,
+        pixels: vec![-1e30, 0., 1.5e38, 3e38].into(),
+        geometry: None,
+        instance: 1,
+        frame_index: 0,
+        monochrome1: false,
+        default_window: WindowLevel::source_range(-1e30, 3e38),
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut engine = SliceRenderer::new(&device, format);
+    engine.upload(&device, &queue, &frame).unwrap();
+    // 1/width is subnormal in f32 here and may be flushed to zero on the GPU,
+    // which would turn every value into mid-gray. Expected levels come from
+    // the analytic definitions with width 3e38 and centre 1.5e38.
+    for (function, expected) in [
+        (VoiFunction::LinearExact, [0u8, 0, 128, 255]),
+        (VoiFunction::Linear, [0, 0, 128, 255]),
+        (VoiFunction::Sigmoid, [30, 30, 128, 225]),
+    ] {
+        let view = ViewState {
+            window: WindowLevel {
+                width: 3e38,
+                center: 1.5e38,
+                function,
+            },
+            ..Default::default()
+        };
+        engine.set_view(&queue, &frame, &view, 4.0).unwrap();
+        let size = wgpu::Extent3d {
+            width: 4,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("extreme window target"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let target_view = target.create_view(&Default::default());
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("extreme window readback"),
+            size: 256,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("extreme window pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            engine.paint(&mut pass);
+        }
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(256),
+                    rows_per_image: Some(1),
+                },
+            },
+            size,
+        );
+        queue.submit([encoder.finish()]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer.map_async(wgpu::MapMode::Read, .., move |r| tx.send(r).unwrap());
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(10)),
+            })
+            .unwrap();
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap()
+            .unwrap();
+        let mapped = buffer.get_mapped_range(..).unwrap();
+        for (index, expected) in expected.into_iter().enumerate() {
+            let channel = mapped[index * 4];
+            assert!(
+                channel.abs_diff(expected) <= 1,
+                "{function:?} pixel {index}: {channel} vs {expected}"
+            );
+        }
+        drop(mapped);
+        buffer.unmap();
+    }
+}

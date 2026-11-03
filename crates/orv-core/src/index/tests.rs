@@ -14,6 +14,7 @@ mod color;
 mod dicom_axes;
 mod dicomdir;
 mod enhanced;
+mod float;
 mod formats;
 mod import_report;
 mod large;

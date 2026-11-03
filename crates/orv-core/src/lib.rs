@@ -4,6 +4,7 @@ pub mod acquisition;
 pub mod color;
 mod dicom_codec;
 mod dicom_color;
+mod dicom_float;
 mod dicom_geometry;
 mod dicom_modality;
 mod dicom_padding;
