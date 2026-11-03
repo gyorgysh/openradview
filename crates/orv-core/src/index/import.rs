@@ -56,16 +56,20 @@ impl Builder {
             return Err(LoadError::Limit);
         }
         if header.native {
-            let expected = u64::from(header.width)
+            let expected_bits = u64::from(header.width)
                 * u64::from(header.height)
-                * u64::from(header.bits / 8)
+                * u64::from(header.bits)
                 * u64::from(header.frames)
                 * if let Ok(object) = header.dicom() {
                     crate::dicom_color::native_samples(object)?
                 } else {
                     1
                 };
+            let expected = expected_bits.div_ceil(8);
             let length = header.pixel_length.ok_or(LoadError::Unsupported)?;
+            if header.dicom().is_ok() && !length.is_multiple_of(2) {
+                return Err(LoadError::Unsupported);
+            }
             if expected > length
                 || length - expected > 1
                 || header

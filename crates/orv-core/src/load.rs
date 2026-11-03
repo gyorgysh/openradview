@@ -92,7 +92,17 @@ pub(crate) fn integer(obj: &DefaultDicomObject, name: &str) -> Option<u64> {
     obj.element_by_name(name).ok()?.to_int::<u64>().ok()
 }
 
+#[cfg(test)]
 pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
+    decode_with_metadata(bytes, &|| false).map(|(series, _)| series)
+}
+pub(crate) fn decode_with_metadata(
+    bytes: &[u8],
+    cancelled: &impl Fn() -> bool,
+) -> Result<(Series, u64), LoadError> {
+    if cancelled() {
+        return Err(LoadError::Cancelled);
+    }
     if bytes.len() as u64 > MAX_FILE {
         return Err(LoadError::Limit);
     }
@@ -119,12 +129,8 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
         return Err(LoadError::Limit);
     }
     let photometric = text(&obj, "PhotometricInterpretation").ok_or(LoadError::Unsupported)?;
-    // Avoid silently treating unsupported nonlinear modality LUTs as affine rescale.
-    if obj.element_by_name("ModalityLUTSequence").is_ok() {
-        return Err(LoadError::Unsupported);
-    }
     crate::dicom_codec::validate(&obj)?;
-    let grayscale = crate::dicom_voi::read(&obj, count as u32, &|| false)?;
+    let grayscale = crate::dicom_voi::read(&obj, count as u32, cancelled)?;
     let decoded = if color == Some(crate::dicom_color::Color::PackedYbr) {
         None
     } else {
@@ -160,7 +166,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
         series_uid,
         reference.as_deref().unwrap_or_default()
     );
-    let spatial = crate::dicom_geometry::read(&obj, count as u32, &|| false)?;
+    let spatial = crate::dicom_geometry::read(&obj, count as u32, cancelled)?;
     let acquisition = spatial.uniform_acquisition();
     let uniform_spatial = spatial.uniform();
     let key = acquisition.map_or(key.clone(), |hash| {
@@ -168,19 +174,22 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
     });
     let mut frames = Vec::with_capacity(count as usize);
     for frame_index in 0..count as usize {
+        if cancelled() {
+            return Err(LoadError::Cancelled);
+        }
         let size = (width * height) as usize;
         let pixels: Vec<f32> = if color.is_none() {
             let scalar = grayscale
                 .get(frame_index as u32)
                 .ok_or(LoadError::Unsupported)?;
-            let pixels = decoded
-                .as_ref()
-                .ok_or(LoadError::Unsupported)?
-                .to_vec_frame_with_options(
-                    frame_index as u32,
-                    &crate::dicom_voi::conversion(scalar),
-                )
-                .map_err(|_| LoadError::Unsupported)?;
+            let pixels = crate::dicom_voi::pixels(
+                &obj,
+                decoded.as_ref().ok_or(LoadError::Unsupported)?,
+                frame_index as u32,
+                frame_index as u32,
+                scalar,
+                cancelled,
+            )?;
             if pixels.len() != size || pixels.iter().any(|v: &f32| !v.is_finite()) {
                 return Err(LoadError::Unsupported);
             }
@@ -189,16 +198,17 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
             Vec::new()
         };
         let validity = if color.is_none() {
-            padding
-                .map(|p| {
-                    p.mask(
-                        decoded.as_ref().ok_or(LoadError::Unsupported)?,
-                        frame_index as u32,
-                        &|| false,
-                    )
-                })
-                .transpose()?
-                .flatten()
+            crate::dicom_voi::mask(
+                &obj,
+                decoded.as_ref().ok_or(LoadError::Unsupported)?,
+                frame_index as u32,
+                frame_index as u32,
+                grayscale
+                    .get(frame_index as u32)
+                    .ok_or(LoadError::Unsupported)?,
+                padding,
+                cancelled,
+            )?
         } else {
             None
         };
@@ -210,7 +220,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
                     mode,
                     frame_index as u32,
                     padding,
-                    &|| false,
+                    cancelled,
                 )
             })
             .transpose()?;
@@ -247,16 +257,22 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Series, LoadError> {
             default_window,
         }));
     }
-    Ok(Series {
-        acquisition,
-        part: 0,
-        volume: Default::default(),
-        key,
-        source: None,
-        modality,
-        number: series_number,
-        frames,
-    })
+    if cancelled() {
+        return Err(LoadError::Cancelled);
+    }
+    Ok((
+        Series {
+            acquisition,
+            part: 0,
+            volume: Default::default(),
+            key,
+            source: None,
+            modality,
+            number: series_number,
+            frames,
+        },
+        grayscale.metadata_bytes,
+    ))
 }
 
 pub(crate) fn collect(
@@ -358,21 +374,30 @@ impl<F: FnMut(usize)> Import<'_, F> {
         if self.processed > MAX_ENTRIES {
             return Err(LoadError::Limit);
         }
-        match decode(bytes) {
-            Ok(Series {
-                key,
-                modality,
-                number,
-                frames,
-                source: _,
-                volume: _,
-                acquisition,
-                part: _,
-            }) => {
-                self.bytes += frames.iter().map(|f| f.byte_len()).sum::<u64>();
-                if self.bytes > MAX_STUDY_BYTES {
+        match decode_with_metadata(bytes, &|| self.cancel.load(Ordering::Relaxed)) {
+            Ok((
+                Series {
+                    key,
+                    modality,
+                    number,
+                    frames,
+                    source: _,
+                    volume: _,
+                    acquisition,
+                    part: _,
+                },
+                scalar_bytes,
+            )) => {
+                let next = frames.iter().try_fold(
+                    self.bytes
+                        .checked_add(scalar_bytes)
+                        .ok_or(LoadError::Limit)?,
+                    |sum, frame| sum.checked_add(frame.byte_len()).ok_or(LoadError::Limit),
+                )?;
+                if next > MAX_STUDY_BYTES {
                     return Err(LoadError::Limit);
                 }
+                self.bytes = next;
                 if let Some(series) = self.study.series.iter_mut().find(|s| s.key == key) {
                     series.frames.extend(frames);
                 } else {

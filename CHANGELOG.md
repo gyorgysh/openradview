@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Open supported integer DICOM modality tables, with declared units, stored-code
+  padding and endpoint clipping. Apply them before interpolation and VOI display;
+  preserve uniform mapping context in reformats and picture metadata.
+- Correct native big-endian eight-bit OW image ordering across frame boundaries
+  and packed eight-bit grayscale table word ordering.
+- Include retained scalar metadata in resident import memory admission.
 - Opt into supported DICOM source intervals for local playback, with declared trim,
   fixed/variable timing and visible ready-image pace. Wait for each requested image
   without skipping; stop at the trim end. Manual fps/Loop remain the default.

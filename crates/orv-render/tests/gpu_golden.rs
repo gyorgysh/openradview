@@ -674,6 +674,7 @@ fn explicit_grayscale_functions_and_tables_match_known_samples_without_baking_va
     frame.scalar = Some(
         ScalarData::new(
             ScalarInfo {
+                modality_lut: None,
                 value_type: orv_core::scalar::ValueType::F32,
                 storage: Storage::SignedInteger,
                 stored_bits: 16,
@@ -779,6 +780,7 @@ fn lookup_array_layers_and_row_boundaries_match_independent_known_values() {
         frame.scalar = Some(
             ScalarData::new(
                 ScalarInfo {
+                    modality_lut: None,
                     value_type: orv_core::scalar::ValueType::F32,
                     storage: Storage::SignedInteger,
                     stored_bits: 16,
@@ -814,6 +816,101 @@ fn lookup_array_layers_and_row_boundaries_match_independent_known_values() {
                         .all(|value| value.abs_diff(expected) <= 1),
                     "count={count}, layer={layer}: {pixel:?} vs {expected}"
                 );
+            }
+        }
+    }
+}
+#[test]
+fn applied_modality_tables_keep_known_pixels_voi_padding_and_snapshot_identity_on_the_gpu() {
+    use orv_core::{
+        VoiFunction,
+        scalar::{
+            ModalityLut, ScalarData, ScalarInfo, Storage, Unit, ValueType, VoiChoices, VoiLut,
+        },
+        scene::SceneState,
+    };
+    use orv_render::snapshot::SnapshotRenderer;
+    use std::sync::Arc;
+    let mut renderer = pollster::block_on(SnapshotRenderer::new()).expect("Real GPU required");
+    let lut = ModalityLut::new(-2, 8, Arc::from([0, 51, 204, 255])).unwrap();
+    let scalar = ScalarData::with_modality_lut(
+        ScalarInfo {
+            modality_lut: None,
+            value_type: ValueType::F32,
+            storage: Storage::SignedInteger,
+            stored_bits: 12,
+            unit: Unit::Hounsfield,
+            rescale: None,
+            resampled: false,
+        },
+        VoiChoices::new(
+            vec![],
+            vec![VoiLut::new(0, 8, (0..256u16).map(|v| 255 - v).collect()).unwrap()],
+        )
+        .unwrap(),
+        lut.clone(),
+    )
+    .unwrap();
+    let mut frame = (*orv_core::study::demo_study().series[0].frames[0]).clone();
+    frame.width = 4;
+    frame.height = 1;
+    frame.geometry = None;
+    frame.scalar = Some(scalar.clone());
+    frame.rgba = None;
+    frame.color = None;
+    frame.pixels = (-2..=1).map(|code| lut.map(code)).collect();
+    assert_eq!(&*frame.pixels, &[0., 51., 204., 255.]);
+    for missing in [false, true] {
+        frame.validity = missing.then(|| Arc::from([1, 0, 1, 1]));
+        for monochrome1 in [false, true] {
+            frame.monochrome1 = monochrome1;
+            for invert in [false, true] {
+                for (window, expected) in [
+                    (
+                        WindowLevel {
+                            width: 255.,
+                            center: 127.5,
+                            function: VoiFunction::LinearExact,
+                        },
+                        [0u8, 51, 204, 255],
+                    ),
+                    (WindowLevel::lookup(0), [255, 204, 51, 0]),
+                ] {
+                    let scene = SceneState {
+                        schema_version: 1,
+                        source_sha256: "0".repeat(64),
+                        series_index: 0,
+                        view: ViewState {
+                            window,
+                            invert,
+                            ..Default::default()
+                        },
+                        crosshair_mm: None,
+                        reformat_side: 2,
+                        output_size: [4, 1],
+                        reconstruction: None,
+                    };
+                    let result = renderer.capture(&frame, &scene, || false).unwrap();
+                    let png = image::load_from_memory(&result.png).unwrap().to_rgba8();
+                    for (index, (pixel, base)) in png.pixels().zip(expected).enumerate() {
+                        let expected = if missing && index == 1 {
+                            10
+                        } else if invert ^ monochrome1 {
+                            255 - base
+                        } else {
+                            base
+                        };
+                        assert!(
+                            pixel.0[..3].iter().all(|v| v.abs_diff(expected) <= 1),
+                            "{index}: {pixel:?} vs{expected}"
+                        );
+                    }
+                    assert_eq!(result.manifest.image.unwrap().scalar, Some(scalar.info()));
+                    assert_eq!(
+                        frame.scalar.as_ref().unwrap().info().modality_lut,
+                        Some(lut.info())
+                    );
+                }
             }
         }
     }

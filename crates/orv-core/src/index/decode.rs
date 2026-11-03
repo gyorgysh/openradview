@@ -4,9 +4,11 @@ use super::{
     source::{ReadState, Source},
 };
 use crate::{WindowLevel, load::LoadError, study::Frame};
-use dicom_core::{DataElement, DicomValue, PrimitiveValue, Tag, VR};
+use dicom_core::{DataElement, DicomValue, Tag, VR};
 use dicom_pixeldata::PixelDecoder;
 use std::{io::Cursor, sync::Arc};
+
+mod native;
 
 pub(super) const MAX_ENCODED_OBJECT: u64 = 64 * 1024 * 1024;
 
@@ -24,58 +26,7 @@ pub(super) fn decode(
         return nifti.decode(source, header, frame, state, cancelled);
     }
     let object = if header.native {
-        let bytes_per_frame = u64::from(header.width)
-            * u64::from(header.height)
-            * u64::from(header.bits / 8)
-            * crate::dicom_color::native_samples(header.dicom()?)?;
-        let offset = header
-            .offset
-            .checked_add(
-                bytes_per_frame
-                    .checked_mul(u64::from(frame))
-                    .ok_or(LoadError::Limit)?,
-            )
-            .ok_or(LoadError::Limit)?;
-        let bytes = source.range(offset, bytes_per_frame as usize, state, cancelled)?;
-        let mut object = frame_object(header.dicom()?, frame)?;
-        let value = match header.bits {
-            8 => PrimitiveValue::U8(bytes.into()),
-            16 => PrimitiveValue::U16(
-                bytes
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|b| {
-                        if header.big_endian {
-                            u16::from_be_bytes([b[0], b[1]])
-                        } else {
-                            u16::from_le_bytes([b[0], b[1]])
-                        }
-                    })
-                    .collect(),
-            ),
-            32 => PrimitiveValue::U32(
-                bytes
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|b| {
-                        if header.big_endian {
-                            u32::from_be_bytes([b[0], b[1], b[2], b[3]])
-                        } else {
-                            u32::from_le_bytes([b[0], b[1], b[2], b[3]])
-                        }
-                    })
-                    .collect(),
-            ),
-            _ => return Err(LoadError::Unsupported),
-        };
-        object.put(DataElement::new(
-            Tag(0x7fe0, 0x0010),
-            if header.bits == 8 { VR::OB } else { VR::OW },
-            value,
-        ));
-        object
+        native::object(source, header, frame, state, cancelled)?
     } else if header.pixel_length.is_none() {
         match super::encapsulated::fragments(source, header, frame, state, cancelled) {
             Ok(fragments) => {
@@ -109,18 +60,17 @@ pub(super) fn decode(
     crate::dicom_codec::validate(&object)?;
     let mode = crate::dicom_color::layout(&object)?;
     let padding = crate::dicom_padding::Padding::read(&object)?;
+    let source_frame = if crate::load::integer(&object, "NumberOfFrames").unwrap_or(1) == 1 {
+        0
+    } else {
+        frame
+    };
     let decoded = if mode == Some(crate::dicom_color::Color::PackedYbr) {
         None
     } else {
         Some(
             object
-                .decode_pixel_data_frame(
-                    if crate::load::integer(&object, "NumberOfFrames").unwrap_or(1) == 1 {
-                        0
-                    } else {
-                        frame
-                    },
-                )
+                .decode_pixel_data_frame(source_frame)
                 .map_err(|_| LoadError::Unsupported)?,
         )
     };
@@ -160,20 +110,22 @@ pub(super) fn decode(
         .get(frame)
         .cloned()
         .ok_or(LoadError::Unsupported)?;
-    let options = crate::dicom_voi::conversion(&scalar);
     let decoded = decoded.ok_or(LoadError::Unsupported)?;
-    let pixels: Vec<f32> = decoded
-        .to_vec_with_options(&options)
-        .map_err(|_| LoadError::Unsupported)?;
+    let pixels = crate::dicom_voi::pixels(&object, &decoded, 0, source_frame, &scalar, cancelled)?;
     if pixels.len() as u64 != u64::from(header.width) * u64::from(header.height)
         || pixels.iter().any(|v| !v.is_finite())
     {
         return Err(LoadError::Unsupported);
     }
-    let validity = padding
-        .map(|p| p.mask(&decoded, 0, cancelled))
-        .transpose()?
-        .flatten();
+    let validity = crate::dicom_voi::mask(
+        &object,
+        &decoded,
+        0,
+        source_frame,
+        &scalar,
+        padding,
+        cancelled,
+    )?;
     let window = scalar
         .choices()
         .original()
@@ -201,7 +153,8 @@ fn frame_object(
     source: &dicom_object::DefaultDicomObject,
     frame: u32,
 ) -> Result<dicom_object::DefaultDicomObject, LoadError> {
-    // The decoder applies rescale only; immutable display tables live in Header.
+    // Immutable modality and display tables live in Header. Source values are
+    // mapped exactly once after codec decoding, before spatial interpolation.
     // Avoid copying those tables or unselected functional groups for every slice.
     let mut object = dicom_object::InMemDicomObject::from_element_iter(
         source
@@ -209,7 +162,7 @@ fn frame_object(
             .filter(|element| {
                 !matches!(
                     element.header().tag,
-                    Tag(0x5200, 0x9229 | 0x9230) | Tag(0x0028, 0x3010)
+                    Tag(0x5200, 0x9229 | 0x9230) | Tag(0x0028, 0x3000 | 0x3010)
                 )
             })
             .cloned(),

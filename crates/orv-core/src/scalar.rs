@@ -4,6 +4,8 @@ use crate::{WindowLevel, view::VoiFunction};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+mod modality;
+pub use modality::{ModalityLut, ModalityLutInfo};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -45,7 +47,7 @@ impl Unit {
         match self {
             Self::Unknown => "Unknown intensity units",
             Self::Hounsfield => "Declared HU",
-            Self::OpticalDensity => "Declared optical density",
+            Self::OpticalDensity => "Declared thousandths of optical density",
             Self::Counts => "Declared counts",
             Self::CountsPerSecond => "Declared counts/s",
             Self::BecquerelsPerMillilitre => "Declared Bq/mL",
@@ -62,6 +64,10 @@ pub struct Rescale {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScalarInfo {
+    /// Already applied to the source samples. Retained on reformats only when
+    /// all source frames have the same mapping; never applied by the renderer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modality_lut: Option<ModalityLutInfo>,
     pub value_type: ValueType,
     pub storage: Storage,
     pub stored_bits: u16,
@@ -81,6 +87,13 @@ impl ScalarInfo {
         }) && self.rescale.is_none_or(|scale| {
             scale.slope.is_finite() && scale.slope != 0. && scale.intercept.is_finite()
         }) && !(self.resampled && self.rescale.is_some())
+            && self.modality_lut.is_none_or(ModalityLutInfo::validate)
+            && !(self.modality_lut.is_some()
+                && (self.rescale.is_some()
+                    || !matches!(
+                        self.storage,
+                        Storage::UnsignedInteger | Storage::SignedInteger
+                    )))
     }
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -200,6 +213,7 @@ pub struct ScalarData {
     choices: Arc<VoiChoices>,
     unit_identity: Option<[u8; 32]>,
     digest: [u8; 32],
+    modality_lut: Option<Arc<ModalityLut>>,
 }
 impl ScalarData {
     pub fn new(info: ScalarInfo, choices: Arc<VoiChoices>) -> Result<Arc<Self>, &'static str> {
@@ -210,7 +224,23 @@ impl ScalarData {
         choices: Arc<VoiChoices>,
         unit_identity: Option<[u8; 32]>,
     ) -> Result<Arc<Self>, &'static str> {
-        if !info.validate() {
+        Self::with_mapping(info, choices, unit_identity, None)
+    }
+    pub fn with_modality_lut(
+        mut info: ScalarInfo,
+        choices: Arc<VoiChoices>,
+        lut: Arc<ModalityLut>,
+    ) -> Result<Arc<Self>, &'static str> {
+        info.modality_lut = Some(lut.info());
+        Self::with_mapping(info, choices, None, Some(lut))
+    }
+    pub(crate) fn with_mapping(
+        info: ScalarInfo,
+        choices: Arc<VoiChoices>,
+        unit_identity: Option<[u8; 32]>,
+        modality_lut: Option<Arc<ModalityLut>>,
+    ) -> Result<Arc<Self>, &'static str> {
+        if !info.validate() || info.modality_lut != modality_lut.as_ref().map(|lut| lut.info()) {
             return Err("Invalid scalar source context");
         }
         let digest = context_digest(info, choices.digest, unit_identity);
@@ -219,7 +249,14 @@ impl ScalarData {
             choices,
             unit_identity,
             digest,
+            modality_lut,
         }))
+    }
+    pub(crate) fn modality_lut(&self) -> Option<&Arc<ModalityLut>> {
+        self.modality_lut.as_ref()
+    }
+    pub(crate) fn mapping_bytes(&self) -> u64 {
+        self.modality_lut.as_ref().map_or(0, |lut| lut.byte_len())
     }
     pub fn info(&self) -> ScalarInfo {
         self.info
@@ -231,7 +268,8 @@ impl ScalarData {
         self.digest
     }
     pub fn compatible(&self, other: &Self) -> bool {
-        self.info.storage == other.info.storage
+        self.info.modality_lut == other.info.modality_lut
+            && self.info.storage == other.info.storage
             && self.info.stored_bits == other.info.stored_bits
             && self.info.unit == other.info.unit
             && self.unit_identity == other.unit_identity
@@ -252,6 +290,7 @@ impl ScalarData {
             choices: self.choices.clone(),
             unit_identity: self.unit_identity,
             digest: context_digest(info, self.choices.digest, self.unit_identity),
+            modality_lut: self.modality_lut.clone(),
         })
     }
     pub fn supports(&self, window: WindowLevel) -> bool {
@@ -296,6 +335,11 @@ fn context_digest(info: ScalarInfo, choices: [u8; 32], unit: Option<[u8; 32]>) -
     if let Some(identity) = unit {
         hash.update(identity);
     }
+    // Omitting a mapping preserves the exact legacy byte stream and identity.
+    if let Some(lut) = info.modality_lut {
+        hash.update(b"OpenRadView scalar modality mapping v1\0");
+        hash.update(lut.sha256);
+    }
     hash.finalize().into()
 }
 
@@ -330,6 +374,7 @@ mod tests {
         )
         .unwrap();
         let info = ScalarInfo {
+            modality_lut: None,
             value_type: crate::scalar::ValueType::F32,
             storage: Storage::SignedInteger,
             stored_bits: 12,
