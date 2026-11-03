@@ -29,6 +29,7 @@ mod presentation;
 mod presentation_state;
 mod real_world;
 mod resources;
+mod secondary_capture;
 mod segments;
 mod series_info;
 mod ultrasound;
