@@ -98,7 +98,7 @@ fn signed_lut_input_follows_rescale_domain_and_packed_or_word_padded_data() {
                 -2,
                 8,
                 if packed {
-                    PrimitiveValue::U8(vec![0, 64, 192, 255].into())
+                    PrimitiveValue::U16(vec![0x4000, 0xffc0].into())
                 } else {
                     PrimitiveValue::U16(vec![0, 64, 192, 255].into())
                 },

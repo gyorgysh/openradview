@@ -35,8 +35,9 @@ pub(crate) struct Presentations {
 }
 impl Presentations {
     pub(crate) fn single(data: Arc<ScalarData>) -> Self {
-        let metadata_bytes =
-            (std::mem::size_of::<ScalarData>() + 32) as u64 + data.choices().byte_len();
+        let metadata_bytes = (std::mem::size_of::<ScalarData>() + 32) as u64
+            + data.choices().byte_len()
+            + data.mapping_bytes();
         Self {
             frames: vec![data],
             metadata_bytes,
@@ -65,6 +66,35 @@ pub(crate) fn conversion(data: &ScalarData) -> dicom_pixeldata::ConvertOptions {
         ))
         .with_voi_lut(dicom_pixeldata::VoiLutOption::Identity)
 }
+pub(crate) fn pixels(
+    object: &DefaultDicomObject,
+    decoded: &dicom_pixeldata::DecodedPixelData<'_>,
+    frame: u32,
+    source_frame: u32,
+    scalar: &ScalarData,
+    cancelled: &impl Fn() -> bool,
+) -> Result<Vec<f32>, LoadError> {
+    if cancelled() {
+        return Err(LoadError::Cancelled);
+    }
+    if scalar.modality_lut().is_some() {
+        return crate::dicom_modality::pixels(
+            object,
+            decoded,
+            frame,
+            source_frame,
+            scalar,
+            cancelled,
+        );
+    }
+    let pixels = decoded
+        .to_vec_frame_with_options(frame, &conversion(scalar))
+        .map_err(|_| LoadError::Unsupported)?;
+    if cancelled() {
+        return Err(LoadError::Cancelled);
+    }
+    Ok(pixels)
+}
 fn text(object: &Object, tag: Tag) -> Result<Option<String>, LoadError> {
     let Ok(element) = object.element(tag) else {
         return Ok(None);
@@ -74,6 +104,24 @@ fn text(object: &Object, tag: Tag) -> Result<Option<String>, LoadError> {
         return Err(LoadError::Unsupported);
     }
     Ok((!text.trim().is_empty()).then(|| text.trim().to_owned()))
+}
+pub(crate) fn mask(
+    object: &DefaultDicomObject,
+    decoded: &dicom_pixeldata::DecodedPixelData<'_>,
+    frame: u32,
+    source_frame: u32,
+    scalar: &ScalarData,
+    padding: Option<crate::dicom_padding::Padding>,
+    cancelled: &impl Fn() -> bool,
+) -> Result<Option<Arc<[u8]>>, LoadError> {
+    let Some(padding) = padding else {
+        return Ok(None);
+    };
+    if scalar.modality_lut().is_some() {
+        crate::dicom_modality::mask(object, decoded, frame, source_frame, padding, cancelled)
+    } else {
+        padding.mask(decoded, frame, cancelled)
+    }
 }
 fn value(object: &Object, tag: Tag) -> Result<Option<f64>, LoadError> {
     let Some(_) = text(object, tag)? else {
@@ -92,7 +140,11 @@ fn value(object: &Object, tag: Tag) -> Result<Option<f64>, LoadError> {
 fn info(
     root: &Object,
     transform: Option<&Object>,
+    modality: Option<&crate::dicom_modality::Mapping>,
 ) -> Result<(ScalarInfo, Option<[u8; 32]>), LoadError> {
+    if modality.is_some() && transform.is_some() {
+        return Err(LoadError::Unsupported);
+    }
     let integer = |tag| root.element(tag).ok()?.to_int::<u16>().ok();
     let signed = match integer(Tag(0x0028, 0x0103)) {
         Some(0) => false,
@@ -115,7 +167,11 @@ fn info(
         (Some(slope), Some(intercept)) => Some(Rescale { slope, intercept }),
         _ => return Err(LoadError::Unsupported),
     };
-    let rescale_type = text(context, Tag(0x0028, 0x1054))?;
+    let rescale_type = if let Some(mapping) = modality {
+        Some(mapping.unit.clone())
+    } else {
+        text(context, Tag(0x0028, 0x1054))?
+    };
     let pet_units = text(root, Tag(0x0054, 0x1001))?;
     let units = |value: Option<&str>| match value {
         Some("HU") => Unit::Hounsfield,
@@ -150,6 +206,7 @@ fn info(
         None
     };
     let info = ScalarInfo {
+        modality_lut: modality.map(|mapping| mapping.lut.info()),
         value_type: crate::scalar::ValueType::F32,
         storage: if signed {
             Storage::SignedInteger
@@ -167,6 +224,9 @@ fn info(
     Ok((info, identity))
 }
 fn signed_output(info: ScalarInfo) -> bool {
+    if info.modality_lut.is_some() {
+        return false;
+    }
     let scale = info.rescale.unwrap_or(Rescale {
         slope: 1.,
         intercept: 0.,
@@ -180,6 +240,9 @@ fn signed_output(info: ScalarInfo) -> bool {
     (low * scale.slope + scale.intercept).min(high * scale.slope + scale.intercept) < 0.
 }
 fn table_source_supported(info: ScalarInfo) -> bool {
+    if info.modality_lut.is_some() {
+        return true;
+    }
     let scale = info.rescale.unwrap_or(Rescale {
         slope: 1.,
         intercept: 0.,
@@ -244,7 +307,7 @@ fn windows(object: &Object) -> Result<Vec<WindowLevel>, LoadError> {
         })
         .collect()
 }
-fn table_values(
+pub(crate) fn table_values(
     element: &DataElement<Object>,
     count: usize,
     bits: u16,
@@ -253,56 +316,59 @@ fn table_values(
     if !matches!(element.vr(), VR::US | VR::OW) {
         return Err(LoadError::Unsupported);
     }
-    let raw = match element.value() {
+    let words: std::borrow::Cow<'_, [u16]> = match element.value() {
         DicomValue::Primitive(PrimitiveValue::U16(words)) => {
-            if words.len() == count && (bits == 16 || words.iter().all(|v| *v <= 255)) {
-                return Ok(words.to_vec().into());
-            }
-            words
-                .iter()
-                .flat_map(|word| {
-                    if big {
-                        word.to_be_bytes()
-                    } else {
-                        word.to_le_bytes()
-                    }
-                })
-                .collect::<Vec<_>>()
+            std::borrow::Cow::Borrowed(words.as_slice())
         }
-        DicomValue::Primitive(PrimitiveValue::U8(bytes)) => bytes.to_vec(),
+        DicomValue::Primitive(PrimitiveValue::U8(bytes)) if bytes.len().is_multiple_of(2) => {
+            std::borrow::Cow::Owned(
+                bytes
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|b| {
+                        if big {
+                            u16::from_be_bytes(*b)
+                        } else {
+                            u16::from_le_bytes(*b)
+                        }
+                    })
+                    .collect(),
+            )
+        }
         _ => return Err(LoadError::Unsupported),
     };
-    if raw.len() == count * 2 {
-        let words = raw
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|bytes| {
-                if big {
-                    u16::from_be_bytes(*bytes)
-                } else {
-                    u16::from_le_bytes(*bytes)
-                }
-            })
-            .collect::<Vec<_>>();
-        if bits == 16 || words.iter().all(|v| *v <= 255) {
-            return Ok(words.into());
-        }
+    if words.len() == count && (bits == 16 || words.iter().all(|value| *value <= 255)) {
+        return Ok(words.to_vec().into());
     }
-    if bits == 8 && raw.len() == count + count % 2 && (count.is_multiple_of(2) || raw[count] == 0) {
-        return Ok(raw[..count]
-            .iter()
-            .map(|v| u16::from(*v))
-            .collect::<Vec<_>>()
-            .into());
+    // Eight-bit cells in OW start in each word's low bits, independent of the
+    // transfer syntax's byte order for the word itself (PS3.3 C.11.1, PS3.5 8.2).
+    if bits == 8
+        && words.len() == count.div_ceil(2)
+        && (count.is_multiple_of(2) || words.last().is_some_and(|word| word >> 8 == 0))
+    {
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(count)
+            .map_err(|_| LoadError::Limit)?;
+        for index in 0..count {
+            values.push(if index.is_multiple_of(2) {
+                words[index / 2] & 255
+            } else {
+                words[index / 2] >> 8
+            });
+        }
+        return Ok(values.into());
     }
     Err(LoadError::Unsupported)
 }
+
 fn luts(
     object: &Object,
     implicit: bool,
     signed: bool,
     big: bool,
+    mapped_unsigned: bool,
     cancelled: &impl Fn() -> bool,
 ) -> Result<Vec<VoiLut>, LoadError> {
     let Ok(sequence) = object.element(TABLES) else {
@@ -334,7 +400,11 @@ fn luts(
         } else {
             words[0] as u16 as usize
         };
-        let first = if descriptor.vr() == VR::SS || (implicit && signed) {
+        let first = if mapped_unsigned {
+            // A modality table always produces unsigned values. The object's
+            // stored Pixel Representation cannot determine this later domain.
+            words[1] as u16 as i32
+        } else if descriptor.vr() == VR::SS || (implicit && signed) {
             words[1] as i16 as i32
         } else {
             words[1] as u16 as i32
@@ -364,8 +434,13 @@ pub(crate) fn read(
         text(object, Tag(0x0028, 0x0004))?.as_deref(),
         Some("MONOCHROME1" | "MONOCHROME2")
     ) {
-        return Ok(Presentations::default());
+        return if object.element(crate::dicom_modality::TABLE).is_ok() {
+            Err(LoadError::Unsupported)
+        } else {
+            Ok(Presentations::default())
+        };
     }
+    let modality = crate::dicom_modality::read(object)?;
     let shared = crate::dicom_geometry::item(object, SHARED)?;
     let per_frame = object
         .element(PER_FRAME)
@@ -383,7 +458,7 @@ pub(crate) fn read(
         }
         let local = per_frame.and_then(|frames| frames.get(frame));
         let transform = crate::dicom_geometry::group(shared, local, TRANSFORM)?;
-        let (info, unit) = info(object, transform)?;
+        let (info, unit) = info(object, transform, modality.as_ref())?;
         let voi = crate::dicom_geometry::group(shared, local, VOI)?.unwrap_or(object);
         contexts.push((info, unit, voi));
     }
@@ -397,6 +472,9 @@ pub(crate) fn read(
     let mut table_intern = HashMap::<[u8; 32], VoiLut>::new();
     let mut interned = HashMap::<[u8; 32], Arc<ScalarData>>::new();
     let mut result = Presentations::default();
+    if let Some(mapping) = &modality {
+        charge(&mut result.metadata_bytes, mapping.lut.byte_len())?;
+    }
     for (info, unit, node) in contexts {
         if cancelled() {
             return Err(LoadError::Cancelled);
@@ -406,7 +484,7 @@ pub(crate) fn read(
         let choices = if let Some(choices) = node_choices.get(&key) {
             choices.clone()
         } else {
-            let mut tables = luts(node, implicit, signed, big, cancelled)?;
+            let mut tables = luts(node, implicit, signed, big, modality.is_some(), cancelled)?;
             for table in &mut tables {
                 let entry = match table_intern.entry(table.digest()) {
                     Entry::Occupied(entry) => entry.into_mut(),
@@ -434,8 +512,13 @@ pub(crate) fn read(
             node_choices.insert(key, choices.clone());
             choices
         };
-        let scalar = ScalarData::with_unit_identity(info, choices, unit)
-            .map_err(|_| LoadError::Unsupported)?;
+        let scalar = ScalarData::with_mapping(
+            info,
+            choices,
+            unit,
+            modality.as_ref().map(|mapping| mapping.lut.clone()),
+        )
+        .map_err(|_| LoadError::Unsupported)?;
         if !scalar.choices().luts().is_empty() && !table_source_supported(info) {
             return Err(LoadError::Unsupported);
         }

@@ -152,15 +152,34 @@ Uploads flush in bounded batches. Neither pool is a hard OS/driver memory sandbo
 
 Scalar source context and grayscale choices are immutable and prehashed. Import
 workers validate/intern windows and lookup tables under metadata bounds; identical
-tables share allocations. Native/snapshot shaders apply one explicit mapping after
-rescale/interpolation and before inversion. Conversion explicitly selects the
+tables share allocations. Native/snapshot shaders apply one explicit VOI mapping
+after modality conversion/interpolation and before inversion. Conversion explicitly selects the
 validated frame transform, independent of decoder metadata precedence. Source/per-frame identity includes
 storage, scaling, declared units and table definitions without raw tag text.
 Reformats retain typed source context and mark resampled values; mixed units or
 lookup tables cannot silently become one spatial presentation.
 
+Nonlinear modality tables are distinct from VOI tables. The worker maps exact
+stored integer codes before interpolation, masking unused bits and sign-extending
+the declared stored precision. One root table replaces affine rescale; conflicting
+or functional-group table declarations refuse. Native code reads preserve OW's
+low-bit-first cell packing across words and frames, independently of word byte
+order. Bit-packed table inputs read only the selected bounded range and normalize
+one frame for codec metadata, without materializing an entire packed sequence.
+Source padding uses the same code reader. Codecs keep their validated decoded
+sample representation. No inverse mapping reconstructs discarded stored codes.
+
+Scalar context owns the bounded immutable table and an optional fixed-size
+descriptor/digest. Table outputs are unsigned; later VOI input interpretation
+uses that domain. The metadata omits entries, explanations and raw unit codes.
+Matching uniform table identity remains attached to resampled values as an already
+applied source mapping. Differing tables stay in 2D. The absent-field serialization
+and scalar hash stream remain byte-compatible with existing contexts. Indexed
+metadata and resident imports charge retained scalar tables under their existing
+bounds; resident admission checks before publishing a newly decoded series.
+
 Scalar values retain an independent validity mask when needed. DICOM padding is
-identified in stored codes before rescale; statistics, hashes, labels, CPU/GPU
+identified in stored codes before rescale or modality lookup; statistics, hashes, labels, CPU/GPU
 sampling and memory accounting share this validity domain. Color retains source
 RGB code precision separately from sRGB presentation; compositing/resampling use
 linear-light sRGB. No color-to-scalar modality intensity is invented.

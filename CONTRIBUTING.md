@@ -40,6 +40,7 @@ cargo run -p orv-core --example generate_media -- test-data/generated-masks --se
 cargo run -p orv-core --example generate_comparison -- test-data/generated-comparison
 cargo run -p orv-core --example generate_acquisition -- test-data/generated-acquisition
 cargo run -p orv-core --example generate_dicom_acquisition -- test-data/generated-dicom-acquisition
+cargo run -p orv-core --example generate_modality -- test-data/generated-modality
 ```
 
 The mask fixture adds three generated boxes with overlap, sparse source planes
@@ -50,6 +51,8 @@ in numeric pixel values, with complex views and valid/frequency/unknown/invalid
 timing headers.
 The DICOM acquisition fixtures include separate dimension ordinals/values, shuffled
 spatial frames, fixed/variable cine timing and explicit unscoped/invalid cases.
+The modality fixtures include numeric nonlinear tables, a regular stack, declared
+and unknown units, stored padding and a conflicting-transform refusal case.
 
 ## Design and review
 

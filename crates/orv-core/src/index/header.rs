@@ -27,6 +27,7 @@ pub(super) struct Header {
     pub format: Format,
     pub offset: u64,
     pub pixel_length: Option<u64>,
+    pub pixel_vr: dicom_core::VR,
     pub width: u32,
     pub height: u32,
     pub frames: u32,
@@ -139,6 +140,7 @@ pub(super) struct MetadataPrefix {
     pub deflated_at: Option<u64>,
     pub pixel_offset: u64,
     pub pixel_length: Option<u64>,
+    pub pixel_vr: dicom_core::VR,
 }
 
 /// Bounded metadata only. The class policy runs before dataset values are read.
@@ -242,7 +244,7 @@ pub(super) fn read_prefix_with_syntax(
     .map_err(|_| LoadError::Unsupported)?;
     let mut scopes = scopes::Scopes::new()?;
     let mut tokens = 0usize;
-    let (pixel_length, pixel_header) = loop {
+    let (pixel_length, pixel_header, pixel_vr) = loop {
         if cancelled() {
             return Err(LoadError::Cancelled);
         }
@@ -262,7 +264,7 @@ pub(super) fn read_prefix_with_syntax(
             DataToken::ElementHeader(header)
                 if scopes.depth() == 0 && header.tag == Tag(0x7fe0, 0x0010) =>
             {
-                break (header.len.get().map(u64::from), before as usize);
+                break (header.len.get().map(u64::from), before as usize, header.vr);
             }
             DataToken::ElementHeader(header)
                 if scopes.depth() == 0 && matches!(header.tag, Tag(0x7fe0, 0x0008 | 0x0009)) =>
@@ -270,7 +272,9 @@ pub(super) fn read_prefix_with_syntax(
                 *reason = SkipReason::UnsupportedOrInvalid;
                 return Err(LoadError::Unsupported);
             }
-            DataToken::PixelSequenceStart if scopes.depth() == 0 => break (None, before as usize),
+            DataToken::PixelSequenceStart if scopes.depth() == 0 => {
+                break (None, before as usize, dicom_core::VR::OB);
+            }
             DataToken::ElementHeader(header) => {
                 scopes.attribute(header.tag)?;
                 if header
@@ -329,6 +333,7 @@ pub(super) fn read_prefix_with_syntax(
         deflated_at,
         pixel_offset: position.get(),
         pixel_length,
+        pixel_vr,
     })
 }
 
@@ -343,6 +348,7 @@ fn read_header_inner(
         deflated_at,
         pixel_offset,
         pixel_length,
+        pixel_vr,
     } = read_prefix(reader, cancelled, reason, |class| {
         !crate::dicom_codec::non_image_class(class)
     })?;
@@ -365,7 +371,20 @@ fn read_header_inner(
         return Err(LoadError::Limit);
     }
     let bits = crate::load::integer(&object, "BitsAllocated").ok_or(LoadError::Unsupported)?;
-    if !matches!(bits, 1 | 8 | 16 | 32) || object.element_by_name("ModalityLUTSequence").is_ok() {
+    let native_syntax = matches!(
+        syntax.as_str(),
+        "1.2.840.10008.1.2"
+            | "1.2.840.10008.1.2.1"
+            | "1.2.840.10008.1.2.2"
+            | "1.2.840.10008.1.2.1.99"
+    );
+    if native_syntax
+        && (!matches!(pixel_vr, dicom_core::VR::OB | dicom_core::VR::OW)
+            || (bits > 8 && pixel_vr != dicom_core::VR::OW))
+    {
+        return Err(LoadError::Unsupported);
+    }
+    if !matches!(bits, 1 | 8 | 16 | 32) {
         return Err(LoadError::Unsupported);
     }
     if deflated_at.is_some() && bits == 1 {
@@ -401,16 +420,15 @@ fn read_header_inner(
         deflated_at,
         offset: pixel_offset,
         pixel_length,
+        pixel_vr,
         width: width as u32,
         height: height as u32,
         frames: frames as u32,
-        native: matches!(
-            syntax.as_str(),
-            "1.2.840.10008.1.2"
-                | "1.2.840.10008.1.2.1"
-                | "1.2.840.10008.1.2.2"
-                | "1.2.840.10008.1.2.1.99"
-        ) && bits != 1,
+        native: native_syntax
+            && (bits != 1
+                || scalar
+                    .get(0)
+                    .is_some_and(|data| data.modality_lut().is_some())),
         bits: bits as u16,
         big_endian: syntax == "1.2.840.10008.1.2.2",
         geometry: spatial.geometry,

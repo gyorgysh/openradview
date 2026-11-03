@@ -278,6 +278,7 @@ fn large_common_translations_keep_small_anchor_offsets_and_unbounded_anchors_nev
 }
 fn info(unit: Unit) -> ScalarInfo {
     ScalarInfo {
+        modality_lut: None,
         value_type: ValueType::F32,
         storage: Storage::SignedInteger,
         stored_bits: 16,

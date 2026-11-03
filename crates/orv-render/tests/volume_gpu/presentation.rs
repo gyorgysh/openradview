@@ -83,6 +83,7 @@ fn volume_functions_and_last_lookup_layer_match_constant_analytic_values() {
         .collect();
     let scalar = ScalarData::new(
         ScalarInfo {
+            modality_lut: None,
             value_type: ValueType::F32,
             storage: Storage::Float,
             stored_bits: 32,
@@ -191,4 +192,110 @@ fn volume_functions_and_last_lookup_layer_match_constant_analytic_values() {
             assert!(visible > 0);
         }
     }
+}
+#[test]
+fn mapped_values_and_uniform_table_identity_survive_mpr_and_gpu_volume_snapshots() {
+    use orv_core::scalar::ModalityLut;
+    use orv_core::scene::{Reconstruction, SceneState};
+    use orv_render::snapshot::SnapshotRenderer;
+    let lut = ModalityLut::new(-2, 8, Arc::from([0, 51, 204, 255])).unwrap();
+    let scalar = ScalarData::with_modality_lut(
+        ScalarInfo {
+            modality_lut: None,
+            value_type: ValueType::F32,
+            storage: Storage::SignedInteger,
+            stored_bits: 12,
+            unit: Unit::Hounsfield,
+            rescale: None,
+            resampled: false,
+        },
+        VoiChoices::new(vec![], vec![]).unwrap(),
+        lut.clone(),
+    )
+    .unwrap();
+    let base = volume(Some(51.), false);
+    let frames = base
+        .frames()
+        .iter()
+        .map(|frame| {
+            let mut frame = (**frame).clone();
+            frame.scalar = Some(scalar.clone());
+            Arc::new(frame)
+        })
+        .collect();
+    let source = Arc::new(Volume::new(frames).unwrap());
+    let window = WindowLevel {
+        width: 255.,
+        center: 127.5,
+        function: VoiFunction::LinearExact,
+    };
+    let mut state = VolumeView::fit(&source);
+    state.projection = Projection::Maximum;
+    state.camera.vertical_span_mm = 7.;
+    let mut scene = SceneState {
+        schema_version: 2,
+        source_sha256: "0".repeat(64),
+        series_index: 0,
+        view: ViewState {
+            window,
+            ..Default::default()
+        },
+        crosshair_mm: None,
+        reformat_side: 2,
+        output_size: [7, 5],
+        reconstruction: Some(Reconstruction::Volume(state.clone())),
+    };
+    let mut renderer = pollster::block_on(SnapshotRenderer::new()).expect("Real GPU required");
+    for quality in [Quality::Interactive, Quality::Refined] {
+        state.quality = quality;
+        scene.reconstruction = Some(Reconstruction::Volume(state.clone()));
+        let result = renderer
+            .capture_volume(source.clone(), &scene, || false)
+            .unwrap();
+        let png = image::load_from_memory(&result.png).unwrap().to_rgba8();
+        let mut visible = 0;
+        for y in 0..5 {
+            for x in 0..7 {
+                let inside = rays(&source, &scene.view, &state, scene.output_size, x, y).is_some();
+                visible += usize::from(inside);
+                assert_gray(&png.get_pixel(x, y).0, if inside { 51. } else { 10. });
+            }
+        }
+        assert!(visible > 0);
+        let info = result.manifest.volume.unwrap().source.scalar.unwrap();
+        assert!(info.resampled && info.rescale.is_none());
+        assert_eq!(info.modality_lut, Some(lut.info()));
+    }
+    let point = source.center();
+    let plane = source
+        .reformat(orv_core::Plane::Axial, point, 37, || false)
+        .unwrap();
+    let valid = plane
+        .pixels
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| plane.has_sample(*index))
+        .collect::<Vec<_>>();
+    assert!(!valid.is_empty() && valid.len() < plane.pixels.len());
+    assert!(valid.iter().all(|(_, value)| **value == 51.));
+    let scene = SceneState {
+        schema_version: 1,
+        view: ViewState {
+            plane: orv_core::Plane::Axial,
+            window,
+            ..Default::default()
+        },
+        crosshair_mm: Some(point),
+        reformat_side: 37,
+        reconstruction: None,
+        output_size: [37, 37],
+        ..scene
+    };
+    let result = renderer.capture(&plane, &scene, || false).unwrap();
+    let png = image::load_from_memory(&result.png).unwrap().to_rgba8();
+    assert_gray(&png.get_pixel(18, 18).0, 51.);
+    assert_eq!(
+        result.manifest.image.unwrap().scalar.unwrap().modality_lut,
+        Some(lut.info())
+    );
 }

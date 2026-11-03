@@ -324,12 +324,17 @@ mod tests {
 
     #[tokio::test]
     async fn geometry_permission_does_not_add_source_intensity_metadata() {
-        use orv_core::scalar::{ScalarData, ScalarInfo, Storage, Unit, ValueType, VoiChoices};
+        use orv_core::scalar::{
+            ModalityLut, ScalarData, ScalarInfo, Storage, Unit, ValueType, VoiChoices,
+        };
         let mut series = demo_study().series.remove(0);
         series.frames.truncate(1);
-        Arc::make_mut(&mut series.frames[0]).scalar = Some(
-            ScalarData::new(
+        let frame = Arc::make_mut(&mut series.frames[0]);
+        frame.pixels = vec![0.; frame.pixels.len()].into();
+        frame.scalar = Some(
+            ScalarData::with_modality_lut(
                 ScalarInfo {
+                    modality_lut: None,
                     value_type: ValueType::F32,
                     storage: Storage::SignedInteger,
                     stored_bits: 16,
@@ -338,6 +343,7 @@ mod tests {
                     resampled: false,
                 },
                 VoiChoices::new(Vec::new(), Vec::new()).unwrap(),
+                ModalityLut::new(0, 16, Arc::from([0, 100, 900, 65535])).unwrap(),
             )
             .unwrap(),
         );
@@ -375,7 +381,13 @@ mod tests {
         assert_ne!(response.is_error, Some(true));
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("dimensions"));
-        for field in ["scalar", "stored_bits", "hounsfield", "value_type"] {
+        for field in [
+            "scalar",
+            "stored_bits",
+            "hounsfield",
+            "value_type",
+            "modality_lut",
+        ] {
             assert!(!json.contains(field));
         }
     }

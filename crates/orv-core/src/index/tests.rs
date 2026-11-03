@@ -18,6 +18,7 @@ mod formats;
 mod import_report;
 mod large;
 mod metadata_prefix;
+mod modality;
 mod nifti;
 mod nifti_axes;
 mod nifti_expanded;

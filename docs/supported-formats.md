@@ -6,7 +6,7 @@ that an image, orientation, reconstruction or measurement is correct for care.
 
 | Input | Supported scope | Limits |
 |---|---|---|
-| Grayscale DICOM | Integer 8/16-bit MONOCHROME1/2; native implicit/explicit little endian, explicit big endian, JPEG, RLE, JPEG-LS, JPEG 2000 and deflated explicit-VR datasets | Stored precision must fit the allocated sample. Nonlinear modality LUTs, real-world value mappings, floating pixel data and unsupported transfer syntaxes are refused. Enhanced spatial support has the explicit subset below. |
+| Grayscale DICOM | Integer 8/16-bit MONOCHROME1/2; native implicit/explicit little endian, explicit big endian, JPEG, RLE, JPEG-LS, JPEG 2000 and deflated explicit-VR datasets. Bounded modality tables also support native one-bit and 32-bit integer cells. | Stored precision must fit the allocated sample. One supported modality table or affine rescale, with independent VOI display. Real-world value mappings, floating pixel data and unsupported transfer syntaxes are refused. Enhanced spatial support has the explicit subset below. |
 | RGB/YBR DICOM | Unsigned 8/16-bit RGB and YBR_FULL, native interleaved/planar; native packed YBR_FULL_422 at 8-bit, even width, planar 0; JPEG RGB/YBR_FULL/YBR_FULL_422; JPEG2000 RGB/YBR_RCT/YBR_ICT; RGB/YBR_FULL RLE/JPEG-LS | JPEG/JPEG2000 perform their own color transform; native/RLE/JPEG-LS YBR is converted once. 2D, linked MPR, oblique and experimental RGB volume/maxima views with valid regular geometry and consistent color context. Scalar window/level does not apply. Desktop rectangle statistics report separate RGB code values; MCP roi_stats remains scalar-only. Pan, zoom, browse, invert and snapshots work. |
 | Palette DICOM | Signed/unsigned 8/16-bit stored indices, direct 8/16-bit RGB LUTs (including 8-bit entries in words), segmented discrete/linear/indirect tables | Matching descriptors required; indices clip to table endpoints. No alpha/enhanced/supplemental palette semantics. Invalid or cyclic/nested indirect segments are refused. |
 | Embedded color profile | DICOM RGB input ICC v2/v4 (scnr, XYZ/Lab PCS), converted to sRGB with relative colorimetric intent | Max 1 MiB profile, bounded CLUT/TRCs; no fetching. Invalid/unsupported profiles fail rather than silently assuming sRGB. Absent profile assumes sRGB. This is profile conversion, not monitor calibration or a calibrated-display guarantee. |
@@ -62,26 +62,46 @@ Cancellation, changed sources and hard limits still fail the operation. A
 successfully indexed file can still fail later pixel decoding; the summary is
 not a full-study pixel validation result.
 
-DICOM modality rescale and signedness are applied before grayscale display;
+DICOM stored integer codes use their declared precision and signedness before
+either affine rescale or one root Modality LUT Sequence. A modality table has
+1–65,536 entries, 8/16-bit unsigned outputs, signed/unsigned first inputs and
+endpoint clipping. Packed and word-padded 8-bit tables are supported. Conflicting
+rescale, invalid descriptors/data/types, multiple tables, color mappings and
+nonlinear functional-group mappings are refused. Source code buffers are not
+retained after mapping; table values define the scalar values used by probes,
+statistics, labels and interpolation.
+
+The table path supports native one-bit, 8/16-bit and 32-bit integer cells, plus
+the existing supported 8/16-bit codecs. One-bit frames share a continuous bitstream;
+individual frames are not padded. Deflated one-bit input remains unsupported.
+Native OW packing follows low bits first in each 16-bit word, including byte-sized
+cells, cells spanning words and odd frame boundaries. Padding is identified in
+the same stored-code domain, before mapping. Modality table outputs are unsigned
+and exactly representable in f32; this output domain determines subsequent VOI
+lookup inputs, independently of stored pixel signedness.
+
 MONOCHROME1 inversion remains a display operation. Source LINEAR, LINEAR_EXACT
 and SIGMOID functions are explicit, with up to 16 alternative window pairs and
 16 VOI lookup tables. Unknown functions and malformed pairs/tables are refused.
 Lookup descriptors support 8/16-bit outputs, up to 65,536 entries, signed/unsigned
 first inputs, endpoint clipping and packed/word-padded 8-bit data. The supported
-source subset requires at most 16 stored bits and integral rescale whose possible
+affine source subset requires at most 16 stored bits and integral rescale whose possible
 outputs fit exact f32 integers (±2²⁴); fractional/inexact source LUT mappings are
 refused. Fractional resampled LUT indices round down after scalar interpolation.
 A table and a window function are alternatives; they are never applied together.
 GPU display widths below 10⁻²⁰ are refused because subnormal arithmetic may be
 flushed to zero; choose a wider contrast range.
-Spatial volumes require matching lookup tables across frames; differing tables
+Spatial volumes require matching modality/VOI tables and unit contexts across frames; differing tables
 remain available in source 2D.
 
 Scalar context records source storage/precision, the conversion to f32, numeric
-scaling and recognized declared units. Unknown units remain unknown; a CT/PET
+scaling, a bounded modality-table descriptor/digest where present and recognized
+declared units. Unknown unit codes remain private; a CT/PET
 modality name does not establish HU/SUV. Integer/f64 source precision can be lost
-when values become f32. Windowing and lookup tables do not change histogram/probe/
-ROI sample values. Native views and snapshots share the same grayscale mapping. Color never substitutes luma
+when values become f32. Optical-density values use the declared thousandths scale.
+Windowing and VOI tables do not change histogram/probe/ROI modality sample values.
+Uniform applied modality-table context remains explicit on reformats and picture
+metadata. Native views and snapshots share the same grayscale mapping. Color never substitutes luma
 for scalar values. Pre-ICC RGB code values retain 8/16-bit precision separately from
 8-bit RGBA presentation, and both participate in source fingerprints. Each color
 pixel occupies 10 decoded-cache bytes. Palette/YBR code statistics refer to the

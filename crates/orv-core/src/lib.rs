@@ -5,6 +5,7 @@ pub mod color;
 mod dicom_codec;
 mod dicom_color;
 mod dicom_geometry;
+mod dicom_modality;
 mod dicom_padding;
 mod dicom_voi;
 pub mod import_report;

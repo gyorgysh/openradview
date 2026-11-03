@@ -79,17 +79,36 @@ impl Padding {
         {
             return Err(LoadError::Unsupported);
         }
-        let mut mask = Vec::with_capacity(count);
+        self.mask_codes(
+            count,
+            |i| {
+                Some(if allocated <= 8 {
+                    u32::from(bytes[i])
+                } else {
+                    u32::from(u16::from_ne_bytes([bytes[i * 2], bytes[i * 2 + 1]]))
+                })
+            },
+            cancelled,
+        )
+    }
+    pub(crate) fn mask_codes(
+        &self,
+        count: usize,
+        code: impl Fn(usize) -> Option<u32>,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Option<Arc<[u8]>>, LoadError> {
+        if count > 32 * 1024 * 1024 {
+            return Err(LoadError::Limit);
+        }
+        let mut mask = Vec::new();
+        mask.try_reserve_exact(count)
+            .map_err(|_| LoadError::Limit)?;
         let mut missing = false;
         for i in 0..count {
             if i.is_multiple_of(16384) && cancelled() {
                 return Err(LoadError::Cancelled);
             }
-            let raw = if allocated <= 8 {
-                u32::from(bytes[i])
-            } else {
-                u32::from(u16::from_ne_bytes([bytes[i * 2], bytes[i * 2 + 1]]))
-            };
+            let raw = code(i).ok_or(LoadError::Unsupported)?;
             let raw = (raw & ((1 << self.stored) - 1)) as i32;
             let value = if self.signed && raw & (1 << (self.stored - 1)) != 0 {
                 raw - (1 << self.stored)

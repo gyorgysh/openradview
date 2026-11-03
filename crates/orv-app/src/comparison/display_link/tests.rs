@@ -12,6 +12,7 @@ fn session() -> ComparisonSession {
     let mut study = Arc::try_unwrap(comparison_tests::study()).ok().unwrap();
     let scalar = ScalarData::new(
         ScalarInfo {
+            modality_lut: None,
             value_type: ValueType::F32,
             storage: Storage::SignedInteger,
             stored_bits: 16,

@@ -351,7 +351,11 @@ pub(crate) fn read(
     cancelled: &impl Fn() -> bool,
 ) -> Result<Spatial, LoadError> {
     let shared = item(object, SHARED)?;
-    supported_mapping(object)?;
+    // Root modality tables are validated by the scalar parser. Functional-group
+    // transforms still permit only their supported affine declarations.
+    if object.element(Tag(0x0040, 0x9096)).is_ok() {
+        return Err(LoadError::Unsupported);
+    }
     if let Some(shared) = shared {
         supported_mapping(shared)?;
         if let Some(transform) = item(shared, Tag(0x0028, 0x9145))? {

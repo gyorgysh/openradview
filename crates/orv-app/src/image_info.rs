@@ -98,6 +98,12 @@ impl ImageInfo {
                 info.storage.label()
             ));
             ui.small(info.unit.label());
+            if let Some(table) = info.modality_lut {
+                ui.small(format!(
+                    "Values include the source lookup table · {} entries · {}-bit output",
+                    table.entries, table.bits
+                ));
+            }
             if info.resampled {
                 ui.small("Resampled values · source spacing and interpolation apply");
             }

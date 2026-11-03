@@ -116,3 +116,43 @@ fn zip_loads_in_memory_and_rejects_traversal() {
     assert!(!temp.0.join("nested").exists());
     assert!(!temp.0.join("escape.dcm").exists());
 }
+#[test]
+fn resident_import_admits_retained_scalar_metadata_before_publishing_frames() {
+    let bytes = crate::test_support::fixture(0., 1, false, false);
+    let (series, metadata) = decode_with_metadata(&bytes, &|| false).unwrap();
+    assert!(metadata > 0);
+    let pixels = series
+        .frames
+        .iter()
+        .map(|frame| frame.byte_len())
+        .sum::<u64>();
+    let cancel = AtomicBool::new(false);
+    let mut denied = Import {
+        study: Study::default(),
+        bytes: MAX_STUDY_BYTES - pixels,
+        processed: 0,
+        cancel: &cancel,
+        progress: |_| {},
+    };
+    assert_eq!(denied.add(&bytes), Err(LoadError::Limit));
+    assert!(denied.study.series.is_empty());
+    assert_eq!(
+        denied.bytes,
+        MAX_STUDY_BYTES - pixels,
+        "Failed admission changed its reservation"
+    );
+    let mut admitted = Import {
+        study: Study::default(),
+        bytes: MAX_STUDY_BYTES - pixels - metadata,
+        processed: 0,
+        cancel: &cancel,
+        progress: |_| {},
+    };
+    admitted.add(&bytes).unwrap();
+    assert_eq!(admitted.bytes, MAX_STUDY_BYTES);
+    assert_eq!(admitted.study.frame_count(), 1);
+    assert_eq!(
+        decode_with_metadata(&bytes, &|| true).unwrap_err(),
+        LoadError::Cancelled
+    );
+}
