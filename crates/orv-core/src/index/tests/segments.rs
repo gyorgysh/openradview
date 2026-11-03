@@ -204,8 +204,12 @@ fn replacing_the_selected_mask_file_during_reading_refuses_the_result() {
     })
     .unwrap();
     let midpoint = checks.get() / 2;
+    // A fresh write, not a copy: Windows copies preserve the last-write time
+    // and the rename carries the creation time, so a copied replacement is
+    // stamp-identical there and cannot be refused with stable file identity.
+    // Unix object-identity coverage stays with the cfg(unix) replacement tests.
     let replacement = temp.0.join("replacement.dcm");
-    fs::copy(&path, &replacement).unwrap();
+    fs::write(&replacement, b"superseded mask").unwrap();
     checks.set(0);
     let result = read_segmentation(&path, &study.series[0], || {
         checks.set(checks.get() + 1);

@@ -15,11 +15,6 @@ pub(super) struct Stamp {
     modified: Option<SystemTime>,
     #[cfg(unix)]
     identity: (u64, u64),
-    // Windows copies preserve the last-write time, so a same-size replacement
-    // is invisible to (length, modified). A replacement is a new file object
-    // with a fresh creation time, which closes that gap with stable APIs.
-    #[cfg(windows)]
-    created: Option<SystemTime>,
 }
 impl Stamp {
     pub fn new(metadata: &Metadata) -> Self {
@@ -31,8 +26,6 @@ impl Stamp {
                 use std::os::unix::fs::MetadataExt;
                 (metadata.dev(), metadata.ino())
             },
-            #[cfg(windows)]
-            created: metadata.created().ok(),
         }
     }
 }
