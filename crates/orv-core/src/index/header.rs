@@ -425,6 +425,12 @@ fn read_header_inner(
     let spatial = crate::dicom_geometry::read(&object, frames as u32, &cancelled)?;
     let scalar = crate::dicom_voi::read(&object, frames as u32, float, &cancelled)?;
     let presentation = crate::presentation::read(&object, frames as u32)?;
+    // Layers hold the used overlay bits; drop the encoded copies from the
+    // retained object. Import already charged the full prefix length.
+    let mut object = object;
+    for group in (0x6000..=0x601e).step_by(2) {
+        object.remove_element(Tag(group, 0x3000));
+    }
     let modality = match crate::load::text(&object, "Modality").as_deref() {
         Some("CT") => "CT",
         Some("MR") => "MR",

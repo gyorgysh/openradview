@@ -81,6 +81,19 @@ impl Shape {
     }
 }
 
+/// Sorted column positions where a polygon's boundary crosses a pixel-centre row.
+/// A centre is inside when an odd number of crossings lie at or left of it.
+fn polygon_row(vertices: &[[f64; 2]], y: f64) -> Vec<f64> {
+    let mut crossings: Vec<f64> = vertices
+        .iter()
+        .zip(vertices.iter().cycle().skip(1))
+        .filter(|(a, b)| (a[0] > y) != (b[0] > y))
+        .map(|(a, b)| (b[1] - a[1]) * (y - a[0]) / (b[0] - a[0]) + a[1])
+        .collect();
+    crossings.sort_by(f64::total_cmp);
+    crossings
+}
+
 /// Supported layers for one source object, with the count of overlay groups
 /// or shutter declarations that are present but outside the supported subset.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -97,6 +110,13 @@ impl Layers {
     }
     pub fn has_shutter(&self) -> bool {
         !self.shapes.is_empty()
+    }
+    /// Overlay bitmap bytes kept for this object.
+    pub fn retained_bytes(&self) -> u64 {
+        self.overlays
+            .iter()
+            .map(|overlay| overlay.bits.len() as u64)
+            .sum()
     }
     pub fn is_empty(&self) -> bool {
         self.overlays.is_empty() && self.shapes.is_empty() && self.unsupported == 0
@@ -118,10 +138,27 @@ impl Layers {
         let gray = (u32::from(self.shutter_value) * 255 / 65535) as u8;
         let mut rgba = Vec::new();
         rgba.try_reserve_exact(count as usize * 4).ok()?;
+        let mut crossings = Vec::new();
         for row in 1..=i64::from(height) {
+            // Polygon edges are intersected once per row, so the per-pixel test
+            // is a binary search, bounded independently of the vertex count.
+            crossings.clear();
+            for shape in &self.shapes {
+                crossings.push(match shape {
+                    Shape::Polygon(vertices) => polygon_row(vertices, row as f64),
+                    _ => Vec::new(),
+                });
+            }
             for column in 1..=i64::from(width) {
-                let obscured =
-                    shutter && self.shapes.iter().any(|shape| !shape.exposes(row, column));
+                let obscured = shutter
+                    && self.shapes.iter().zip(&crossings).any(
+                        |(shape, row_crossings)| !match shape {
+                            Shape::Polygon(_) => {
+                                row_crossings.partition_point(|x| *x <= column as f64) % 2 == 1
+                            }
+                            _ => shape.exposes(row, column),
+                        },
+                    );
                 let marked = overlays
                     && self
                         .overlays
@@ -208,6 +245,8 @@ fn overlay(
         .and_then(|n| n.checked_mul(u64::from(frames.map_or(1, |(_, count)| count))))
         .filter(|n| *n <= MAX_OVERLAY_BITS)
         .ok_or(())?;
+    // Keep only the bytes the declared planes use, not trailing padding.
+    let needed = bits.div_ceil(8) as usize;
     let bytes: Vec<u8> = match object
         .element(tag(0x3000))
         .map_err(|_| ())?
@@ -215,14 +254,15 @@ fn overlay(
         .primitive()
         .ok_or(())?
     {
-        PrimitiveValue::U8(values) => values.to_vec(),
+        PrimitiveValue::U8(values) if values.len() >= needed => values[..needed].to_vec(),
         // OW cells start in the low bit of each native word.
-        PrimitiveValue::U16(values) => values.iter().flat_map(|w| w.to_le_bytes()).collect(),
+        PrimitiveValue::U16(values) if values.len() * 2 >= needed => values
+            .iter()
+            .flat_map(|w| w.to_le_bytes())
+            .take(needed)
+            .collect(),
         _ => return Err(()),
     };
-    if (bytes.len() as u64) < bits.div_ceil(8) {
-        return Err(());
-    }
     Ok(Some(Overlay {
         rows: rows as u32,
         columns: columns as u32,
