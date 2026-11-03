@@ -36,6 +36,56 @@ pub fn reveal_focus(ui: &egui::Ui) {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+struct FocusReturn {
+    /// Last focused control in the main window's panels.
+    main: Option<egui::Id>,
+    /// Focus left the main window while a dialog or popup was open.
+    pending: bool,
+}
+
+/// Call once per frame after all UI. When the dialogs and popups that took
+/// keyboard focus from the main window have closed, focus returns to the
+/// main-window control focused before them, usually the one that opened them.
+/// Focus the user moved within the main window is left alone.
+pub fn return_focus(ctx: &egui::Context) {
+    let key = egui::Id::new("openradview-focus-return");
+    let mut state: FocusReturn = ctx.data(|data| data.get_temp(key)).unwrap_or_default();
+    let focused = ctx.memory(|memory| memory.focused()).and_then(|id| {
+        ctx.read_response(id)
+            .map(|response| (id, response.layer_id))
+    });
+    // Windows sit in the middle order and popups in the foreground; tooltips
+    // and the main panels do not take focus away.
+    let dialog_open = ctx.memory(|memory| {
+        memory
+            .areas()
+            .visible_layer_ids()
+            .iter()
+            .any(|layer| matches!(layer.order, egui::Order::Middle | egui::Order::Foreground))
+    });
+    match focused {
+        Some((id, layer)) if layer.order == egui::Order::Background => {
+            state = FocusReturn {
+                main: Some(id),
+                pending: false,
+            };
+        }
+        Some(_) => state.pending = true,
+        None if dialog_open => state.pending |= state.main.is_some(),
+        None => {
+            if std::mem::take(&mut state.pending)
+                && let Some(main) = state.main
+                && ctx.read_response(main).is_some()
+            {
+                ctx.memory_mut(|memory| memory.request_focus(main));
+                ctx.request_repaint();
+            }
+        }
+    }
+    ctx.data_mut(|data| data.insert_temp(key, state));
+}
+
 #[cfg(feature = "mcp")]
 pub fn heading(ui: &mut egui::Ui, title: &str) -> bool {
     ui.horizontal(|ui| {
@@ -51,6 +101,70 @@ pub fn heading(ui: &mut egui::Ui, title: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn closing_a_focused_dialog_returns_focus_to_its_opener_but_not_while_it_stays_open() {
+        let ctx = egui::Context::default();
+        let mut open = false;
+        let ids = std::cell::Cell::new((egui::Id::NULL, egui::Id::NULL));
+        let mut time = 0.;
+        let mut render = |focus_opener: bool, focus_dialog: bool, close: bool| {
+            // Advance past the window's closing fade.
+            time += 1.;
+            let input = egui::RawInput {
+                time: Some(time),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    let opener = ui.button("Image info…");
+                    let _ = ui.button("Other control");
+                    if focus_opener {
+                        opener.request_focus();
+                        open = true;
+                    }
+                    ids.set((opener.id, ids.get().1));
+                });
+                if close {
+                    open = false;
+                }
+                window("Focus test", ui.ctx())
+                    .open(&mut open)
+                    .show(ui.ctx(), |ui| {
+                        let inside = ui.button("Inside");
+                        if focus_dialog {
+                            inside.request_focus();
+                        }
+                        ids.set((ids.get().0, inside.id));
+                    });
+                return_focus(ui.ctx());
+            });
+            output.textures_delta.clear();
+            ctx.memory(|memory| memory.focused())
+        };
+        render(true, false, false);
+        render(false, true, false);
+        assert_eq!(render(false, false, false), Some(ids.get().1));
+        // Clicking away inside an open dialog does not jump focus behind it.
+        ctx.memory_mut(|memory| memory.surrender_focus(ids.get().1));
+        render(false, false, false);
+        assert_eq!(render(false, false, false), None);
+        render(false, true, false);
+        render(false, false, true);
+        render(false, false, false);
+        assert_eq!(render(false, false, false), Some(ids.get().0));
+        // Opening can drop focus before it ever enters the dialog.
+        render(true, false, false);
+        ctx.memory_mut(|memory| memory.surrender_focus(ids.get().0));
+        render(false, false, false);
+        render(false, false, true);
+        render(false, false, false);
+        assert_eq!(render(false, false, false), Some(ids.get().0));
+        // Without a dialog, focus cleared in the main window stays cleared.
+        ctx.memory_mut(|memory| memory.surrender_focus(ids.get().0));
+        for _ in 0..3 {
+            assert_eq!(render(false, false, false), None);
+        }
+    }
     #[test]
     fn tab_reveals_a_dialog_control_below_the_fold_without_continuous_repaints() {
         let ctx = egui::Context::default();
