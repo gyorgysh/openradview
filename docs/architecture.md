@@ -462,6 +462,15 @@ and the sampling grid travel through scenes/snapshots; public image metadata doe
 not label them as measurement geometry. Measurements refuse projected frames.
 No full-depth projection buffer, source copy or persistence is introduced.
 
+A core-only curved reformat prototype samples a scalar volume along a bounded
+manual polyline (at most 256 points, 2048 pixels a side, 4 Mi samples). Columns
+follow arc length; rows follow a fixed reference direction projected
+perpendicular to each segment, and curves nearly parallel to it are refused.
+Repeated points are dropped. Values use the validity-aware trilinear sampler, so
+missing and outside samples stay missing. The result has no planar geometry,
+which keeps measurements unavailable, and exposes an exact source position per
+pixel plus a curve/sampling digest. It has no desktop editor or export yet.
+
 Optional physical LPS clipping intersects the original affine source ray domain
 before sampling. It changes neither source data nor opacity distance units; its
 validated bounds participate in scene hashes, exact approval and snapshots.
