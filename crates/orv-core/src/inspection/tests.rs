@@ -7,6 +7,8 @@ fn image(width: u32, values: &[f32]) -> Frame {
     Frame {
         presentation: None,
         calibration: None,
+        projection: None,
+        sop: None,
         slab: None,
         scalar: None,
         validity: None,

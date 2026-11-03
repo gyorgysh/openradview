@@ -32,6 +32,7 @@ pub(super) struct Header {
     pub float_padding: Option<crate::dicom_float::Padding>,
     pub presentation: Option<Arc<crate::presentation::Layers>>,
     pub calibration: Option<Arc<crate::calibration::Calibration>>,
+    pub projection: Option<Arc<crate::inspection::ProjectionLabels>>,
     pub width: u32,
     pub height: u32,
     pub frames: u32,
@@ -427,6 +428,7 @@ fn read_header_inner(
     let scalar = crate::dicom_voi::read(&object, frames as u32, float, &cancelled)?;
     let presentation = crate::presentation::read(&object, frames as u32)?;
     let calibration = crate::calibration::read(&object, width as u32, height as u32);
+    let projection = crate::inspection::projection_labels(&object);
     // Layers hold the used overlay bits; drop the encoded copies from the
     // retained object. Import already charged the full prefix length.
     let mut object = object;
@@ -459,6 +461,7 @@ fn read_header_inner(
         float_padding,
         presentation,
         calibration,
+        projection,
         width: width as u32,
         height: height as u32,
         frames: frames as u32,

@@ -180,6 +180,7 @@ pub(super) fn read_headers(
                 float_padding: None,
                 presentation: None,
                 calibration: None,
+                projection: None,
                 format: Format::Nifti(Nifti {
                     datatype,
                     slope,

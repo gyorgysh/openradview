@@ -18,6 +18,10 @@ comparison mode and better keyboard use in small windows.
   file has them. Variants that aren't supported are refused with a reason.
 - **Ultrasound distances.** Distances and angles on ultrasound images use the
   calibrated regions stored in the file, when all points lie in one region.
+- **More public examples.** Four new built-in examples: a mammogram, an
+  ultrasound image, a whole-body PET, and a prostate MRI with an AI-made mask you
+  can load from Labels… → Supplied masks. The example picker is now grouped by
+  kind of image.
 - **Mammography and X-ray labels.** Mammograms are recognized as MG. When a
   2D image states its side, view (such as MLO) and patient orientation, Image
   info shows them and the image edges show the orientation letters.

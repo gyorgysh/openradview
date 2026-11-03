@@ -852,3 +852,31 @@ fn label_maps_supply_every_listed_plane_for_every_segment_without_overlap() {
         );
     }
 }
+#[test]
+fn embedded_mask_bytes_follow_the_same_association_rules_as_selected_files() {
+    let temp = Temp::new();
+    let study = sources(&temp);
+    let series = &study.series[0];
+    let mut bytes = Vec::new();
+    mask().write_all(&mut bytes).unwrap();
+    let from_bytes = crate::index::read_segmentation_bytes(&bytes, series, || false).unwrap();
+    let from_file = read_segmentation(&write_mask(&temp, &mask()), series, || false).unwrap();
+    assert_eq!(
+        from_bytes.infos().collect::<Vec<_>>(),
+        from_file.infos().collect::<Vec<_>>()
+    );
+    bytes.extend([0, 0]);
+    assert!(crate::index::read_segmentation_bytes(&bytes, series, || false).is_err());
+    let mut wrong = mask();
+    wrong.put_str(Tag(0x20, 0x52), VR::UI, "2.25.88888");
+    let mut bytes = Vec::new();
+    wrong.write_all(&mut bytes).unwrap();
+    assert_eq!(
+        crate::index::read_segmentation_bytes(&bytes, series, || false).err(),
+        Some(SegmentationError::Geometry)
+    );
+    assert_eq!(
+        crate::index::read_segmentation_bytes(&bytes, series, || true).err(),
+        Some(SegmentationError::Cancelled)
+    );
+}

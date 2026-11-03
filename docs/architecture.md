@@ -85,6 +85,10 @@ syntax admission precedes dataset parsing. File/source identity checks surround
 import, resources are admitted before parsing/reading, and public results retain
 numeric IDs and masks without source UIDs or segment descriptions. Desktop import
 is an explicit selected-file action, separate from ordinary image catalogue admission.
+Series decoded in memory, such as the bundled demos, have no indexed headers;
+each of their frames keeps its SOP class, instance and object frame count so the
+same explicit references can be followed. An embedded demo mask is read from the
+app's own bytes through the same checks, without writing a file.
 FRACTIONAL frames are thresholded to bits at or above half the declared maximum
 before the same model is built. LABELMAP frames name no segment: each listed plane
 is supplied for every declared segment, zero is background, an undeclared value is

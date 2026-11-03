@@ -4,15 +4,9 @@ use crate::{annotations, theme};
 use eframe::egui::{self, Align2, FontId, Rect};
 use orv_core::{ViewState, inspection, study::Frame};
 
-/// `declared` supplies edge letters from a 2D image's own patient orientation
-/// when it has no plane geometry; they are shown as declared, not computed.
-pub fn draw(
-    ui: &egui::Ui,
-    response: &egui::Response,
-    image: &Frame,
-    view: &ViewState,
-    declared: Option<&inspection::ProjectionLabels>,
-) {
+/// A 2D image without plane geometry may supply edge letters from its own
+/// declared patient orientation; they are shown as declared, not computed.
+pub fn draw(ui: &egui::Ui, response: &egui::Response, image: &Frame, view: &ViewState) {
     let rect = response.rect;
     if rect.width() < 120. || rect.height() < 80. {
         return;
@@ -30,7 +24,7 @@ pub fn draw(
         .and_then(inspection::edge_directions);
     let has_geometry = computed.is_some();
     if let Some(directions) =
-        computed.or_else(|| declared.and_then(inspection::ProjectionLabels::edges))
+        computed.or_else(|| image.projection.as_ref().and_then(|labels| labels.edges()))
     {
         let edges = rect.shrink(8.);
         for ((position, align), text) in [
@@ -148,13 +142,15 @@ mod tests {
             orientation: Some(["A".into(), "FR".into()]),
         };
         let ctx = egui::Context::default();
-        let texts = |declared: Option<&inspection::ProjectionLabels>| {
+        let texts = |declared: Option<inspection::ProjectionLabels>| {
+            let mut image = image.clone();
+            image.projection = declared.map(std::sync::Arc::new);
             let mut out = ctx.run_ui(Default::default(), |ui| {
                 let response = ui.allocate_rect(
                     Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400., 300.)),
                     egui::Sense::hover(),
                 );
-                draw(ui, &response, &image, &ViewState::default(), declared);
+                draw(ui, &response, &image, &ViewState::default());
             });
             out.textures_delta.clear();
             let mut texts: Vec<String> = out
@@ -168,7 +164,7 @@ mod tests {
             texts.sort();
             texts
         };
-        assert_eq!(texts(Some(&declared)), ["A", "FR", "HL", "P"]);
+        assert_eq!(texts(Some(declared)), ["A", "FR", "HL", "P"]);
         assert!(texts(None).is_empty());
     }
     #[test]

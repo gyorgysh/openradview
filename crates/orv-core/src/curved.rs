@@ -213,6 +213,8 @@ pub fn reformat(
         frame: Arc::new(Frame {
             presentation: None,
             calibration: None,
+            projection: None,
+            sop: None,
             slab: None,
             scalar: source.scalar.as_ref().map(|data| data.resampled()),
             validity: None,

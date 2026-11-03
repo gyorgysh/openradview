@@ -41,6 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(Frame {
                 presentation: None,
                 calibration: None,
+                projection: None,
+                sop: None,
                 slab: None,
                 scalar: None,
                 validity: mask.clone(),

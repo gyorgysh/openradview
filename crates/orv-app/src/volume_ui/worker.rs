@@ -145,6 +145,8 @@ mod range_tests {
                     Arc::new(Frame {
                         presentation: None,
                         calibration: None,
+                        projection: None,
+                        sop: None,
                         slab: None,
                         scalar: None,
                         validity: Some([0, 1, 1, 1].into()),

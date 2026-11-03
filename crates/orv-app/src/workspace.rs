@@ -469,7 +469,9 @@ impl Workspace {
             self.pause_playback();
         }
         if !blocked && self.mode != ViewMode::Compare {
-            self.labels.window(ui.ctx(), self.selected, series, slice);
+            let demo_mask = self.demo.and_then(crate::demos::Demo::mask);
+            self.labels
+                .window(ui.ctx(), self.selected, series, slice, demo_mask);
         }
         crate::actions::view_input_enabled(
             ui.ctx(),
@@ -586,11 +588,15 @@ impl Workspace {
             }
             ui.add_enabled_ui(self.loading.is_none(), |ui| {
                 ui.menu_button("Demos", |ui| {
-                    for demo in crate::demos::Demo::ALL {
-                        if ui.button(demo.title()).clicked() {
-                            self.begin(Source::Demo(demo), &ctx);
-                            ui.close();
+                    for group in crate::demos::Group::ALL {
+                        theme::eyebrow(ui, &group.title().to_uppercase());
+                        for demo in group.demos() {
+                            if ui.button(demo.title()).clicked() {
+                                self.begin(Source::Demo(demo), &ctx);
+                                ui.close();
+                            }
                         }
+                        ui.add_space(4.0);
                     }
                     ui.separator();
                     if ui.button("Source credits").clicked() {
@@ -778,8 +784,17 @@ impl Workspace {
     }
     fn empty(&mut self, ui: &mut egui::Ui, seconds: f32, reduce_motion: bool) {
         let height = ui.available_height();
+        // Short windows scroll the picker instead of clipping its last group.
+        egui::ScrollArea::vertical()
+            .id_salt("empty-study")
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                self.empty_content(ui, height, seconds, reduce_motion)
+            });
+    }
+    fn empty_content(&mut self, ui: &mut egui::Ui, height: f32, seconds: f32, reduce_motion: bool) {
         ui.vertical_centered(|ui| {
-            ui.add_space((height - 340.0).max(0.0) / 2.0);
+            ui.add_space((height - 620.0).max(0.0) / 2.0);
             brand::symbol(ui, 80.0, seconds, reduce_motion);
             ui.add_space(24.0);
             ui.heading("Open a study");
@@ -789,14 +804,31 @@ impl Workspace {
             );
             ui.add_space(24.0);
             ui.label("Explore real scans");
-            for demo in crate::demos::Demo::ALL {
-                if ui
-                    .add_enabled(self.loading.is_none(), egui::Button::new(demo.title()))
-                    .clicked()
-                {
-                    self.begin(Source::Demo(demo), ui.ctx());
-                }
-            }
+            ui.add_space(8.0);
+            let width = ui.available_width().min(560.0);
+            let gap = 8.0;
+            let card = (width - gap) / 2.0;
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, 0.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    for group in crate::demos::Group::ALL {
+                        theme::eyebrow(ui, &group.title().to_uppercase());
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = gap;
+                            for demo in group.demos() {
+                                if crate::demos::card(ui, demo, card, self.loading.is_none())
+                                    .on_hover_text(demo.credit())
+                                    .clicked()
+                                {
+                                    self.begin(Source::Demo(demo), ui.ctx());
+                                }
+                            }
+                        });
+                        ui.add_space(10.0);
+                    }
+                },
+            );
             ui.label(
                 RichText::new("Public, de-identified research scans · included offline")
                     .small()

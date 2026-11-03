@@ -37,6 +37,8 @@ fn phantom(missing: bool) -> Volume {
                 Arc::new(Frame {
                     presentation: None,
                     calibration: None,
+                    projection: None,
+                    sop: None,
                     slab: None,
                     scalar: None,
                     validity: missing.then(|| vec![0; 81].into()),

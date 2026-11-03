@@ -203,6 +203,42 @@ fn source_references(source: &IndexedSeries, cancel: &impl Fn() -> bool) -> Resu
     }
     Ok(References { planes, single })
 }
+fn memory_references(series: &Series, cancel: &impl Fn() -> bool) -> Result<References> {
+    let mut planes = HashMap::new();
+    planes
+        .try_reserve(series.frames.len())
+        .map_err(|_| SegmentationError::Limit)?;
+    let mut single = HashSet::new();
+    for (original, frame) in series.frames.iter().enumerate() {
+        if cancel() {
+            return Err(SegmentationError::Cancelled);
+        };
+        let sop = frame.sop.as_ref().ok_or(SegmentationError::Association)?;
+        let geometry = frame.geometry.clone().ok_or(SegmentationError::Geometry)?;
+        if sop.frames == 1 {
+            single.insert((sop.class.clone(), sop.instance.clone()));
+        }
+        let key = (
+            sop.class.clone(),
+            sop.instance.clone(),
+            frame.frame_index + 1,
+        );
+        if planes
+            .insert(
+                key,
+                SourcePlane {
+                    original,
+                    geometry,
+                    size: [frame.width, frame.height],
+                },
+            )
+            .is_some()
+        {
+            return Err(SegmentationError::Association);
+        };
+    }
+    Ok(References { planes, single })
+}
 fn verify_sources(source: &IndexedSeries, cancel: &impl Fn() -> bool) -> Result<()> {
     let mut seen = HashSet::new();
     seen.try_reserve(source.frames.len())
@@ -307,18 +343,30 @@ pub fn read_segmentation(
         result
     }
 }
+/// Worker-only import of a mask object embedded in the app, such as a bundled
+/// demo. The same association and resource checks apply; nothing is written to disk.
+pub fn read_segmentation_bytes(
+    bytes: &[u8],
+    series: &Series,
+    cancelled: impl Fn() -> bool,
+) -> Result<Segments> {
+    let result = read_body(
+        std::io::Cursor::new(bytes),
+        bytes.len() as u64,
+        series,
+        &cancelled,
+        |_| Ok(()),
+    );
+    if cancelled() {
+        Err(SegmentationError::Cancelled)
+    } else {
+        result
+    }
+}
 fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Result<Segments> {
     if cancel() {
         return Err(SegmentationError::Cancelled);
     };
-    crate::resources::refresh_memory_policy();
-    let source = series
-        .source
-        .as_ref()
-        .ok_or(SegmentationError::Association)?;
-    if source.is_empty() || source.len() > MAX_FRAMES {
-        return Err(SegmentationError::Limit);
-    }
     let before = fs::symlink_metadata(path).map_err(|_| SegmentationError::Io)?;
     if !before.is_file() || before.file_type().is_symlink() {
         return Err(SegmentationError::Io);
@@ -331,11 +379,55 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
     if Stamp::new(&file.metadata().map_err(|_| SegmentationError::Io)?) != stamp {
         return Err(SegmentationError::Changed);
     };
+    read_body(
+        BufReader::new(file),
+        before.len(),
+        series,
+        cancel,
+        |reader: &BufReader<fs::File>| {
+            let after = fs::symlink_metadata(path).map_err(|_| SegmentationError::Changed)?;
+            if !after.is_file()
+                || after.file_type().is_symlink()
+                || Stamp::new(&after) != stamp
+                || Stamp::new(
+                    &reader
+                        .get_ref()
+                        .metadata()
+                        .map_err(|_| SegmentationError::Io)?,
+                ) != stamp
+            {
+                return Err(SegmentationError::Changed);
+            };
+            Ok(())
+        },
+    )
+}
+/// `unchanged` runs after the payload is read and refuses a replaced input.
+fn read_body<R: Read>(
+    mut reader: R,
+    length: u64,
+    series: &Series,
+    cancel: &impl Fn() -> bool,
+    unchanged: impl FnOnce(&R) -> Result<()>,
+) -> Result<Segments> {
+    if cancel() {
+        return Err(SegmentationError::Cancelled);
+    };
+    crate::resources::refresh_memory_policy();
+    // Indexed series associate through their private headers; series decoded
+    // in memory, such as bundled demos, through each frame's SOP reference.
+    let source = series.source.as_ref();
+    let source_frames = source.map_or(series.frames.len(), |source| source.len());
+    if source_frames == 0 || source_frames > MAX_FRAMES {
+        return Err(SegmentationError::Limit);
+    }
+    if length > MAX_INPUT_BYTES as u64 + 8 * 1024 * 1024 {
+        return Err(SegmentationError::Limit);
+    };
     // Prefix buffer, parsed object, temporary reference maps and conversion headroom.
     let _scratch = MemoryBudget::volumes()
-        .reserve(before.len().min(8 * 1024 * 1024) * 12 + 8 * 1024 * 1024)
+        .reserve(length.min(8 * 1024 * 1024) * 12 + 8 * 1024 * 1024)
         .ok_or(SegmentationError::Limit)?;
-    let mut reader = BufReader::new(file);
     let mut reason = SkipReason::UnrecognizedInput;
     let prefix = header::read_prefix_with_syntax(
         &mut reader,
@@ -452,11 +544,14 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
     }
     if prefix.pixel_vr == dicom_core::VR::OF
         || prefix.pixel_length != Some(expected as u64)
-        || prefix.pixel_offset.checked_add(expected as u64) != Some(before.len())
+        || prefix.pixel_offset.checked_add(expected as u64) != Some(length)
     {
         return Err(SegmentationError::Encoding);
     };
-    let references = source_references(source, cancel)?;
+    let references = match source {
+        Some(source) => source_references(source, cancel)?,
+        None => memory_references(series, cancel)?,
+    };
     let shared = item(root, SHARED)?.ok_or(SegmentationError::Metadata)?;
     let per_frame = if root.element(PER_FRAME).is_ok() {
         let values = sequence(root, PER_FRAME)?;
@@ -500,14 +595,16 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
         };
         associated.push((number, reference.original));
     }
-    let volume = match source.volume(cancel) {
+    let volume = match series.volume(cancel) {
         Ok(volume) => volume,
         Err(_) => {
-            verify_sources(source, cancel)?;
+            if let Some(source) = source {
+                verify_sources(source, cancel)?;
+            }
             return Err(SegmentationError::Preparation);
         }
     };
-    if volume.source_frames().len() != source.frames.len() {
+    if volume.source_frames().len() != source_frames {
         return Err(SegmentationError::Association);
     };
     let mut sorted = HashMap::new();
@@ -542,20 +639,10 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
             .read_exact(block)
             .map_err(|_| SegmentationError::Io)?;
     }
-    let after = fs::symlink_metadata(path).map_err(|_| SegmentationError::Changed)?;
-    if !after.is_file()
-        || after.file_type().is_symlink()
-        || Stamp::new(&after) != stamp
-        || Stamp::new(
-            &reader
-                .get_ref()
-                .metadata()
-                .map_err(|_| SegmentationError::Io)?,
-        ) != stamp
-    {
-        return Err(SegmentationError::Changed);
-    };
-    verify_sources(source, cancel)?;
+    unchanged(&reader)?;
+    if let Some(source) = source {
+        verify_sources(source, cancel)?;
+    }
     let overlap = if root.element(Tag(0x62, 0x13)).is_ok() {
         match text(root, Tag(0x62, 0x13))?.as_str() {
             "YES" => Some(true),

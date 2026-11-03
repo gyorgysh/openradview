@@ -36,6 +36,47 @@ positive rural U.S. population. https://doi.org/10.1038/s41597-020-00741-6
 Acknowledgement: NCATS UL1 TR003107 and NCI Contract 75N91019D00024,
 Subcontract 20X023F.
 
+Mammogram: CMMD (4 images), CC BY 4.0
+Cui, C., Li, L., Cai, H., Fan, Z., Zhang, L., Dan, T., Li, J., Wang, J. (2021).
+The Chinese Mammography Database (CMMD): An online mammography database with
+biopsy confirmed types for machine diagnosis of breast [Data set].
+The Cancer Imaging Archive. https://doi.org/10.7937/tcia.eqde-4b16
+https://www.cancerimagingarchive.net/collection/cmmd/
+https://creativecommons.org/licenses/by/4.0/
+
+Ultrasound: CMB-MEL (13 images), CC BY 4.0
+Cancer Moonshot Biobank. (2022). Cancer Moonshot Biobank - Melanoma Collection
+(CMB-MEL) [Data set]. The Cancer Imaging Archive.
+https://doi.org/10.7937/gwsp-wh72
+https://www.cancerimagingarchive.net/collection/cmb-mel/
+https://creativecommons.org/licenses/by/4.0/
+The public imaging series is CC BY 4.0. The collection's clinical and genomic
+data follow a separate NIH controlled-access policy and are not included.
+
+Whole-body PET: ACRIN-NSCLC-FDG-PET (172 images), CC BY 3.0
+Kinahan, P., Muzi, M., Bialecki, B., Herman, B., Coombs, L. (2019). Positron
+Emission Tomography Pre- and Post-treatment Assessment for Locally Advanced
+Nonsmall Cell Lung Carcinoma (ACRIN 6668) [Data set]. The Cancer Imaging Archive.
+https://doi.org/10.7937/tcia.2019.30ilqfcl
+https://www.cancerimagingarchive.net/collection/acrin-nsclc-fdg-pet/
+https://creativecommons.org/licenses/by/3.0/
+
+Prostate MRI: ProstateX (19 images), CC BY 3.0
+Litjens, G., Debats, O., Barentsz, J., Karssemeijer, N., Huisman, H. (2017).
+SPIE-AAPM PROSTATEx Challenge Data [Data set]. The Cancer Imaging Archive.
+https://doi.org/10.7937/k9tcia.2017.murs5cl
+https://www.cancerimagingarchive.net/collection/prostatex/
+https://creativecommons.org/licenses/by/3.0/
+
+Prostate mask: BAMF AIMI annotations (1 DICOM SEG), CC BY 4.0
+Van Oss, J., Murugesan, G. K., McCrumb, D., Soni, R. (2024). Image segmentations
+produced by BAMF under the AIMI Annotations initiative (v2.0.2) [Data set].
+Zenodo. https://doi.org/10.5281/zenodo.8345959
+https://creativecommons.org/licenses/by/4.0/
+The mask was produced by an AI model outside OpenRadView and is distributed by
+IDC as an analysis result. OpenRadView runs no model. It is an example of a
+supplied mask, not a reviewed or clinical segmentation.
+
 Repository acknowledgement
 Clark et al. (2013). The Cancer Imaging Archive (TCIA): maintaining and operating
 a public information repository. Journal of Digital Imaging, 26(6), 1045–1057.
@@ -45,7 +86,11 @@ https://portal.imaging.datacommons.cancer.gov/
 
 Changes by OpenRadView
 Only display, pixel encoding, series grouping and physical geometry tags are
-retained. Patient names/IDs, dates, institutions and private tags are omitted.
+retained, plus declared laterality, view and patient orientation (mammogram),
+ultrasound region calibration and PET units where those examples need them.
+The ultrasound example omits the series' two colour images, which lack a
+required pixel description.
+The prostate mask keeps its segment, frame and source-reference sequences. Patient names/IDs, dates, institutions and private tags are omitted.
 Pixels, dimensions, source UIDs and physical geometry are unchanged. ZIPs use
 generic filenames. Exact provenance/hashes: assets/demos/manifest.json.
 Retained tags: scripts/datasets/prepare.py. No pixel redaction or resampling.

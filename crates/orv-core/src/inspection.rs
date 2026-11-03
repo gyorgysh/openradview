@@ -108,6 +108,69 @@ impl ProjectionLabels {
         (!parts.is_empty()).then(|| parts.join(" · "))
     }
 }
+/// Declared labels of an image object, or None when it states none of them.
+pub(crate) fn projection_labels(
+    object: &dicom_object::InMemDicomObject,
+) -> Option<std::sync::Arc<ProjectionLabels>> {
+    let text = |group: u16, element: u16| {
+        object
+            .element(dicom_core::Tag(group, element))
+            .ok()
+            .and_then(|e| e.to_str().ok())
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+    };
+    let laterality = text(0x20, 0x62)
+        .or_else(|| text(0x20, 0x60))
+        .and_then(|value| match value.as_str() {
+            "R" => Some("R"),
+            "L" => Some("L"),
+            "B" => Some("Both sides"),
+            "U" => Some("Unpaired"),
+            _ => None,
+        });
+    let view = text(0x18, 0x5101)
+        .filter(|value| {
+            value.len() <= 16
+                && value
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_' || c == ' ')
+        })
+        .or_else(|| coded_view(object));
+    let orientation = text(0x20, 0x20)
+        .and_then(|value| patient_orientation(&value.split('\\').collect::<Vec<_>>()));
+    let labels = ProjectionLabels {
+        laterality,
+        view,
+        orientation,
+    };
+    (!labels.is_empty()).then(|| std::sync::Arc::new(labels))
+}
+/// Mammography views coded in View Code Sequence (PS3.16 CID 4014), as SNOMED CT
+/// or the retired SNOMED RT values. Other codes are ignored rather than shown.
+fn coded_view(object: &dicom_object::InMemDicomObject) -> Option<String> {
+    let items = object
+        .element(dicom_core::Tag(0x54, 0x220))
+        .ok()?
+        .value()
+        .items()?;
+    let [item] = items else {
+        return None;
+    };
+    let code = item
+        .element(dicom_core::Tag(8, 0x100))
+        .ok()?
+        .to_str()
+        .ok()?;
+    let view = match code.trim() {
+        "399162004" | "R-10242" => "CC",
+        "399368009" | "R-10226" => "MLO",
+        "399260004" | "R-10224" => "ML",
+        "399352003" | "R-10228" => "LM",
+        _ => return None,
+    };
+    Some(view.to_owned())
+}
 /// Parse declared patient orientation: two values of one to three distinct-axis
 /// letters from A, P, R, L, H and F. Anything else is ignored rather than guessed.
 pub fn patient_orientation(values: &[&str]) -> Option<[String; 2]> {

@@ -12,6 +12,8 @@ fn oversized_source_is_rejected_before_creating_a_gpu_texture() {
                     Arc::new(Frame {
                         presentation: None,
                         calibration: None,
+                        projection: None,
+                        sop: None,
                         slab: None,
                         scalar: None,
                         validity: None,
