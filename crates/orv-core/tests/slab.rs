@@ -60,7 +60,11 @@ fn slab_extrema_match_independent_negative_affine_phantom_with_shear_and_rotated
     let volume = phantom(false);
     for angles in [[0.; 3], [23., -19., 11.]] {
         let plane = ObliquePlane::from_angles(volume.center(), angles).unwrap();
-        for projection in [SlabProjection::Maximum, SlabProjection::Minimum] {
+        for projection in [
+            SlabProjection::Maximum,
+            SlabProjection::Minimum,
+            SlabProjection::Mean,
+        ] {
             let slab = Slab {
                 projection,
                 thickness_mm: 6.,
@@ -73,7 +77,7 @@ fn slab_extrema_match_independent_negative_affine_phantom_with_shear_and_rotated
             for y in 0..frame.height {
                 for x in 0..frame.width {
                     let center = g.pixel_to_world([f64::from(x), f64::from(y)]).unwrap();
-                    let expected = (0..=24)
+                    let values: Vec<f64> = (0..=24)
                         .filter_map(|i| {
                             let d = -3. + f64::from(i) * 0.25;
                             let p: [f64; 3] = std::array::from_fn(|a| center[a] + n[a] * d);
@@ -83,13 +87,13 @@ fn slab_extrema_match_independent_negative_affine_phantom_with_shear_and_rotated
                             ([sx, sy, z].iter().all(|v| *v >= 0. && *v <= 8.))
                                 .then_some(p[0] + 2. * p[1] - 3. * p[2] - 100.)
                         })
-                        .reduce(|a, b| {
-                            if projection == SlabProjection::Maximum {
-                                a.max(b)
-                            } else {
-                                a.min(b)
-                            }
-                        });
+                        .collect();
+                    let expected = (!values.is_empty()).then(|| match projection {
+                        SlabProjection::Maximum => values.iter().copied().fold(f64::MIN, f64::max),
+                        SlabProjection::Minimum => values.iter().copied().fold(f64::MAX, f64::min),
+                        // Arithmetic mean of only the valid discrete samples.
+                        SlabProjection::Mean => values.iter().sum::<f64>() / values.len() as f64,
+                    });
                     let actual = frame.pixels[(y * frame.width + x) as usize];
                     if let Some(expected) = expected {
                         present += 1;
@@ -120,8 +124,15 @@ fn slab_missing_samples_never_become_zero_and_cancellation_is_bounded() {
         thickness_mm: 2000.,
         intervals: 256,
     };
-    let frame = volume.reformat_slab(&plane, slab, 128, || false).unwrap();
-    assert!(frame.pixels.iter().all(|v| v.is_nan()));
+    for projection in [
+        SlabProjection::Maximum,
+        SlabProjection::Minimum,
+        SlabProjection::Mean,
+    ] {
+        let slab = Slab { projection, ..slab };
+        let frame = volume.reformat_slab(&plane, slab, 128, || false).unwrap();
+        assert!(frame.pixels.iter().all(|v| v.is_nan()), "{projection:?}");
+    }
     let checks = AtomicUsize::new(0);
     assert!(
         volume
@@ -163,7 +174,7 @@ fn slab_scene_hash_binds_sampling_parameters_and_refuses_ambiguous_planes() {
     let hash = scene.hash().unwrap();
     let encoded = serde_json::to_string(&scene).unwrap();
     assert_eq!(scene, serde_json::from_str(&encoded).unwrap());
-    for case in 0..4 {
+    for case in 0..5 {
         let mut changed = scene.clone();
         let Some(Reconstruction::Slab(state)) = &mut changed.reconstruction else {
             unreachable!()
@@ -172,6 +183,7 @@ fn slab_scene_hash_binds_sampling_parameters_and_refuses_ambiguous_planes() {
             0 => state.slab.thickness_mm += 1.,
             1 => state.slab.projection = SlabProjection::Maximum,
             2 => state.slab.intervals = 2,
+            3 => state.slab.projection = SlabProjection::Mean,
             _ => state.plane.center_mm[0] += 0.1,
         }
         assert_ne!(changed.hash().unwrap(), hash);
@@ -182,7 +194,7 @@ fn slab_scene_hash_binds_sampling_parameters_and_refuses_ambiguous_planes() {
 }
 
 #[test]
-fn finite_padding_cannot_win_extrema_and_rgb_slabs_are_refused() {
+fn finite_padding_cannot_win_extrema_or_enter_means_and_rgb_slabs_are_refused() {
     let original = phantom(false);
     let mut frames = original.frames().to_vec();
     let mut padded = (*frames[4]).clone();
@@ -191,7 +203,11 @@ fn finite_padding_cannot_win_extrema_and_rgb_slabs_are_refused() {
     frames[4] = Arc::new(padded);
     let volume = Volume::new(frames).unwrap();
     let plane = ObliquePlane::from_angles(volume.center(), [0.; 3]).unwrap();
-    for projection in [SlabProjection::Maximum, SlabProjection::Minimum] {
+    for projection in [
+        SlabProjection::Maximum,
+        SlabProjection::Minimum,
+        SlabProjection::Mean,
+    ] {
         let slab = Slab {
             projection,
             thickness_mm: 4.,
@@ -206,10 +222,11 @@ fn finite_padding_cannot_win_extrema_and_rgb_slabs_are_refused() {
             .pixel_to_world([f64::from(x), f64::from(y)])
             .unwrap();
         let expected = p[0] + 2. * p[1] - 3. * p[2] - 100.
-            + if projection == SlabProjection::Maximum {
-                6.
-            } else {
-                -6.
+            + match projection {
+                SlabProjection::Maximum => 6.,
+                SlabProjection::Minimum => -6.,
+                // The padded centre sample is excluded; ±6 average to zero.
+                SlabProjection::Mean => 0.,
             };
         assert!((f64::from(frame.pixels[(y * frame.width + x) as usize]) - expected).abs() < 3e-5);
     }

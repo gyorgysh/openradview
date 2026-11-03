@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Bounded discrete extrema of trilinear source samples along a physical normal.
+//! Bounded discrete extrema or mean of trilinear source samples along a physical normal.
 use crate::{oblique::ObliquePlane, spatial::GeometryError, volume::Volume};
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 pub enum SlabProjection {
     Maximum,
     Minimum,
+    /// Discrete mean of the valid samples, not an exact volume integral.
+    Mean,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

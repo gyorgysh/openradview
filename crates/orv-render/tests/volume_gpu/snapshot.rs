@@ -147,7 +147,11 @@ fn slab_gpu_snapshot_preserves_extrema_before_windowing_and_has_no_measurement_p
     // Independent affine phantom in world coordinates; source x+10y+100z.
     let slope = normal[0] + 10. * normal[1] / 1.5 + normal[2] * (50. - 0.125 - 5. / 3.);
     let mut renderer = pollster::block_on(SnapshotRenderer::new()).expect("Real GPU required");
-    for projection in [SlabProjection::Maximum, SlabProjection::Minimum] {
+    for projection in [
+        SlabProjection::Maximum,
+        SlabProjection::Minimum,
+        SlabProjection::Mean,
+    ] {
         let slab = Slab {
             projection,
             thickness_mm: 0.5,
@@ -172,11 +176,12 @@ fn slab_gpu_snapshot_preserves_extrema_before_windowing_and_has_no_measurement_p
         };
         let result = renderer.capture(&frame, &scene, || false).unwrap();
         let png = image::load_from_memory(&result.png).unwrap().to_rgba8();
+        // Symmetric samples of an affine field average to the centre value.
         let extreme = 166.5
-            + if projection == SlabProjection::Maximum {
-                slope.abs() * 0.25
-            } else {
-                -slope.abs() * 0.25
+            + match projection {
+                SlabProjection::Maximum => slope.abs() * 0.25,
+                SlabProjection::Minimum => -slope.abs() * 0.25,
+                SlabProjection::Mean => 0.,
             };
         let expected = (1. - f64::from(scene.view.window.normalize(extreme as f32))) * 255.;
         assert_gray(&png.get_pixel(15, 15).0, expected);

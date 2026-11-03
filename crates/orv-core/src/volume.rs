@@ -412,6 +412,9 @@ impl Volume {
                 let center = add(row, mul(du, x as f64));
                 let value = if let Some(slab) = slab {
                     let mut extreme: Option<f32> = None;
+                    // At most 257 finite f32 samples: an f64 sum cannot overflow
+                    // and stays well inside f32 output precision.
+                    let (mut sum, mut count) = (0f64, 0u32);
                     for i in 0..=slab.intervals {
                         if i % 16 == 0 && cancel() {
                             return Err(GeometryError::Cancelled);
@@ -419,13 +422,22 @@ impl Volume {
                         let distance =
                             slab.thickness_mm * (f64::from(i) / f64::from(slab.intervals) - 0.5);
                         if let Some(value) = self.sample_voxel(add(center, mul(normal, distance))) {
+                            sum += f64::from(value);
+                            count += 1;
                             extreme = Some(extreme.map_or(value, |old| match slab.projection {
                                 crate::slab::SlabProjection::Maximum => old.max(value),
                                 crate::slab::SlabProjection::Minimum => old.min(value),
+                                crate::slab::SlabProjection::Mean => old,
                             }));
                         }
                     }
-                    extreme
+                    // An all-missing ray stays missing for every projection.
+                    match slab.projection {
+                        crate::slab::SlabProjection::Mean => {
+                            (count > 0).then(|| (sum / f64::from(count)) as f32)
+                        }
+                        _ => extreme,
+                    }
                 } else {
                     self.sample_voxel(center)
                 };

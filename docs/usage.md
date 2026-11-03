@@ -58,8 +58,9 @@ the loaded volume; drag to orbit, and use the named transfer presets/controls.
 MPR and projections require consistent geometry and a volume within the budget.
 Their interpolated values can differ from source pixels. In compact windows,
 **Display and tools** opens a scrollable panel that leaves room for the images.
-For scalar MPR/oblique views, choose **Slab MIP** or **Slab MinIP** and a physical
-thickness. These show discrete maximum/minimum values along the plane normal,
+For scalar MPR/oblique views, choose **Slab MIP**, **Slab MinIP** or **Slab mean** and a
+physical thickness. These show the discrete maximum, minimum or mean of valid
+samples along the plane normal,
 with the sample count shown. A smaller preview refines after interaction stops.
 At most 257 samples span a slab, so features between samples can be missed.
 Slabs disable physical measurements; choose **Thin plane** to measure again. **Clipping…** in 3D/MIP

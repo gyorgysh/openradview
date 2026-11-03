@@ -13,11 +13,13 @@ pub fn show(ui: &mut egui::Ui, slab: &mut Option<Slab>, volume: &Volume) -> bool
                 None => "Thin plane",
                 Some(SlabProjection::Maximum) => "Slab MIP",
                 Some(SlabProjection::Minimum) => "Slab MinIP",
+                Some(SlabProjection::Mean) => "Slab mean",
             })
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut projection, None, "Thin plane");
                 ui.selectable_value(&mut projection, Some(SlabProjection::Maximum), "Slab MIP");
                 ui.selectable_value(&mut projection, Some(SlabProjection::Minimum), "Slab MinIP");
+                ui.selectable_value(&mut projection, Some(SlabProjection::Mean), "Slab mean");
             });
         match projection {
             None => *slab = None,
@@ -37,7 +39,7 @@ pub fn show(ui: &mut egui::Ui, slab: &mut Option<Slab>, volume: &Volume) -> bool
                 }
                 if let Some(slab) = slab {
                     ui.label(format!("{} samples · projection; measurement off", slab.intervals + 1))
-                    .on_hover_text("Discrete extrema along the physical normal, including both boundaries and the center. At most 257 samples; thick slabs can miss features between samples. Preview uses fewer samples until interaction stops.");
+                    .on_hover_text("Discrete extrema or mean of valid samples along the physical normal, including both boundaries and the center. The mean is a sample average, not an exact volume integral. At most 257 samples; thick slabs can miss features between samples. Preview uses fewer samples until interaction stops.");
                 }
             }
         }

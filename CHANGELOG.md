@@ -5,6 +5,8 @@
 - Open supported integer DICOM modality tables, with declared units, stored-code
   padding and endpoint clipping. Apply them before interpolation and VOI display;
   preserve uniform mapping context in reformats and picture metadata.
+- Add a mean slab beside MIP and MinIP for scalar MPR and oblique views. It
+  averages valid samples only; an all-missing ray stays missing.
 - Apply a single linear DICOM real-world value mapping to stored integer or float
   values, with its declared units. Alternative mappings are still refused.
 - Open native 32-bit DICOM Float Pixel Data with its stored values, float padding
