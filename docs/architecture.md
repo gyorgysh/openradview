@@ -177,6 +177,13 @@ ranges, statistics and sampling all use the existing validity mask. The bounded
 metadata prefix stops at the OF element, so import requires that payload to end
 the object instead of reading on to look for an integer Pixel Data element.
 
+A real-world value mapping is a third, mutually exclusive source mapping beside
+modality rescale and modality tables. Only one linear item is accepted, so each
+sample keeps one retained value and no alternative is chosen silently. The scalar
+context records its slope, intercept and stored range. That record joins the
+context hash only when present, so contexts without it keep their existing
+identity. Slices with different mappings do not form a volume.
+
 Scalar context owns the bounded immutable table and an optional fixed-size
 descriptor/digest. Table outputs are unsigned; later VOI input interpretation
 uses that domain. The metadata omits entries, explanations and raw unit codes.

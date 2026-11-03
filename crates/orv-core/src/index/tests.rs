@@ -24,6 +24,7 @@ mod nifti;
 mod nifti_axes;
 mod nifti_expanded;
 mod padding;
+mod real_world;
 mod resources;
 mod segments;
 mod series_info;

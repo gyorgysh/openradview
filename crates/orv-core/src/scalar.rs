@@ -61,6 +61,34 @@ pub struct Rescale {
     pub slope: f64,
     pub intercept: f64,
 }
+/// One linear real-world value mapping from stored values (PS3.3 C.7.6.16.2.11).
+/// It replaces, never composes with, modality rescale or a modality table.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RealWorld {
+    pub slope: f64,
+    pub intercept: f64,
+    /// Inclusive stored-value range that has a real-world value.
+    pub first: f64,
+    pub last: f64,
+}
+impl RealWorld {
+    pub fn validate(self) -> bool {
+        [self.slope, self.intercept, self.first, self.last]
+            .iter()
+            .all(|v| v.is_finite())
+            && self.slope != 0.
+            && self.first <= self.last
+    }
+    /// The real-world value, or None outside the mapped stored range.
+    pub fn map(self, stored: f64) -> Option<f32> {
+        if !(self.first..=self.last).contains(&stored) {
+            return None;
+        }
+        let value = (stored * self.slope + self.intercept) as f32;
+        value.is_finite().then_some(value)
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScalarInfo {
@@ -68,6 +96,9 @@ pub struct ScalarInfo {
     /// all source frames have the same mapping; never applied by the renderer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modality_lut: Option<ModalityLutInfo>,
+    /// Already applied to the source samples, like `modality_lut`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub real_world: Option<RealWorld>,
     pub value_type: ValueType,
     pub storage: Storage,
     pub stored_bits: u16,
@@ -88,6 +119,9 @@ impl ScalarInfo {
             scale.slope.is_finite() && scale.slope != 0. && scale.intercept.is_finite()
         }) && !(self.resampled && self.rescale.is_some())
             && self.modality_lut.is_none_or(ModalityLutInfo::validate)
+            && self.real_world.is_none_or(RealWorld::validate)
+            && !(self.real_world.is_some()
+                && (self.rescale.is_some() || self.modality_lut.is_some()))
             && !(self.modality_lut.is_some()
                 && (self.rescale.is_some()
                     || !matches!(
@@ -269,6 +303,7 @@ impl ScalarData {
     }
     pub fn compatible(&self, other: &Self) -> bool {
         self.info.modality_lut == other.info.modality_lut
+            && self.info.real_world == other.info.real_world
             && self.info.storage == other.info.storage
             && self.info.stored_bits == other.info.stored_bits
             && self.info.unit == other.info.unit
@@ -340,6 +375,17 @@ fn context_digest(info: ScalarInfo, choices: [u8; 32], unit: Option<[u8; 32]>) -
         hash.update(b"OpenRadView scalar modality mapping v1\0");
         hash.update(lut.sha256);
     }
+    if let Some(mapping) = info.real_world {
+        hash.update(b"OpenRadView scalar real-world mapping v1\0");
+        for value in [
+            mapping.slope,
+            mapping.intercept,
+            mapping.first,
+            mapping.last,
+        ] {
+            hash.update(value.to_le_bytes());
+        }
+    }
     hash.finalize().into()
 }
 
@@ -375,6 +421,7 @@ mod tests {
         .unwrap();
         let info = ScalarInfo {
             modality_lut: None,
+            real_world: None,
             value_type: crate::scalar::ValueType::F32,
             storage: Storage::SignedInteger,
             stored_bits: 12,

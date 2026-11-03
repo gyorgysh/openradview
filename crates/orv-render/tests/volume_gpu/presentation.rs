@@ -84,6 +84,7 @@ fn volume_functions_and_last_lookup_layer_match_constant_analytic_values() {
     let scalar = ScalarData::new(
         ScalarInfo {
             modality_lut: None,
+            real_world: None,
             value_type: ValueType::F32,
             storage: Storage::Float,
             stored_bits: 32,
@@ -202,6 +203,7 @@ fn mapped_values_and_uniform_table_identity_survive_mpr_and_gpu_volume_snapshots
     let scalar = ScalarData::with_modality_lut(
         ScalarInfo {
             modality_lut: None,
+            real_world: None,
             value_type: ValueType::F32,
             storage: Storage::SignedInteger,
             stored_bits: 12,

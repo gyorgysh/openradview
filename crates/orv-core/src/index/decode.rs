@@ -165,17 +165,22 @@ fn float(
         .checked_mul(u64::from(frame))
         .and_then(|start| header.offset.checked_add(start))
         .ok_or(LoadError::Limit)?;
-    let bytes = source.range(offset, length as usize, state, cancelled)?;
-    let (pixels, validity) =
-        crate::dicom_float::from_bytes(&bytes, header.big_endian, header.float_padding, cancelled)?;
-    if pixels.len() as u64 != u64::from(header.width) * u64::from(header.height) {
-        return Err(LoadError::Unsupported);
-    }
     let scalar = header
         .scalar
         .get(frame)
         .cloned()
         .ok_or(LoadError::Unsupported)?;
+    let bytes = source.range(offset, length as usize, state, cancelled)?;
+    let (pixels, validity) = crate::dicom_float::from_bytes(
+        &bytes,
+        header.big_endian,
+        header.float_padding,
+        scalar.info().real_world,
+        cancelled,
+    )?;
+    if pixels.len() as u64 != u64::from(header.width) * u64::from(header.height) {
+        return Err(LoadError::Unsupported);
+    }
     let window = scalar
         .choices()
         .original()

@@ -13,6 +13,7 @@ fn session() -> ComparisonSession {
     let scalar = ScalarData::new(
         ScalarInfo {
             modality_lut: None,
+            real_world: None,
             value_type: ValueType::F32,
             storage: Storage::SignedInteger,
             stored_bits: 16,

@@ -42,6 +42,7 @@ cargo run -p orv-core --example generate_acquisition -- test-data/generated-acqu
 cargo run -p orv-core --example generate_dicom_acquisition -- test-data/generated-dicom-acquisition
 cargo run -p orv-core --example generate_modality -- test-data/generated-modality
 cargo run -p orv-core --example generate_float -- test-data/generated-float
+cargo run -p orv-core --example generate_real_world -- test-data/generated-real-world
 ```
 
 The mask fixture adds three generated boxes with overlap, sparse source planes
@@ -55,7 +56,8 @@ spatial frames, fixed/variable cine timing and explicit unscoped/invalid cases.
 The modality fixtures include numeric nonlinear tables, a regular stack, declared
 and unknown units, stored padding and a conflicting-transform refusal case.
 The float fixtures add a regular stack, big-endian extremes, NaN/infinite/padded
-samples, a fractional window and a refused rescale case.
+samples, a fractional window and a refused rescale case. The real-world fixtures
+cover integer and float linear mappings, a private unit and refused alternatives.
 
 ## Design and review
 

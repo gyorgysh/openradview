@@ -53,10 +53,19 @@ impl Presentations {
 }
 
 pub(crate) fn conversion(data: &ScalarData) -> dicom_pixeldata::ConvertOptions {
-    let scale = data.info().rescale.unwrap_or(Rescale {
-        slope: 1.,
-        intercept: 0.,
-    });
+    let info = data.info();
+    // Integer real-world ranges cover every stored code, so the mapping is
+    // exactly this affine transform of stored values.
+    let scale = info
+        .rescale
+        .or(info.real_world.map(|mapping| Rescale {
+            slope: mapping.slope,
+            intercept: mapping.intercept,
+        }))
+        .unwrap_or(Rescale {
+            slope: 1.,
+            intercept: 0.,
+        });
     dicom_pixeldata::ConvertOptions::new()
         .with_modality_lut(dicom_pixeldata::ModalityLutOption::Override(
             dicom_pixeldata::Rescale {
@@ -141,9 +150,10 @@ fn info(
     root: &Object,
     transform: Option<&Object>,
     modality: Option<&crate::dicom_modality::Mapping>,
+    real_world: Option<&crate::dicom_rwvm::Mapping>,
     float: bool,
 ) -> Result<(ScalarInfo, Option<[u8; 32]>), LoadError> {
-    if (modality.is_some() || float) && transform.is_some() {
+    if (modality.is_some() || float || real_world.is_some()) && transform.is_some() {
         return Err(LoadError::Unsupported);
     }
     let integer = |tag| root.element(tag).ok()?.to_int::<u16>().ok();
@@ -181,6 +191,28 @@ fn info(
         (Some(slope), Some(intercept)) => Some(Rescale { slope, intercept }),
         _ => return Err(LoadError::Unsupported),
     };
+    if let Some(real_world) = real_world {
+        // A real-world mapping is an alternative to modality output. Keeping
+        // one retained value per sample means refusing rather than choosing.
+        if modality.is_some() || rescale.is_some() || text(context, Tag(0x0028, 0x1054))?.is_some()
+        {
+            return Err(LoadError::Unsupported);
+        }
+        let info = ScalarInfo {
+            modality_lut: None,
+            real_world: Some(real_world.mapping),
+            value_type: crate::scalar::ValueType::F32,
+            storage,
+            stored_bits: bits,
+            unit: real_world.unit,
+            rescale: None,
+            resampled: false,
+        };
+        if !info.validate() {
+            return Err(LoadError::Unsupported);
+        }
+        return Ok((info, real_world.identity));
+    }
     let rescale_type = if let Some(mapping) = modality {
         Some(mapping.unit.clone())
     } else {
@@ -221,6 +253,7 @@ fn info(
     };
     let info = ScalarInfo {
         modality_lut: modality.map(|mapping| mapping.lut.info()),
+        real_world: None,
         value_type: crate::scalar::ValueType::F32,
         storage,
         stored_bits: bits,
@@ -252,6 +285,9 @@ fn signed_output(info: ScalarInfo) -> bool {
 fn table_source_supported(info: ScalarInfo) -> bool {
     if info.modality_lut.is_some() {
         return true;
+    }
+    if info.real_world.is_some() {
+        return false;
     }
     let scale = info.rescale.unwrap_or(Rescale {
         slope: 1.,
@@ -452,6 +488,22 @@ pub(crate) fn read(
         };
     }
     let modality = crate::dicom_modality::read(object)?;
+    let real_world = crate::dicom_rwvm::read(object, || {
+        if float {
+            return Ok(None);
+        }
+        let bits = crate::load::integer(object, "BitsStored").ok_or(LoadError::Unsupported)?;
+        if !(1..=32).contains(&bits) {
+            return Err(LoadError::Unsupported);
+        }
+        Ok(Some(
+            match crate::load::integer(object, "PixelRepresentation") {
+                Some(0) => (0, (1i64 << bits) - 1),
+                Some(1) => (-(1i64 << (bits - 1)), (1i64 << (bits - 1)) - 1),
+                _ => return Err(LoadError::Unsupported),
+            },
+        ))
+    })?;
     let shared = crate::dicom_geometry::item(object, SHARED)?;
     let per_frame = object
         .element(PER_FRAME)
@@ -469,7 +521,13 @@ pub(crate) fn read(
         }
         let local = per_frame.and_then(|frames| frames.get(frame));
         let transform = crate::dicom_geometry::group(shared, local, TRANSFORM)?;
-        let (info, unit) = info(object, transform, modality.as_ref(), float)?;
+        let (info, unit) = info(
+            object,
+            transform,
+            modality.as_ref(),
+            real_world.as_ref(),
+            float,
+        )?;
         let voi = crate::dicom_geometry::group(shared, local, VOI)?.unwrap_or(object);
         contexts.push((info, unit, voi));
     }
