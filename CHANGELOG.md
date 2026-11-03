@@ -1,111 +1,93 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 (unreleased)
 
-- Open supported integer DICOM modality tables, with declared units, stored-code
-  padding and endpoint clipping. Apply them before interpolation and VOI display;
-  preserve uniform mapping context in reformats and picture metadata.
-- Keep images usable in small windows: 2D and 3D/MIP collapse their display rows
-  under **Display and tools**, and two comparison panes sit side by side unless
-  the area is taller than wide. Keyboard focus now scrolls hidden first-run
-  controls into view, the logo controls show focus, and Escape closes
-  informational dialogs.
-- Apply a chosen grayscale softcopy presentation state to the selected series:
-  window, inversion, rotation and flip. States with annotations, shutters,
-  tables or partial display areas are refused whole. **As acquired** returns.
-- Fuse the chosen comparison pair for viewing with opacity or a checkerboard,
-  when both images share a declared spatial reference on matching planes. Each
-  image keeps its own contrast, readouts and exports.
-- Show supplied DICOM overlay planes and display shutters in 2D on request. Both
-  start off, never change statistics and are not exported or shared.
-- Add a mean slab beside MIP and MinIP for scalar MPR and oblique views. It
-  averages valid samples only; an all-missing ray stays missing.
-- Apply a single linear DICOM real-world value mapping to stored integer or float
-  values, with its declared units. Alternative mappings are still refused.
-- Open native 32-bit DICOM Float Pixel Data with its stored values, float padding
-  and source windows. NaN and infinite samples count as missing.
-- Keep contrast for very wide windows over extreme float values, which could
-  render as uniform gray, and show such window values in compact notation.
-- Correct native big-endian eight-bit OW image ordering across frame boundaries
-  and packed eight-bit grayscale table word ordering.
-- Include retained scalar metadata in resident import memory admission.
-- Opt into supported DICOM source intervals for local playback, with declared trim,
-  fixed/variable timing and visible ready-image pace. Wait for each requested image
-  without skipping; stop at the trim end. Manual fps/Loop remain the default.
-  Changing playback mode ends existing sharing approval.
-- Select supported declared DICOM temporal positions and echo times, with actual
-  values shown separately from dimension ordinals. Preserve organization and
-  unselected acquisition context; explain missing or ambiguous choices.
-- Inspect supported source frame intervals, trim and delay. Timing requires the
-  original object frame order; partitioned, reordered or mixed sources remain
-  independently viewable; source intervals are an explicit playback choice.
+### Opening files
 
-- Select NIfTI time points, components, higher axes and complex views directly
-  within their original input. Show declared time coordinates and steps in seconds,
-  with frequency, unknown and invalid timing kept distinct. Index navigation
-  stays available without valid timing; changing acquisition uses normal source
-  selection and ends any existing sharing approval.
+- Open a DICOMDIR, or a ZIP that contains one, and see which referenced images
+  are missing or conflict. If the index is broken, **Open folder** still reads
+  the images directly.
+- See why files were skipped: an unsupported encoding or object type, a missing
+  NIfTI companion file, or damaged metadata.
+- Image info shows a series' geometry, size and whether it forms a regular
+  volume, without decoding every image.
+- Open more kinds of DICOM images: modality lookup tables, 32-bit float pixel
+  data and a single linear real-world value mapping, with declared units where
+  the file has them. Variants that aren't supported are refused with a reason.
 
-- Search and remap local tool shortcuts, with conflict checks and saved bindings
-  that contain no study data. Tool labels and Help show the active keys.
-- Enter measurement points by image coordinates and select an active MPR plane
-  or physical point through controls. Keep numeric Tab navigation and geometry
-  undo/redo focus when controls change state.
-- Add a manually advanced offline controls guide and technical glossary in Help.
-- Optionally show finite reference-plane intersections in local comparison.
-  Lines require matching completed thin images and known spatial references,
-  follow display transforms, and stay outside picture exports and snapshots.
-- Link physical pan, physical zoom and compatible scalar windows separately in
-  comparison. Pending actions wait for their requested images and cancel when
-  view ownership or context changes; inversion remains per pane.
-- Compare four local source panes in a two-by-two grid. Choose one pair for links
-  and reference lines; each pane keeps its own tools, marks and image export.
-  Extra panes stay in memory and require confirmation before closing. Return to
-  two panes to open another study or save/open a comparison file.
+### Labels and masks
 
-- Review an explicit current-pane illustration before saving, with selected completed
-  measurement outlines and applied manual/supplied masks on source/thin reformat
-  views. Layer changes invalidate the preview; saves reuse its exact PNG bytes.
-  Image-only exports and agent snapshots retain their existing scope.
-- Save a reviewed MPR grid or up to 16 selected source images in a contact sheet,
-  with explicit range, columns, layer choices and generic image/plane captions.
-  Sheets fit within 2048 pixels per side and render one bounded tile at a time.
-- Preserve files created by another writer when an export's exclusive output
-  creation fails.
+- See labels on MPR and oblique planes, with per-label visibility, fill, outline
+  or hatching, and voxel counts.
+- Grow a region from a seed point, keep one connected part of a label, or remove
+  small islands. Each edit is previewed before you apply it, and Undo works. No
+  AI is involved.
+- Load binary DICOM segmentation masks that belong to the open series.
+  Overlapping segments stay separate, and the masks are read-only.
 
-- Draw ellipse and simple polygon regions on source and thin reformat planes.
-  Report scalar/RGB statistics with sampled area separate from continuous shape
-  area. Explicitly saved comparisons preserve the new shapes; earlier comparison
-  files remain readable. Drafts cancel when their image or view changes.
-- Adjust measurement vertices by dragging handles or entering source coordinates.
-  Validate a change before replacing the mark, cancel without losing the original,
-  and undo or redo up to 16 geometry edits in memory.
+### Measurements and pictures
 
-- Explicitly load matching local BINARY DICOM segmentation masks on source,
-  thin MPR and oblique planes. Preserve overlapping segments and sparse coverage,
-  with numeric visibility, styles and source counts. Supplied masks stay read-only
-  and separate from manual labels; ordinary image imports exclude segmentation
-  object types. No model is used or downloaded.
+- Draw ellipse and polygon regions. Statistics report the sampled area and the
+  outline's area separately.
+- Drag a measurement's points or type exact coordinates. Undo and Redo cover the
+  last 16 changes.
+- Export a picture with the measurements and masks you choose. The saved file
+  is exactly the preview you reviewed.
+- Save a contact sheet of up to 16 images, or the three MPR planes as a grid, up
+  to 2048 pixels per side.
 
-- Preview and explicitly apply local seeded region growing, keep a selected label
-  component or remove small islands. Use four neighbors on one source image or
-  six across the volume, with missing samples and other IDs as barriers. No AI
-  model or anatomical recognition is used; edits remain undoable and unsaved.
+### Comparing series
 
-- Inspect local labels on thin MPR and oblique planes, with per-ID visibility,
-  fill/outline/hatching and source voxel counts. Keep missing samples separate
-  and derive label cell volume from the source affine. Painting stays on source
-  images; slabs, 3D and shared snapshots omit labels.
-- Open a local DICOMDIR or a ZIP with one media index, validate referenced image
-  identities, and show missing/conflicting references with generated study groups.
-  Constrain file-set reads to their selected folder or archive. Open folder scans
-  supported files directly when an index is unusable.
-- Show selected-series regular geometry, label-grid size, decoded-size estimate
-  and declared lossy/derived image counts in Image info without decoding the
-  whole series. Keep geometry readiness separate from pixel and device admission.
-- Explain skipped local inputs with bounded reason counts, including when no
-  supported images load. Distinguish known unsupported encodings and DICOM object
-  types, missing NIfTI companions, malformed metadata and uncertain input failures.
+- Compare up to four series in a grid, and choose which pair links together.
+- Link pan, zoom and contrast separately, and show where the other pane's plane
+  crosses this one.
+- Fuse the pair for viewing, with opacity or a checkerboard, when both images
+  share a spatial reference. Each image keeps its own contrast, readouts and
+  exports.
+
+### Time and sequences
+
+- Pick NIfTI time points and components, and DICOM temporal positions and echo
+  times. Declared values (NIfTI time in seconds, echo times in milliseconds) are
+  shown apart from the position numbers.
+- Play a series at the timing recorded in the file instead of a fixed frame
+  rate. Playback waits for each image and stops at the end of the recorded range.
+
+### Display
+
+- Add a mean slab next to MIP and MinIP. Missing samples are left out of the
+  average.
+- Show overlays and display shutters stored with an image. Both start off and
+  never change measurements.
+- Apply a presentation state file: its window, inversion, rotation and flip. A
+  file that also contains annotations, shutters or other settings is refused
+  instead of partly applied. **As acquired** returns to the original view.
+
+### Keyboard and small windows
+
+- Search and remap tool shortcuts. Help lists the active keys and includes an
+  offline controls guide and glossary.
+- Tab and Shift+Tab move through controls and scroll them into view, the focused
+  control shows an outline, and Escape closes Help, Privacy, Image information,
+  credits and licenses.
+- Small windows keep room for the image. Display controls fold under **Display
+  and tools**, and two comparison panes sit side by side unless the window is
+  taller than wide.
+
+### Fixes
+
+- Big-endian 8-bit DICOM images and some packed lookup tables showed pixels in
+  the wrong order.
+- Float images with a very wide contrast range showed as plain gray.
+- Very large window and level values are shown in short notation.
+- A failed export no longer removes a file that another program created.
+
+### Privacy
+
+Images and measurements stay on your computer. Overlays, shutters, reference
+lines and fused views are never included in exports or shared with an agent.
+Entering comparison, or changing the acquisition or playback mode, ends any
+active sharing approval.
 
 ## 1.2.0 — 2026-10-28
 
