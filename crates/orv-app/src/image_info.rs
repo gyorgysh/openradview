@@ -96,6 +96,7 @@ impl ImageInfo {
                 if info.storage == orv_core::scalar::Storage::Float
                     && info.stored_bits == 32
                     && info.rescale.is_none()
+                    && info.real_world.is_none()
                 {
                     "Source: 32-bit floating point · stored values kept unchanged".to_owned()
                 } else {
@@ -107,6 +108,9 @@ impl ImageInfo {
                 },
             );
             ui.small(info.unit.label());
+            if info.real_world.is_some() {
+                ui.small("Values include the source real-world mapping · stored values outside its range are missing");
+            }
             if let Some(table) = info.modality_lut {
                 ui.small(format!(
                     "Values include the source lookup table · {} entries · {}-bit output",

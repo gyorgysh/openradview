@@ -351,13 +351,13 @@ pub(crate) fn read(
     cancelled: &impl Fn() -> bool,
 ) -> Result<Spatial, LoadError> {
     let shared = item(object, SHARED)?;
-    // Root modality tables are validated by the scalar parser. Functional-group
-    // transforms still permit only their supported affine declarations.
-    if object.element(Tag(0x0040, 0x9096)).is_ok() {
-        return Err(LoadError::Unsupported);
-    }
+    // Root modality tables and root or shared real-world mappings are validated
+    // by the scalar parser. Functional-group transforms still permit only their
+    // supported affine declarations, and per-frame mappings stay refused.
     if let Some(shared) = shared {
-        supported_mapping(shared)?;
+        if shared.element(Tag(0x0028, 0x3000)).is_ok() {
+            return Err(LoadError::Unsupported);
+        }
         if let Some(transform) = item(shared, Tag(0x0028, 0x9145))? {
             supported_mapping(transform)?;
         }
@@ -444,7 +444,8 @@ pub(crate) fn read(
         let measures = group(shared, Some(frame), Tag(0x0028, 0x9110))?;
         // Contradictory scaling must not be accepted even for source-only browsing.
         let transform = group(shared, Some(frame), Tag(0x0028, 0x9145))?;
-        for context in [shared, Some(frame), transform].into_iter().flatten() {
+        // Shared real-world mappings were checked above and by the scalar parser.
+        for context in [Some(frame), transform].into_iter().flatten() {
             supported_mapping(context)?;
         }
         let content = group(shared, Some(frame), CONTENT)?;

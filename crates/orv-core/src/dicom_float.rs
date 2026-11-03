@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Native Float Pixel Data (PS3.3 C.7.6.3, C.7.6.24). Values are kept as stored
 //! 32-bit floats. Integer Bits Stored, rescale and modality tables do not apply.
-use crate::load::{LoadError, integer, text};
+use crate::{
+    load::{LoadError, integer, text},
+    scalar::RealWorld,
+};
 use dicom_core::{PrimitiveValue, Tag, VR};
 use dicom_object::DefaultDicomObject;
 use std::sync::Arc;
@@ -41,7 +44,6 @@ pub(crate) fn validate(object: &DefaultDicomObject) -> Result<Option<Padding>, L
             Tag(0x0028, 0x1054),
             Tag(0x0028, 0x3000),
             Tag(0x0028, 0x3010),
-            Tag(0x0040, 0x9096),
             Tag(0x0028, 0x1101),
             Tag(0x0028, 0x1201),
             Tag(0x7fe0, 0x0010),
@@ -83,12 +85,14 @@ pub(crate) fn validate(object: &DefaultDicomObject) -> Result<Option<Padding>, L
     }
 }
 
-/// Stored samples and validity. Padding and nonfinite samples are missing; their
-/// placeholder value is never used for display ranges, statistics or sampling.
+/// Source samples and validity. Padding, nonfinite values and stored values
+/// outside a real-world mapping's range are missing; their placeholder value is
+/// never used for display ranges, statistics or sampling.
 pub(crate) fn samples(
     count: usize,
     value: impl Fn(usize) -> Option<f32>,
     padding: Option<Padding>,
+    real_world: Option<RealWorld>,
     cancelled: &impl Fn() -> bool,
 ) -> Result<Samples, LoadError> {
     if count > 32 * 1024 * 1024 {
@@ -106,12 +110,17 @@ pub(crate) fn samples(
         if index.is_multiple_of(16384) && cancelled() {
             return Err(LoadError::Cancelled);
         }
-        let sample = value(index).ok_or(LoadError::Unsupported)?;
-        let valid = sample.is_finite()
-            && padding.is_none_or(|padding| !(padding.low..=padding.high).contains(&sample));
-        missing |= !valid;
-        mask.push(u8::from(valid));
-        pixels.push(if valid { sample } else { 0. });
+        let stored = value(index).ok_or(LoadError::Unsupported)?;
+        let sample = (stored.is_finite()
+            && padding.is_none_or(|padding| !(padding.low..=padding.high).contains(&stored)))
+        .then(|| match real_world {
+            Some(mapping) => mapping.map(f64::from(stored)),
+            None => Some(stored),
+        })
+        .flatten();
+        missing |= sample.is_none();
+        mask.push(u8::from(sample.is_some()));
+        pixels.push(sample.unwrap_or(0.));
     }
     if cancelled() {
         return Err(LoadError::Cancelled);
@@ -124,6 +133,7 @@ pub(crate) fn from_bytes(
     bytes: &[u8],
     big_endian: bool,
     padding: Option<Padding>,
+    real_world: Option<RealWorld>,
     cancelled: &impl Fn() -> bool,
 ) -> Result<Samples, LoadError> {
     if !bytes.len().is_multiple_of(4) {
@@ -140,6 +150,7 @@ pub(crate) fn from_bytes(
             })
         },
         padding,
+        real_world,
         cancelled,
     )
 }
@@ -150,6 +161,7 @@ pub(crate) fn from_object(
     frame: usize,
     count: usize,
     padding: Option<Padding>,
+    real_world: Option<RealWorld>,
     cancelled: &impl Fn() -> bool,
 ) -> Result<Samples, LoadError> {
     let element = object.element(FLOAT).map_err(|_| LoadError::Unsupported)?;
@@ -165,6 +177,7 @@ pub(crate) fn from_object(
         count,
         |index| frame_values.get(index).copied(),
         padding,
+        real_world,
         cancelled,
     )
 }
@@ -189,26 +202,32 @@ mod tests {
             low: -2.,
             high: -1.5,
         });
-        let (pixels, mask) =
-            samples(values.len(), |i| values.get(i).copied(), padding, &|| false).unwrap();
+        let (pixels, mask) = samples(
+            values.len(),
+            |i| values.get(i).copied(),
+            padding,
+            None,
+            &|| false,
+        )
+        .unwrap();
         assert_eq!(mask.as_deref(), Some(&[1, 1, 0, 0, 0, 1, 1, 0][..]));
         assert_eq!(pixels[0], -f32::MAX);
         assert_eq!(pixels[1], f32::MAX);
         assert_eq!(pixels[6], f32::MIN_POSITIVE);
         assert!(pixels.iter().all(|value| value.is_finite()));
-        let (_, none) = samples(2, |i| [1., 2.].get(i).copied(), None, &|| false).unwrap();
+        let (_, none) = samples(2, |i| [1., 2.].get(i).copied(), None, None, &|| false).unwrap();
         assert!(none.is_none());
     }
 
     #[test]
     fn byte_order_follows_the_transfer_syntax_and_rejects_partial_words() {
         let value = 1234.5f32;
-        let (little, _) = from_bytes(&value.to_le_bytes(), false, None, &|| false).unwrap();
-        let (big, _) = from_bytes(&value.to_be_bytes(), true, None, &|| false).unwrap();
+        let (little, _) = from_bytes(&value.to_le_bytes(), false, None, None, &|| false).unwrap();
+        let (big, _) = from_bytes(&value.to_be_bytes(), true, None, None, &|| false).unwrap();
         assert_eq!((little[0], big[0]), (value, value));
-        assert!(from_bytes(&[0; 6], false, None, &|| false).is_err());
+        assert!(from_bytes(&[0; 6], false, None, None, &|| false).is_err());
         assert!(matches!(
-            from_bytes(&[0; 8], false, None, &|| true),
+            from_bytes(&[0; 8], false, None, None, &|| true),
             Err(LoadError::Cancelled)
         ));
     }

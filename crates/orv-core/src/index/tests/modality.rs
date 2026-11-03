@@ -278,6 +278,7 @@ fn maximum_table_endpoint_mapping_and_metadata_bounds_remain_explicit() {
 fn legacy_scalar_context_hash_and_serialization_remain_byte_compatible_without_a_table() {
     let info = ScalarInfo {
         modality_lut: None,
+        real_world: None,
         value_type: ValueType::F32,
         storage: Storage::SignedInteger,
         stored_bits: 16,

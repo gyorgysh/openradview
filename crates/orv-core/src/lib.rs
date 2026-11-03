@@ -8,6 +8,7 @@ mod dicom_float;
 mod dicom_geometry;
 mod dicom_modality;
 mod dicom_padding;
+mod dicom_rwvm;
 mod dicom_voi;
 pub mod import_report;
 pub mod index;

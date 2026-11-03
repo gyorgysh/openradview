@@ -6,7 +6,7 @@ that an image, orientation, reconstruction or measurement is correct for care.
 
 | Input | Supported scope | Limits |
 |---|---|---|
-| Grayscale DICOM | Integer 8/16-bit MONOCHROME1/2 and native 32-bit Float Pixel Data (MONOCHROME2); native implicit/explicit little endian, explicit big endian, JPEG, RLE, JPEG-LS, JPEG 2000 and deflated explicit-VR datasets. Bounded modality tables also support native one-bit and 32-bit integer cells. | Stored precision must fit the allocated sample. One supported modality table or affine rescale, with independent VOI display. Real-world value mappings, double-precision float pixel data and unsupported transfer syntaxes are refused. Enhanced spatial support has the explicit subset below. |
+| Grayscale DICOM | Integer 8/16-bit MONOCHROME1/2 and native 32-bit Float Pixel Data (MONOCHROME2); native implicit/explicit little endian, explicit big endian, JPEG, RLE, JPEG-LS, JPEG 2000 and deflated explicit-VR datasets. Bounded modality tables also support native one-bit and 32-bit integer cells. | Stored precision must fit the allocated sample. One supported modality table, affine rescale or single linear real-world value mapping, with independent VOI display. Alternative or lookup-table real-world mappings, double-precision float pixel data and unsupported transfer syntaxes are refused. Enhanced spatial support has the explicit subset below. |
 | RGB/YBR DICOM | Unsigned 8/16-bit RGB and YBR_FULL, native interleaved/planar; native packed YBR_FULL_422 at 8-bit, even width, planar 0; JPEG RGB/YBR_FULL/YBR_FULL_422; JPEG2000 RGB/YBR_RCT/YBR_ICT; RGB/YBR_FULL RLE/JPEG-LS | JPEG/JPEG2000 perform their own color transform; native/RLE/JPEG-LS YBR is converted once. 2D, linked MPR, oblique and experimental RGB volume/maxima views with valid regular geometry and consistent color context. Scalar window/level does not apply. Desktop rectangle statistics report separate RGB code values; MCP roi_stats remains scalar-only. Pan, zoom, browse, invert and snapshots work. |
 | Palette DICOM | Signed/unsigned 8/16-bit stored indices, direct 8/16-bit RGB LUTs (including 8-bit entries in words), segmented discrete/linear/indirect tables | Matching descriptors required; indices clip to table endpoints. No alpha/enhanced/supplemental palette semantics. Invalid or cyclic/nested indirect segments are refused. |
 | Embedded color profile | DICOM RGB input ICC v2/v4 (scnr, XYZ/Lab PCS), converted to sRGB with relative colorimetric intent | Max 1 MiB profile, bounded CLUT/TRCs; no fetching. Invalid/unsupported profiles fail rather than silently assuming sRGB. Absent profile assumes sRGB. This is profile conversion, not monitor calibration or a calibrated-display guarantee. |
@@ -542,12 +542,23 @@ ROI statistics, threshold labels, MPR/oblique and volume sampling. No arbitrary
 background or anatomy is inferred. Invalid padding metadata is refused rather
 than guessed.
 
-Float Pixel Data keeps each stored 32-bit value unchanged, with unknown units. It
+Float Pixel Data keeps each stored 32-bit value, with unknown units, unless the
+single real-world mapping described below applies. It
 must be the last element in the file and cannot carry integer bit descriptions,
-rescale, modality or VOI tables, or real-world value mappings. Float Pixel Padding
+rescale, or modality or VOI tables. Float Pixel Padding
 Value and its optional range limit are inclusive float ranges. Those samples and
 any NaN or infinite sample are missing, like integer padding. Extreme finite
 values are kept. Source windows apply. Double Float Pixel Data is refused.
+
+A real-world value mapping is read only as one linear item (slope and intercept)
+at the image root or in the shared functional groups. It applies to stored values
+and replaces modality output, so it cannot coexist with rescale, a modality table,
+a VOI table or a rescale type. Integer images need a mapped range that covers every
+stored code. For float pixel data, stored values outside the range are missing.
+Units come from the single measurement-unit code: UCUM HU, Bq/mL, counts and
+counts/s, and radians are named. Any other code is unknown and kept only as a
+private identity. Several alternative items, lookup data, per-frame mappings and
+the mapping's label, explanation and quantity definitions are not used.
 All-padding pictures have no valid statistics. Explicit source window settings
 are retained. Scalar masks use one byte per source pixel only when needed and
 count toward the decoded cache/CPU volume allowance. GPU admission also counts

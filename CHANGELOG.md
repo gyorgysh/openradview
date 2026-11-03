@@ -5,6 +5,8 @@
 - Open supported integer DICOM modality tables, with declared units, stored-code
   padding and endpoint clipping. Apply them before interpolation and VOI display;
   preserve uniform mapping context in reformats and picture metadata.
+- Apply a single linear DICOM real-world value mapping to stored integer or float
+  values, with its declared units. Alternative mappings are still refused.
 - Open native 32-bit DICOM Float Pixel Data with its stored values, float padding
   and source windows. NaN and infinite samples count as missing.
 - Keep contrast for very wide windows over extreme float values, which could

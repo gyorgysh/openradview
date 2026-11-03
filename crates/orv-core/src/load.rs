@@ -188,7 +188,16 @@ pub(crate) fn decode_with_metadata(
         let size = (width * height) as usize;
         let mut float_frame = float
             .then(|| {
-                crate::dicom_float::from_object(&obj, frame_index, size, float_padding, cancelled)
+                crate::dicom_float::from_object(
+                    &obj,
+                    frame_index,
+                    size,
+                    float_padding,
+                    grayscale
+                        .get(frame_index as u32)
+                        .and_then(|data| data.info().real_world),
+                    cancelled,
+                )
             })
             .transpose()?;
         let pixels: Vec<f32> = if let Some((pixels, _)) = float_frame.as_mut() {

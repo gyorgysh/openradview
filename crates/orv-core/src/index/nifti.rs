@@ -155,6 +155,7 @@ pub(super) fn read_headers(
         for view in views {
             let info = ScalarInfo {
                 modality_lut: None,
+                real_world: None,
                 value_type: crate::scalar::ValueType::F32,
                 storage: match datatype {
                     2 | 512 | 768 | 1280 => Storage::UnsignedInteger,

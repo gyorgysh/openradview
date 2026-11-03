@@ -675,6 +675,7 @@ fn explicit_grayscale_functions_and_tables_match_known_samples_without_baking_va
         ScalarData::new(
             ScalarInfo {
                 modality_lut: None,
+                real_world: None,
                 value_type: orv_core::scalar::ValueType::F32,
                 storage: Storage::SignedInteger,
                 stored_bits: 16,
@@ -781,6 +782,7 @@ fn lookup_array_layers_and_row_boundaries_match_independent_known_values() {
             ScalarData::new(
                 ScalarInfo {
                     modality_lut: None,
+                    real_world: None,
                     value_type: orv_core::scalar::ValueType::F32,
                     storage: Storage::SignedInteger,
                     stored_bits: 16,
@@ -836,6 +838,7 @@ fn applied_modality_tables_keep_known_pixels_voi_padding_and_snapshot_identity_o
     let scalar = ScalarData::with_modality_lut(
         ScalarInfo {
             modality_lut: None,
+            real_world: None,
             value_type: ValueType::F32,
             storage: Storage::SignedInteger,
             stored_bits: 12,
@@ -928,6 +931,7 @@ fn float_pixels_keep_extreme_finite_values_fractional_windows_and_missing_sample
     let scalar = ScalarData::new(
         ScalarInfo {
             modality_lut: None,
+            real_world: None,
             value_type: ValueType::F32,
             storage: Storage::Float,
             stored_bits: 32,
