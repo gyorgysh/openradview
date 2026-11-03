@@ -341,6 +341,7 @@ impl eframe::App for OpenRadView {
         {
             ctx.request_repaint();
         }
+        crate::dialogs::return_focus(&ctx);
         #[cfg(feature = "updates")]
         if !self.workspace.labels_need_saving() {
             self.updates.finish_relaunch(|| self.workspace.close());
