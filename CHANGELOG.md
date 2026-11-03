@@ -3,10 +3,11 @@
 All notable changes to OpenRadView are listed here, newest first.
 Versions follow [Semantic Versioning](https://semver.org).
 
-## 1.3.0 - Unreleased
+## 1.3.0 - 2026-11-03
 
-Labels and supplied masks across views, more DICOM image types, a fuller
-comparison mode and better keyboard use in small windows.
+Labels and supplied masks on every plane, more DICOM image types including
+mammography and calibrated ultrasound, four-pane comparison, seven built-in
+examples and better keyboard use in small windows.
 
 ### Added
 
@@ -16,15 +17,11 @@ comparison mode and better keyboard use in small windows.
 - **More DICOM image types.** Modality lookup tables, 32-bit float pixel data
   and a single linear real-world value mapping, with declared units where the
   file has them. Variants that aren't supported are refused with a reason.
-- **Ultrasound distances.** Distances and angles on ultrasound images use the
-  calibrated regions stored in the file, when all points lie in one region.
-- **More public examples.** Four new built-in examples: a mammogram, an
-  ultrasound image, a whole-body PET, and a prostate MRI with an AI-made mask you
-  can load from Labels… → Supplied masks. The example picker is now grouped by
-  kind of image.
 - **Mammography and X-ray labels.** Mammograms are recognized as MG. When a
   2D image states its side, view (such as MLO) and patient orientation, Image
   info shows them and the image edges show the orientation letters.
+- **Ultrasound distances.** Distances and angles on ultrasound images use the
+  calibrated regions stored in the file, when all points lie in one region.
 - **Labels on every plane.** See labels on MPR and oblique planes, with
   per-label visibility, fill, outline or hatching, and voxel counts.
 - **Region tools.** Grow a region from a seed point, keep one connected part of
@@ -52,15 +49,18 @@ comparison mode and better keyboard use in small windows.
 - **Recorded playback timing.** Play a series at the timing stored in the file
   instead of a fixed frame rate. Playback waits for each image and stops at the
   end of the recorded range.
-- **Mean slab.** Next to MIP and MinIP. Missing samples are left out of the
-  average.
-- **Overlays and display shutters** stored with an image. Both start off and
-  never change measurements.
+- **Mean slab.** Average the samples across a slab, next to MIP and MinIP.
+  Missing samples are left out of the average.
+- **Overlays and shutters.** Show the overlay planes and display shutters
+  stored with an image. Both start off and never change measurements.
 - **Presentation states.** Apply a file's window, inversion, rotation and flip.
   A file that also contains annotations, shutters or other settings is refused
   instead of partly applied. **As acquired** returns to the original view.
 - **Custom shortcuts.** Search and remap tool keys. Help lists the active keys
   and includes an offline controls guide and glossary.
+- **Seven built-in examples.** New: a four-view mammogram, a liver ultrasound,
+  a whole-body PET, and a prostate MRI with an AI-made mask you can load from
+  Labels… → Supplied masks. The picker groups the examples by kind of image.
 
 ### Changed
 
@@ -71,9 +71,10 @@ comparison mode and better keyboard use in small windows.
 - Drag a measurement's points or type exact coordinates. Undo and Redo cover the
   last 16 changes.
 - Link pan, zoom and contrast separately in comparison.
-- Tab and Shift+Tab move through controls and scroll them into view, the focused
-  control shows an outline, and Escape closes Help, Privacy, Image information,
-  credits and licenses.
+- Tab and Shift+Tab move through controls and scroll them into view, and the
+  focused control shows an outline. Escape closes Help, Privacy, Image
+  information, credits and licenses, and focus returns to the control that
+  opened the dialog.
 - Small windows keep room for the image. Display controls fold under **Display
   and tools**, and two comparison panes sit side by side unless the window is
   taller than wide.
