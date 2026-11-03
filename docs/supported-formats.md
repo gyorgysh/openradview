@@ -561,6 +561,16 @@ exports, snapshots and sharing. Bitmap and color shutters, embedded overlays and
 malformed layers are counted as unsupported while the image stays viewable.
 Layers display for images up to 4 megapixels.
 
+A grayscale softcopy presentation state (native little-endian) can be chosen for
+the selected loaded series. It must reference images of that series. It applies
+whole: one softcopy window without image-specific variants or VOI tables, an
+IDENTITY or INVERSE presentation LUT shape, rotation in quarter turns, horizontal
+flip, and a scale-to-fit displayed area covering the whole image. Annotations,
+graphic layers, shutters, overlays, modality transforms, mask subtraction,
+presentation tables, true-size or magnified display and partial areas refuse
+the whole state. Its labels and descriptions are not shown. Browsing to an
+unreferenced image returns to the image's own presentation.
+
 A real-world value mapping is read only as one linear item (slope and intercept)
 at the image root or in the shared functional groups. It applies to stored values
 and replaces modality output, so it cannot coexist with rescale, a modality table,

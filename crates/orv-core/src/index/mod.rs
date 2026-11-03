@@ -13,8 +13,10 @@ mod nifti_input;
 mod pairs;
 mod readers;
 pub use import::{index_paths, index_paths_detailed};
+mod presentation_state;
 mod segments;
 mod source;
+pub use presentation_state::{PresentationError, PresentationState, read_presentation_state};
 pub use segments::{SegmentationError, read_binary_segmentation};
 #[cfg(test)]
 mod tests;

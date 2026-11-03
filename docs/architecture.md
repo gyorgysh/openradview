@@ -184,6 +184,14 @@ layers. The app composes one RGBA texture for the shown frame only when the
 frame or a layer toggle changes, and paints it through the same image-space mesh
 as labels. Export, snapshot and agent paths render without it.
 
+A presentation state is an explicit worker import like supplied masks: it reads
+one bounded file, resolves its SOP instance and frame references privately
+against the selected indexed series, and returns only image indices and display
+settings. The app saves the prior window, inversion and orientation, applies the
+state to the 2D view, and restores them on **As acquired** or when navigation
+leaves the referenced images. The standard flip-then-rotate order maps to a
+counter-rotation followed by a displayed-axis flip.
+
 A real-world value mapping is a third, mutually exclusive source mapping beside
 modality rescale and modality tables. Only one linear item is accepted, so each
 sample keeps one retained value and no alternative is chosen silently. The scalar

@@ -108,8 +108,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PrimitiveValue::from(16384u16),
     ));
     write(folder, "layers-overlay-shutter.dcm", layered, 5)?;
+    // A presentation state for the integer series: inverse, 90° and a flip.
+    let mut state = dicom_object::InMemDicomObject::new_empty();
+    state.put_str(Tag(0x0008, 0x0016), VR::UI, "1.2.840.10008.5.1.4.1.1.11.1");
+    state.put_str(Tag(0x0008, 0x0018), VR::UI, "2.25.63639");
+    let mut image = dicom_object::InMemDicomObject::new_empty();
+    image.put_str(Tag(0x0008, 0x1150), VR::UI, "1.2.840.10008.5.1.4.1.1.7");
+    image.put_str(Tag(0x0008, 0x1155), VR::UI, "2.25.63631");
+    let mut series = dicom_object::InMemDicomObject::new_empty();
+    series.put_str(Tag(0x0020, 0x000e), VR::UI, "2.25.636301");
+    series.put(phantom::sequence(Tag(0x0008, 0x1140), vec![image]));
+    state.put(phantom::sequence(Tag(0x0008, 0x1115), vec![series]));
+    state.put_str(Tag(0x2050, 0x0020), VR::CS, "INVERSE");
+    let mut voi = dicom_object::InMemDicomObject::new_empty();
+    voi.put_str(Tag(0x0028, 0x1050), VR::DS, "0");
+    voi.put_str(Tag(0x0028, 0x1051), VR::DS, "40");
+    state.put(phantom::sequence(Tag(0x0028, 0x3110), vec![voi]));
+    let mut area = dicom_object::InMemDicomObject::new_empty();
+    area.put(DataElement::new(
+        Tag(0x0070, 0x0052),
+        VR::SL,
+        PrimitiveValue::I32(vec![1, 1].into()),
+    ));
+    area.put(DataElement::new(
+        Tag(0x0070, 0x0053),
+        VR::SL,
+        PrimitiveValue::I32(vec![2, 2].into()),
+    ));
+    area.put_str(Tag(0x0070, 0x0100), VR::CS, "SCALE TO FIT");
+    state.put(phantom::sequence(Tag(0x0070, 0x005a), vec![area]));
+    state.put(DataElement::new(
+        Tag(0x0070, 0x0042),
+        VR::US,
+        PrimitiveValue::from(90u16),
+    ));
+    state.put_str(Tag(0x0070, 0x0041), VR::CS, "Y");
+    let state = state.with_meta(
+        dicom_object::meta::FileMetaTableBuilder::new()
+            .transfer_syntax("1.2.840.10008.1.2.1")
+            .media_storage_sop_class_uid("1.2.840.10008.5.1.4.1.1.11.1")
+            .media_storage_sop_instance_uid("2.25.63639"),
+    )?;
+    let mut bytes = Vec::new();
+    state.write_all(&mut bytes)?;
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(folder.join("state-integer-counts.pre"))?
+        .write_all(&bytes)?;
     println!(
-        "Wrote original real-world mapping inputs: integer counts, a float range, a private unit, an alternative-mapping refusal and overlay/shutter layers; no patient data."
+        "Wrote original real-world mapping inputs: integer counts, a float range, a private unit, an alternative-mapping refusal, overlay/shutter layers and a presentation state; no patient data."
     );
     Ok(())
 }

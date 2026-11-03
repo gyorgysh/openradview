@@ -5,6 +5,9 @@
 - Open supported integer DICOM modality tables, with declared units, stored-code
   padding and endpoint clipping. Apply them before interpolation and VOI display;
   preserve uniform mapping context in reformats and picture metadata.
+- Apply a chosen grayscale softcopy presentation state to the selected series:
+  window, inversion, rotation and flip. States with annotations, shutters,
+  tables or partial display areas are refused whole. **As acquired** returns.
 - Fuse the chosen comparison pair for viewing with opacity or a checkerboard,
   when both images share a declared spatial reference on matching planes. Each
   image keeps its own contrast, readouts and exports.
