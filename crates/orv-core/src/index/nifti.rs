@@ -178,6 +178,7 @@ pub(super) fn read_headers(
             headers.push(Header {
                 pixel_vr: dicom_core::VR::UN,
                 float_padding: None,
+                presentation: None,
                 format: Format::Nifti(Nifti {
                     datatype,
                     slope,

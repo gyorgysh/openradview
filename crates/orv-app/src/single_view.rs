@@ -127,6 +127,11 @@ impl Workspace {
         if self.view.window != before {
             self.initialize_window = false;
         }
+        if let Some((_, image)) = self.current_image()
+            && image.presentation.is_some()
+        {
+            crate::toolbar::row(ui, |ui| self.source_layers.controls(ui, &image));
+        }
         if self.labels.painting(self.selected) {
             ui.horizontal(|ui| {
                 ui.weak(self.labels.pointer_hint());
@@ -184,6 +189,8 @@ impl Workspace {
                     "AS ACQUIRED · RESEARCH ONLY"
                 },
             );
+            self.source_layers
+                .draw(ui, &response, image, &rendered_view);
             crate::image_overlay::draw(ui, &response, image, &rendered_view);
             if *index == self.view.slice as usize {
                 if !painting {

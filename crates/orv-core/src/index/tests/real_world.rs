@@ -5,7 +5,7 @@ use dicom_core::{DataElement, PrimitiveValue, Tag, VR};
 use dicom_object::{DefaultDicomObject, InMemDicomObject as Object};
 use std::sync::Arc;
 #[path = "../../../tests/support/real_world.rs"]
-mod phantom;
+pub(super) mod phantom;
 const SYNTAXES: [&str; 3] = [
     "1.2.840.10008.1.2.1",
     "1.2.840.10008.1.2.2",

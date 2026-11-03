@@ -7,6 +7,7 @@ fn frames() -> Vec<Arc<Frame>> {
     (0..8)
         .map(|z| {
             Arc::new(Frame {
+                presentation: None,
                 slab: None,
                 scalar: None,
                 validity: None,

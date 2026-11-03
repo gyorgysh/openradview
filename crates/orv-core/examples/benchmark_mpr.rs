@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frames = (0..depth)
         .map(|z| {
             Arc::new(Frame {
+                presentation: None,
                 slab: None,
                 scalar: None,
                 validity: mask.clone(),

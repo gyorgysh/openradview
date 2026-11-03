@@ -2,7 +2,7 @@
 //! Original real-world value mapping phantoms, without anatomy or patient attributes.
 #[path = "../tests/support/real_world.rs"]
 mod phantom;
-use dicom_core::{Tag, VR};
+use dicom_core::{DataElement, PrimitiveValue, Tag, VR};
 use dicom_object::DefaultDicomObject;
 use std::{fs, io::Write, path::Path};
 
@@ -66,8 +66,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
     ));
     write(folder, "invalid-alternative-mappings.dcm", alternatives, 4)?;
+    // A 16x16 ramp with a supplied overlay outline and a circular shutter.
+    let mut layered = phantom::integer(syntax, phantom::item(1., 0., Some((0, 255)), None));
+    layered.remove_element(Tag(0x0040, 0x9096));
+    for tag in [Tag(0x0028, 0x0010), Tag(0x0028, 0x0011)] {
+        layered.put(DataElement::new(tag, VR::US, PrimitiveValue::from(16u16)));
+    }
+    layered.put(DataElement::new(
+        Tag(0x7fe0, 0x0010),
+        VR::OB,
+        PrimitiveValue::U8((0..256).map(|v| v as u8).collect()),
+    ));
+    for (element, value) in [(0x0010, 8u16), (0x0011, 8), (0x0100, 1), (0x0102, 0)] {
+        layered.put(DataElement::new(
+            Tag(0x6000, element),
+            VR::US,
+            PrimitiveValue::from(value),
+        ));
+    }
+    layered.put_str(Tag(0x6000, 0x0040), VR::CS, "G");
+    layered.put(DataElement::new(
+        Tag(0x6000, 0x0050),
+        VR::SS,
+        PrimitiveValue::I16(vec![5, 5].into()),
+    ));
+    // An 8x8 square outline: full first/last rows, edge columns between.
+    let bits: Vec<u8> = (0..8)
+        .map(|row| if row == 0 || row == 7 { 0xff } else { 0x81 })
+        .collect();
+    layered.put(DataElement::new(
+        Tag(0x6000, 0x3000),
+        VR::OB,
+        PrimitiveValue::U8(bits.into()),
+    ));
+    layered.put_str(Tag(0x0018, 0x1600), VR::CS, "CIRCULAR");
+    layered.put_str(Tag(0x0018, 0x1610), VR::IS, "8\\8");
+    layered.put_str(Tag(0x0018, 0x1612), VR::IS, "7");
+    layered.put(DataElement::new(
+        Tag(0x0018, 0x1622),
+        VR::US,
+        PrimitiveValue::from(16384u16),
+    ));
+    write(folder, "layers-overlay-shutter.dcm", layered, 5)?;
     println!(
-        "Wrote original real-world mapping inputs: integer counts, a float range, a private unit and an alternative-mapping refusal; no patient data."
+        "Wrote original real-world mapping inputs: integer counts, a float range, a private unit, an alternative-mapping refusal and overlay/shutter layers; no patient data."
     );
     Ok(())
 }

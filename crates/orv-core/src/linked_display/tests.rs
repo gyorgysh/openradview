@@ -4,6 +4,7 @@ use crate::scalar::{Rescale, ScalarData, ScalarInfo, Storage, ValueType, VoiChoi
 use std::sync::Arc;
 fn image(size: [u32; 2], spacing: [f64; 2], position: V3) -> Frame {
     Frame {
+        presentation: None,
         slab: None,
         scalar: None,
         validity: None,

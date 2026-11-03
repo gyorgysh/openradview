@@ -445,6 +445,7 @@ impl Volume {
             }
         }
         Ok(Arc::new(Frame {
+            presentation: None,
             slab,
             scalar: self.frames[0].scalar.as_ref().map(|data| data.resampled()),
             validity: None,

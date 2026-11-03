@@ -551,6 +551,16 @@ Value and its optional range limit are inclusive float ranges. Those samples and
 any NaN or infinite sample are missing, like integer padding. Extreme finite
 values are kept. Source windows apply. Double Float Pixel Data is refused.
 
+Standalone overlay planes (groups 6000–601E, one bit, bit position 0) and
+rectangular, circular and polygonal display shutters are read as display layers
+for source 2D only. Overlays follow their one-based origin and optional frame
+range; shutter shapes intersect, and obscured pixels use the declared gray. Both
+start off and never change samples, validity, probes or statistics. Overlay
+labels and descriptions are not kept, and the layers are excluded from picture
+exports, snapshots and sharing. Bitmap and color shutters, embedded overlays and
+malformed layers are counted as unsupported while the image stays viewable.
+Layers display for images up to 4 megapixels.
+
 A real-world value mapping is read only as one linear item (slope and intercept)
 at the image root or in the shared functional groups. It applies to stored values
 and replaces modality output, so it cannot coexist with rescale, a modality table,

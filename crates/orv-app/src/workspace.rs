@@ -69,6 +69,7 @@ pub struct Workspace {
     pub(super) annotations: Annotations,
     pub(super) labels: crate::labels::LabelUi,
     pub(super) image_info: crate::image_info::ImageInfo,
+    pub(super) source_layers: crate::source_layers::SourceLayers,
     pending_source: Option<Source>,
     pending_close: bool,
     pending_quit: bool,
@@ -277,6 +278,7 @@ impl Workspace {
         self.last_image_view = None;
         self.decode_error = None;
         self.image_info.close();
+        self.source_layers = Default::default();
         self.browser = Default::default();
         self.study = None;
         self.demo = None;
@@ -301,6 +303,7 @@ impl Workspace {
         self.picture_size = None;
         self.pause_playback();
         self.image_info.close();
+        self.source_layers = Default::default();
         let playback_mode_changed = self.playback.bind_source(None);
         #[cfg(feature = "mcp")]
         if self.selected != index || playback_mode_changed {

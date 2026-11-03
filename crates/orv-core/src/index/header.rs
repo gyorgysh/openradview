@@ -30,6 +30,7 @@ pub(super) struct Header {
     /// OF identifies native Float Pixel Data.
     pub pixel_vr: dicom_core::VR,
     pub float_padding: Option<crate::dicom_float::Padding>,
+    pub presentation: Option<Arc<crate::presentation::Layers>>,
     pub width: u32,
     pub height: u32,
     pub frames: u32,
@@ -423,6 +424,7 @@ fn read_header_inner(
         crate::load::identifier(&object, "SeriesInstanceUID")?.ok_or(LoadError::Unsupported)?;
     let spatial = crate::dicom_geometry::read(&object, frames as u32, &cancelled)?;
     let scalar = crate::dicom_voi::read(&object, frames as u32, float, &cancelled)?;
+    let presentation = crate::presentation::read(&object, frames as u32)?;
     let modality = match crate::load::text(&object, "Modality").as_deref() {
         Some("CT") => "CT",
         Some("MR") => "MR",
@@ -446,6 +448,7 @@ fn read_header_inner(
         pixel_length,
         pixel_vr,
         float_padding,
+        presentation,
         width: width as u32,
         height: height as u32,
         frames: frames as u32,

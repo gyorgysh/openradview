@@ -177,6 +177,13 @@ ranges, statistics and sampling all use the existing validity mask. The bounded
 metadata prefix stops at the OF element, so import requires that payload to end
 the object instead of reading on to look for an integer Pixel Data element.
 
+Supplied overlays and shutters are parsed once per source object from the
+bounded metadata prefix into immutable layers shared by its frames. Per-frame
+object copies drop overlay bitmaps. Reformats and projections never carry
+layers. The app composes one RGBA texture for the shown frame only when the
+frame or a layer toggle changes, and paints it through the same image-space mesh
+as labels. Export, snapshot and agent paths render without it.
+
 A real-world value mapping is a third, mutually exclusive source mapping beside
 modality rescale and modality tables. Only one linear item is accepted, so each
 sample keeps one retained value and no alternative is chosen silently. The scalar
