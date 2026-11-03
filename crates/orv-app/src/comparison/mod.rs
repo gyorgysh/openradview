@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Temporary local source panes. Agent composition deliberately stays separate.
 mod display_link;
+mod fusion_ui;
 mod layout;
 mod navigation;
 mod reference_ui;
@@ -51,6 +52,8 @@ struct Pane {
     scroll: f32,
     tool: Tool,
     initialize_window: bool,
+    /// Display-only fused texture and opacity drawn over this pane.
+    fused: Option<(egui::TextureId, f32)>,
 }
 impl Pane {
     fn new(study: Arc<Study>, series: usize, ctx: &egui::Context) -> Option<Self> {
@@ -87,6 +90,7 @@ impl Pane {
             scroll: 0.,
             tool: Tool::Pan,
             initialize_window: true,
+            fused: None,
         }
     }
     fn poll(&mut self) {
@@ -231,6 +235,13 @@ impl Pane {
                 rect.size() * ui.ctx().pixels_per_point(),
             ));
             viewport::draw(ui, frame, rect, image.clone(), &view, 8 + pane, "");
+            if !pending
+                && let Some((texture, opacity)) = self.fused
+                && let Some(mesh) =
+                    crate::labels::overlay_mesh(rect, image, &view, texture, opacity)
+            {
+                ui.painter_at(rect).add(egui::Shape::mesh(mesh));
+            }
             if reference_lines && !pending {
                 reference = Some(reference_ui::Target::reserve(
                     ui,
@@ -308,6 +319,7 @@ pub(crate) struct ComparisonSession {
     saved_marks: [Vec<crate::annotations::SavedMark>; 2],
     saved_views: Option<[ViewState; 2]>,
     composition_dirty: bool,
+    fusion: fusion_ui::Fusion,
 }
 impl ComparisonSession {
     #[cfg(test)]
@@ -348,6 +360,7 @@ impl ComparisonSession {
             saved_marks: [Vec::new(), Vec::new()],
             saved_views: None,
             composition_dirty: false,
+            fusion: Default::default(),
         })
     }
     pub fn active_series(&self) -> usize {
@@ -585,6 +598,36 @@ impl ComparisonSession {
             });
         }
     }
+    fn update_fusion(&mut self, ctx: &egui::Context) {
+        for pane in &mut self.panes {
+            pane.fused = None;
+        }
+        let current = |pane: &Pane| {
+            pane.image
+                .as_ref()
+                .filter(|(index, _)| *index == pane.view.slice as usize)
+                .map(|(_, image)| image.clone())
+        };
+        let [target, source] = self.pair.map(|index| &self.panes[index]);
+        // Half the source stack's regular spacing: the nearest plane only.
+        let offset = self
+            .compatible()
+            .then(|| {
+                source
+                    .geometry
+                    .as_ref()
+                    .map(|stack| stack.step() * 0.5 + 1e-6)
+            })
+            .flatten();
+        let fused = self.fusion.update(
+            ctx,
+            current(target).as_ref(),
+            current(source).as_ref().map(|image| (image, &source.view)),
+            offset,
+        );
+        let target = self.pair[0];
+        self.panes[target].fused = fused;
+    }
     fn compatible(&self) -> bool {
         match (
             &self.panes[self.pair[0]].geometry,
@@ -683,6 +726,9 @@ impl ComparisonSession {
                     ui.ctx().accesskit_node_builder(response.id, |node| node.set_description(self.reference_status.text()));
                     if response.changed() { self.reference_status = if self.reference_lines { reference_ui::Status::Pending } else { reference_ui::Status::Off }; }
                     reconfigured = self.display_links.controls(ui, self.pair.contains(&self.active) && self.pair.iter().all(|index| !self.panes[*index].initialize_window));
+                    ui.separator();
+                    let fusable = self.compatible();
+                    self.fusion.controls(ui, fusable, self.pair);
                     reference_ui::status(ui, self.reference_status);
                     self.display_links.status(ui);
                     crate::dialogs::reveal_focus(ui);
@@ -704,6 +750,7 @@ impl ComparisonSession {
                 });
         }
         self.panes[self.active].input(ui);
+        self.update_fusion(ui.ctx());
         let size = ui.available_size();
         let grid = layout::grid(self.panes.len(), size, ui.spacing().item_spacing);
         let pane_size = grid.pane;

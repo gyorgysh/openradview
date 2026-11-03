@@ -5,6 +5,9 @@
 - Open supported integer DICOM modality tables, with declared units, stored-code
   padding and endpoint clipping. Apply them before interpolation and VOI display;
   preserve uniform mapping context in reformats and picture metadata.
+- Fuse the chosen comparison pair for viewing with opacity or a checkerboard,
+  when both images share a declared spatial reference on matching planes. Each
+  image keeps its own contrast, readouts and exports.
 - Show supplied DICOM overlay planes and display shutters in 2D on request. Both
   start off, never change statistics and are not exported or shared.
 - Add a mean slab beside MIP and MinIP for scalar MPR and oblique views. It

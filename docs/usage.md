@@ -81,6 +81,13 @@ register anatomy. Entering comparison ends sharing; sharing after leaving needs
 a fresh Allow. Different positioning or projections can affect the appearance
 of images taken at different times.
 
+In **Links and reference**, **Fuse pane 2 over pane 1** (for the chosen pair)
+shows the second pane's current image over the first, with **Opacity** or a
+**Checkerboard**. It needs the same conditions as slice linking, and the two
+images must be on the nearest matching plane. Each pane keeps its own contrast.
+The fused picture is for viewing only: probes, statistics and exports keep each
+image separate, and nothing aligns differently positioned data.
+
 To keep the comparison, choose **Comparison… → Save comparison…** and choose a
 new local file name. The file contains view settings, measurement points and
 source fingerprints, but no image pixels, source paths or patient tags. It may

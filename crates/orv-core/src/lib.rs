@@ -10,6 +10,7 @@ mod dicom_modality;
 mod dicom_padding;
 mod dicom_rwvm;
 mod dicom_voi;
+pub mod fusion;
 pub mod import_report;
 pub mod index;
 pub mod inspection;
