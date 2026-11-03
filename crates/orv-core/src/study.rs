@@ -75,6 +75,9 @@ pub struct Frame {
     /// Supplied overlay and shutter layers of the source object. Display-only and
     /// never set on reformats, projections or derived frames.
     pub presentation: Option<Arc<crate::presentation::Layers>>,
+    /// Supplied ultrasound region calibration of the source pixel grid. Never set
+    /// on reformats, projections or derived frames.
+    pub calibration: Option<Arc<crate::calibration::Calibration>>,
 }
 
 impl Frame {
@@ -369,6 +372,7 @@ pub fn demo_study() -> Study {
         }
         frames.push(Arc::new(Frame {
             presentation: None,
+            calibration: None,
             slab: None,
             scalar: None,
             validity: None,

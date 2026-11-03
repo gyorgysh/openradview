@@ -67,6 +67,7 @@ fn run(
         values.extend((0..width * height).map(|index| z as f32 + (index % width) as f32 * 0.001));
         frames.push(Arc::new(Frame {
             presentation: None,
+            calibration: None,
             slab: None,
             scalar: None,
             width: width as u32,

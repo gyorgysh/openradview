@@ -2,6 +2,7 @@
 //! UI-independent image/view domain. No network access or implicit persistence.
 pub mod acquisition;
 pub mod bricks;
+pub mod calibration;
 pub mod color;
 pub mod curved;
 mod dicom_codec;

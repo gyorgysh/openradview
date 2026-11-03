@@ -16,6 +16,8 @@ comparison mode and better keyboard use in small windows.
 - **More DICOM image types.** Modality lookup tables, 32-bit float pixel data
   and a single linear real-world value mapping, with declared units where the
   file has them. Variants that aren't supported are refused with a reason.
+- **Ultrasound distances.** Distances and angles on ultrasound images use the
+  calibrated regions stored in the file, when all points lie in one region.
 - **Mammography and X-ray labels.** Mammograms are recognized as MG. When a
   2D image states its side, view (such as MLO) and patient orientation, Image
   info shows them and the image edges show the orientation letters.

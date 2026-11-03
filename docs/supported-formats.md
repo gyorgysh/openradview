@@ -372,7 +372,12 @@ at most 128 marks and 4096 points; polygons have 3–256 vertices, without holes
 crossing/touching edges. **Measure** chooses the tool. Ellipses use two opposite
 corners; polygons finish with Enter or **Measurements… → Finish polygon**.
 Backspace removes the last draft point and Escape cancels. Changing image, plane,
-view mode or tool cancels a draft. **Measurements…** lists marks on the current image/plane and
+view mode or tool cancels a draft. Distances and angles use plane geometry when
+the image has it. An image without plane geometry, such as an ultrasound frame,
+can instead use its supplied ultrasound regions: a two-dimensional region with
+centimetre units in both directions calibrates marks whose points all lie inside
+it and inside no other region. Marks that leave or cross regions, and ROI areas,
+stay uncalibrated. **Measurements…** lists marks on the current image/plane and
 offers selection, deletion and clearing. ROI statistics run in the background,
 one calculation per collection. Changing series or closing its view clears marks;
 restart restores none automatically. Comparison marks can be explicitly saved in

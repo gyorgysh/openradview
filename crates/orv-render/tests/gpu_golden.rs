@@ -270,6 +270,7 @@ fn production_snapshot_png_matches_pixels_manifest_and_cancellation() {
     use sha2::{Digest, Sha256};
     let frame = Frame {
         presentation: None,
+        calibration: None,
         slab: None,
         scalar: None,
         validity: None,
@@ -346,6 +347,7 @@ fn offscreen_scalar_golden_including_inversion() {
             .unwrap();
     let frame = Frame {
         presentation: None,
+        calibration: None,
         slab: None,
         scalar: None,
         validity: None,
@@ -495,6 +497,7 @@ fn color_snapshot_png_manifest_and_pan_match_the_same_renderer() {
     ];
     let frame = Frame {
         presentation: None,
+        calibration: None,
         slab: None,
         scalar: None,
         validity: None,
@@ -559,6 +562,7 @@ fn color_interpolation_is_linear_light_and_missing_pixels_keep_the_background() 
     use orv_render::snapshot::SnapshotRenderer;
     let mut frame = Frame {
         presentation: None,
+        calibration: None,
         slab: None,
         scalar: None,
         validity: None,
@@ -1001,6 +1005,7 @@ fn interactive_windows_spanning_extreme_finite_values_keep_their_scale_on_the_gp
             .unwrap();
     let frame = Frame {
         presentation: None,
+        calibration: None,
         slab: None,
         scalar: None,
         validity: None,

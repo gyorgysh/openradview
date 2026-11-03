@@ -10,6 +10,7 @@ pub(super) fn labels() -> Arc<Labels> {
         .map(|z| {
             Arc::new(Frame {
                 presentation: None,
+                calibration: None,
                 slab: None,
                 scalar: None,
                 validity: None,

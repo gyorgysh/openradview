@@ -37,6 +37,7 @@ fn source(padding: bool) -> Result<Arc<Volume>> {
                 .collect::<Vec<_>>();
             Arc::new(Frame {
                 presentation: None,
+                calibration: None,
                 slab: None,
                 scalar: None,
                 validity: padding.then(|| {

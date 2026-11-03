@@ -212,6 +212,7 @@ pub fn reformat(
         curve: curve.clone(),
         frame: Arc::new(Frame {
             presentation: None,
+            calibration: None,
             slab: None,
             scalar: source.scalar.as_ref().map(|data| data.resampled()),
             validity: None,

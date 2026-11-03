@@ -697,20 +697,27 @@ fn report(
             shape_area(region.geometric_area_mm2)
         ));
     }
-    let g = image
-        .geometry
-        .as_ref()
-        .ok_or("No image geometry is available")?;
-    let points = points
-        .iter()
-        .map(|p| g.pixel_to_world(*p).map_err(|e| e.to_string()))
-        .collect::<Result<Vec<_>, _>>()?;
+    // Plane geometry wins; ultrasound regions calibrate only images without it.
+    let (points, source) = if let Some(g) = &image.geometry {
+        let points = points
+            .iter()
+            .map(|p| g.pixel_to_world(*p).map_err(|e| e.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        (points, "")
+    } else if let Some(calibration) = &image.calibration {
+        let points = calibration
+            .millimetres(points)
+            .ok_or("Place every point inside one calibrated ultrasound region")?;
+        (points, " · ultrasound region")
+    } else {
+        return Err("No image geometry is available".into());
+    };
     match tool {
         Tool::Distance => measurements::distance_mm(points[0], points[1])
-            .map(|v| format!("Distance · {v:.2} mm"))
+            .map(|v| format!("Distance · {v:.2} mm{source}"))
             .map_err(str::to_owned),
         Tool::Angle => measurements::angle_degrees(points[0], points[1], points[2])
-            .map(|v| format!("Angle · {v:.2}°"))
+            .map(|v| format!("Angle · {v:.2}°{source}"))
             .map_err(str::to_owned),
         _ => Err("Choose a measurement tool".into()),
     }
@@ -947,6 +954,52 @@ mod tests {
                 previous = bounds;
             }
         }
+    }
+    #[test]
+    fn ultrasound_regions_calibrate_images_without_plane_geometry_only_inside_one_region() {
+        let study = orv_core::study::demo_study();
+        let mut image = (*study.series[0].frames[0]).clone();
+        image.geometry = None;
+        assert!(report(&image, &[[0., 0.], [3., 4.]], Tool::Distance, || false).is_err());
+        use orv_core::calibration::{Calibration, Region};
+        image.calibration = Calibration::new(
+            vec![
+                Region {
+                    min: [0, 0],
+                    max: [9, 9],
+                    spacing_mm: [0.5, 0.25],
+                },
+                Region {
+                    min: [20, 0],
+                    max: [29, 9],
+                    spacing_mm: [1., 1.],
+                },
+            ],
+            image.width,
+            image.height,
+        )
+        .map(Arc::new);
+        assert_eq!(
+            report(&image, &[[0., 0.], [6., 4.]], Tool::Distance, || false).unwrap(),
+            "Distance · 3.16 mm · ultrasound region"
+        );
+        assert_eq!(
+            report(&image, &[[4., 0.], [0., 0.], [0., 8.]], Tool::Angle, || {
+                false
+            })
+            .unwrap(),
+            "Angle · 90.00° · ultrasound region"
+        );
+        for points in [[[0., 0.], [25., 0.]], [[0., 0.], [15., 0.]]] {
+            assert!(report(&image, &points, Tool::Distance, || false).is_err());
+        }
+        // Plane geometry still takes precedence over region calibration.
+        let mut planar = (*study.series[0].frames[0]).clone();
+        planar.calibration = image.calibration.clone();
+        assert_eq!(
+            report(&planar, &[[0., 0.], [3., 4.]], Tool::Distance, || false).unwrap(),
+            "Distance · 5.00 mm"
+        );
     }
     #[test]
     fn annotation_reports_are_physical_and_do_not_measure_letterboxing() {

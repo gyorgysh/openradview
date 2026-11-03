@@ -17,6 +17,7 @@ pub(super) fn source(width: u32, height: u32) -> Arc<Volume> {
                     }
                     Arc::new(Frame {
                         presentation: None,
+                        calibration: None,
                         width,
                         height,
                         pixels: vec![20.; count].into(),
