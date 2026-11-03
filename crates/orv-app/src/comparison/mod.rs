@@ -250,7 +250,7 @@ impl Pane {
                     view.clone(),
                 ));
             }
-            crate::image_overlay::draw(ui, &response, image, &view);
+            crate::image_overlay::draw(ui, &response, image, &view, None);
             if !pending {
                 self.annotations
                     .show(ui, &response, image, &view, self.tool);

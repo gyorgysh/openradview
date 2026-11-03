@@ -163,6 +163,7 @@ pub(crate) fn decode_with_metadata(
         Some("DX") => "DX",
         Some("CR") => "CR",
         Some("XA") => "XA",
+        Some("MG") => "MG",
         Some("US") => "US",
         _ => "IMAGE",
     };

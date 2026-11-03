@@ -4,7 +4,15 @@ use crate::{annotations, theme};
 use eframe::egui::{self, Align2, FontId, Rect};
 use orv_core::{ViewState, inspection, study::Frame};
 
-pub fn draw(ui: &egui::Ui, response: &egui::Response, image: &Frame, view: &ViewState) {
+/// `declared` supplies edge letters from a 2D image's own patient orientation
+/// when it has no plane geometry; they are shown as declared, not computed.
+pub fn draw(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    image: &Frame,
+    view: &ViewState,
+    declared: Option<&inspection::ProjectionLabels>,
+) {
     let rect = response.rect;
     if rect.width() < 120. || rect.height() < 80. {
         return;
@@ -16,10 +24,13 @@ pub fn draw(ui: &egui::Ui, response: &egui::Response, image: &Frame, view: &View
         painter.rect_filled(bounds.expand(2.), 2., egui::Color32::from_black_alpha(180));
         painter.galley(bounds.min, galley, theme::SMOKE);
     };
-    if let Some(directions) = image
+    let computed = image
         .geometry
         .as_ref()
-        .and_then(inspection::edge_directions)
+        .and_then(inspection::edge_directions);
+    let has_geometry = computed.is_some();
+    if let Some(directions) =
+        computed.or_else(|| declared.and_then(inspection::ProjectionLabels::edges))
     {
         let edges = rect.shrink(8.);
         for ((position, align), text) in [
@@ -33,7 +44,7 @@ pub fn draw(ui: &egui::Ui, response: &egui::Response, image: &Frame, view: &View
         {
             label(position, align, text);
         }
-        if let Some((mm, width)) = scale_bar(rect, image, view) {
+        if has_geometry && let Some((mm, width)) = scale_bar(rect, image, view) {
             let start = rect.left_bottom() + egui::vec2(12., -14.);
             let end = start + egui::vec2(width, 0.);
             let stroke = egui::Stroke::new(1., theme::SMOKE);
@@ -127,6 +138,39 @@ fn scale_bar(rect: Rect, image: &Frame, view: &ViewState) -> Option<(f64, f32)> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn declared_orientation_letters_draw_without_geometry_and_never_add_a_scale_bar() {
+        let mut image = (*orv_core::study::demo_study().series[0].frames[0]).clone();
+        image.geometry = None;
+        let declared = inspection::ProjectionLabels {
+            laterality: Some("R"),
+            view: Some("MLO".into()),
+            orientation: Some(["A".into(), "FR".into()]),
+        };
+        let ctx = egui::Context::default();
+        let texts = |declared: Option<&inspection::ProjectionLabels>| {
+            let mut out = ctx.run_ui(Default::default(), |ui| {
+                let response = ui.allocate_rect(
+                    Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400., 300.)),
+                    egui::Sense::hover(),
+                );
+                draw(ui, &response, &image, &ViewState::default(), declared);
+            });
+            out.textures_delta.clear();
+            let mut texts: Vec<String> = out
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::epaint::Shape::Text(t) => Some(t.galley.job.text.clone()),
+                    _ => None,
+                })
+                .collect();
+            texts.sort();
+            texts
+        };
+        assert_eq!(texts(Some(&declared)), ["A", "FR", "HL", "P"]);
+        assert!(texts(None).is_empty());
+    }
     #[test]
     fn image_scale_follows_anisotropic_spacing_fit_and_zoom_without_monitor_assumptions() {
         let mut image = (*orv_core::study::demo_study().series[0].frames[0]).clone();

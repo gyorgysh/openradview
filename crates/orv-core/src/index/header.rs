@@ -438,6 +438,7 @@ fn read_header_inner(
         Some("DX") => "DX",
         Some("CR") => "CR",
         Some("XA") => "XA",
+        Some("MG") => "MG",
         Some("US") => "US",
         _ => "IMAGE",
     };
