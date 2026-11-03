@@ -69,6 +69,68 @@ fn direction(vector: [f64; 3]) -> String {
         .collect()
 }
 
+/// Projection labels a 2D image declares, such as a mammogram or radiograph.
+/// They are copied text, never derived from or checked against geometry.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProjectionLabels {
+    pub laterality: Option<&'static str>,
+    pub view: Option<String>,
+    /// Patient directions toward increasing column, then increasing row.
+    pub orientation: Option<[String; 2]>,
+}
+impl ProjectionLabels {
+    pub fn is_empty(&self) -> bool {
+        self.laterality.is_none() && self.view.is_none() && self.orientation.is_none()
+    }
+    /// Left, right, top and bottom edge letters, in `edge_directions` order.
+    pub fn edges(&self) -> Option<[String; 4]> {
+        let [row, column] = self.orientation.as_ref()?;
+        let opposite = |text: &str| -> String {
+            text.chars()
+                .map(|c| match c {
+                    'A' => 'P',
+                    'P' => 'A',
+                    'R' => 'L',
+                    'L' => 'R',
+                    'H' => 'F',
+                    _ => 'H',
+                })
+                .collect()
+        };
+        Some([opposite(row), row.clone(), opposite(column), column.clone()])
+    }
+    /// Short text for image information, such as "R · MLO".
+    pub fn summary(&self) -> Option<String> {
+        let parts: Vec<&str> = [self.laterality, self.view.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect();
+        (!parts.is_empty()).then(|| parts.join(" · "))
+    }
+}
+/// Parse declared patient orientation: two values of one to three distinct-axis
+/// letters from A, P, R, L, H and F. Anything else is ignored rather than guessed.
+pub fn patient_orientation(values: &[&str]) -> Option<[String; 2]> {
+    let [row, column] = values else {
+        return None;
+    };
+    let axis = |c: char| match c {
+        'A' | 'P' => Some(0),
+        'R' | 'L' => Some(1),
+        'H' | 'F' => Some(2),
+        _ => None,
+    };
+    let valid = |text: &str| {
+        let mut seen = [false; 3];
+        (1..=3).contains(&text.len())
+            && text
+                .chars()
+                .all(|c| axis(c).is_some_and(|a| !std::mem::replace(&mut seen[a], true)))
+    };
+    let (row, column) = (row.trim(), column.trim());
+    (valid(row) && valid(column)).then(|| [row.to_owned(), column.to_owned()])
+}
+
 pub fn coordinate_reference(geometry: &Geometry) -> &'static str {
     match geometry.nifti_transform.as_ref().map(|n| n.code) {
         None | Some(1) => "Scanner LPS · mm",

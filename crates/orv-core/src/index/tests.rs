@@ -18,6 +18,7 @@ mod float;
 mod formats;
 mod import_report;
 mod large;
+mod mammography;
 mod metadata_prefix;
 mod modality;
 mod nifti;

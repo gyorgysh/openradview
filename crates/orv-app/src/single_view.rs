@@ -209,7 +209,11 @@ impl Workspace {
             );
             self.source_layers
                 .draw(ui, &response, image, &rendered_view);
-            crate::image_overlay::draw(ui, &response, image, &rendered_view);
+            let declared = series
+                .source
+                .as_ref()
+                .and_then(|source| source.projection_labels(*index));
+            crate::image_overlay::draw(ui, &response, image, &rendered_view, declared.as_ref());
             if *index == self.view.slice as usize {
                 if !painting {
                     self.annotations

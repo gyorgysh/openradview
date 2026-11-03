@@ -16,6 +16,9 @@ comparison mode and better keyboard use in small windows.
 - **More DICOM image types.** Modality lookup tables, 32-bit float pixel data
   and a single linear real-world value mapping, with declared units where the
   file has them. Variants that aren't supported are refused with a reason.
+- **Mammography and X-ray labels.** Mammograms are recognized as MG. When a
+  2D image states its side, view (such as MLO) and patient orientation, Image
+  info shows them and the image edges show the orientation letters.
 - **Labels on every plane.** See labels on MPR and oblique planes, with
   per-label visibility, fill, outline or hatching, and voxel counts.
 - **Region tools.** Grow a region from a seed point, keep one connected part of
