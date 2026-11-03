@@ -73,7 +73,7 @@ masks/coverage/metadata and transient overlap bitsets before allocation, and
 cancellation discards the private result. This model requires callers to verify
 source association; it does not itself parse or validate DICOM references.
 
-The worker-only selected-file BINARY reader verifies explicit SOP class/instance/
+The worker-only selected-file SEG reader verifies explicit SOP class/instance/
 frame references inside the selected indexed DICOM series, then maps original
 source frames to the exact prepared volume's affine order. Native little-endian
 one-bit pixels, matching reference/plane geometry and a single source per mask
@@ -85,6 +85,10 @@ syntax admission precedes dataset parsing. File/source identity checks surround
 import, resources are admitted before parsing/reading, and public results retain
 numeric IDs and masks without source UIDs or segment descriptions. Desktop import
 is an explicit selected-file action, separate from ordinary image catalogue admission.
+FRACTIONAL frames are thresholded to bits at or above half the declared maximum
+before the same model is built. LABELMAP frames name no segment: each listed plane
+is supplied for every declared segment, zero is background, an undeclared value is
+refused, and segments cannot overlap.
 
 Manual labels and supplied segments share allocation-free nearest-cell mapping
 for completed thin planes. Supplied planes keep independent u64 positive and

@@ -21,9 +21,10 @@ comparison mode and better keyboard use in small windows.
 - **Region tools.** Grow a region from a seed point, keep one connected part of
   a label, or remove small islands. Each edit is previewed before you apply it,
   and Undo works. No AI is involved.
-- **Supplied segmentation masks.** Load binary DICOM segmentation masks that
-  belong to the open series. Overlapping segments stay separate, and the masks
-  are read-only.
+- **Supplied segmentation masks.** Load binary, fractional or label-map DICOM
+  segmentation masks that belong to the open series. A fractional mask counts a
+  voxel when its value is at least half the stated maximum. Overlapping
+  segments stay separate, and the masks are read-only.
 - **Ellipse and polygon regions.** Statistics report the sampled area and the
   outline's area separately.
 - **Reviewed picture exports.** Choose which measurements and masks to include.
