@@ -31,6 +31,7 @@ mod real_world;
 mod resources;
 mod segments;
 mod series_info;
+mod ultrasound;
 use crate::test_support as support;
 
 struct Temp(PathBuf);

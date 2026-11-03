@@ -144,6 +144,7 @@ mod range_tests {
                 .map(|z| {
                     Arc::new(Frame {
                         presentation: None,
+                        calibration: None,
                         slab: None,
                         scalar: None,
                         validity: Some([0, 1, 1, 1].into()),

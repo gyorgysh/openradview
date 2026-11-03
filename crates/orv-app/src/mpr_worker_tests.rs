@@ -8,6 +8,7 @@ pub(crate) fn frames() -> Vec<Arc<Frame>> {
         .map(|z| {
             Arc::new(Frame {
                 presentation: None,
+                calibration: None,
                 slab: None,
                 scalar: None,
                 validity: None,

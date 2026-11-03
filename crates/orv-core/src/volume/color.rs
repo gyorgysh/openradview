@@ -105,6 +105,7 @@ impl Volume {
         });
         Ok(Arc::new(Frame {
             presentation: None,
+            calibration: None,
             slab: None,
             scalar: None,
             validity: None,
@@ -159,6 +160,7 @@ mod tests {
                 .map(|z| {
                     Arc::new(Frame {
                         presentation: None,
+                        calibration: None,
                         slab: None,
                         scalar: None,
                         validity: None,

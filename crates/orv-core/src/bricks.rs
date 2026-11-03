@@ -229,6 +229,7 @@ mod tests {
                 });
                 Arc::new(Frame {
                     presentation: None,
+                    calibration: None,
                     slab: None,
                     scalar: None,
                     validity,

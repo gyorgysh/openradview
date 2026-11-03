@@ -140,6 +140,7 @@ pub(crate) fn decode_with_metadata(
     crate::dicom_codec::validate(&obj)?;
     let grayscale = crate::dicom_voi::read(&obj, count as u32, float, cancelled)?;
     let layers = crate::presentation::read(&obj, count as u32)?;
+    let calibration = crate::calibration::read(&obj, width as u32, height as u32);
     let decoded = if float || color == Some(crate::dicom_color::Color::PackedYbr) {
         None
     } else {
@@ -268,6 +269,7 @@ pub(crate) fn decode_with_metadata(
         };
         frames.push(Arc::new(Frame {
             presentation: layers.clone(),
+            calibration: calibration.clone(),
             slab: None,
             scalar: grayscale.get(frame_index as u32).cloned(),
             validity: validity.clone(),

@@ -36,6 +36,7 @@ fn phantom(missing: bool) -> Volume {
                     .collect::<Vec<_>>();
                 Arc::new(Frame {
                     presentation: None,
+                    calibration: None,
                     slab: None,
                     scalar: None,
                     validity: missing.then(|| vec![0; 81].into()),

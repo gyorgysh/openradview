@@ -8,6 +8,7 @@ pub(super) fn source() -> Arc<Volume> {
                 .map(|z| {
                     Arc::new(Frame {
                         presentation: None,
+                        calibration: None,
                         slab: None,
                         scalar: None,
                         validity: None,

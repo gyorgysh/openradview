@@ -128,6 +128,7 @@ async fn color_series_keeps_consent_scope_and_refuses_scalar_operations() {
     };
     series.frames = vec![Arc::new(Frame {
         presentation: None,
+        calibration: None,
         slab: None,
         scalar: None,
         validity: None,

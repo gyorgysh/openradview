@@ -40,6 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|z| {
             Arc::new(Frame {
                 presentation: None,
+                calibration: None,
                 slab: None,
                 scalar: None,
                 validity: mask.clone(),

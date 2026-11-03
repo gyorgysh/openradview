@@ -15,6 +15,7 @@ fn volume() -> Volume {
             .map(|z| {
                 Arc::new(Frame {
                     presentation: None,
+                    calibration: None,
                     slab: None,
                     scalar: None,
                     validity: None,
