@@ -69,6 +69,7 @@ impl ImageInfo {
             }
         }
         let mut open = true;
+        crate::dialogs::escape(ctx, &mut open);
         window(ctx)
             .open(&mut open)
             .show(ctx, |ui| self.content(ui, &image));

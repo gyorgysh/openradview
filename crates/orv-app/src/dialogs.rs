@@ -12,6 +12,18 @@ pub fn window(title: &'static str, ctx: &egui::Context) -> egui::Window<'static>
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
 }
 
+/// Escape closes an informational dialog, unless a text field or popup menu is
+/// using the key. Consent, unsaved-work and key-capture dialogs do not use this.
+pub fn escape(ctx: &egui::Context, open: &mut bool) {
+    if *open
+        && !ctx.egui_wants_keyboard_input()
+        && !ctx.any_popup_open()
+        && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    {
+        *open = false;
+    }
+}
+
 /// Reveal a newly focused control in this dialog without an idle scroll timer.
 pub fn reveal_focus(ui: &egui::Ui) {
     if let Some(id) = ui.memory(|memory| memory.focused())
@@ -177,6 +189,43 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+    #[test]
+    fn escape_closes_an_informational_dialog_but_not_while_text_is_edited() {
+        let ctx = egui::Context::default();
+        let escape_key = || {
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]
+        };
+        let mut text = String::new();
+        for editing in [true, false] {
+            let mut open = true;
+            let field = egui::Id::new("escape-test-field");
+            for events in [vec![], escape_key()] {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        if editing {
+                            ui.memory_mut(|memory| memory.request_focus(field));
+                        } else {
+                            ui.memory_mut(|memory| memory.surrender_focus(field));
+                        }
+                        ui.add(egui::TextEdit::singleline(&mut text).id(field));
+                        escape(ui.ctx(), &mut open);
+                    },
+                );
+                output.textures_delta.clear();
+            }
+            assert_eq!(open, editing, "editing {editing}");
         }
     }
 }

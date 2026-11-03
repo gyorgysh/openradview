@@ -222,3 +222,47 @@ fn accessible_image_numbers_match_the_visible_counter_and_keys_update_only_the_s
         Some(4.)
     );
 }
+
+#[test]
+fn compact_display_controls_open_from_the_keyboard_and_huge_windows_stay_short() {
+    let ctx = egui::Context::default();
+    crate::theme::install(&ctx);
+    let key = |key| egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut shown = false;
+    let mut header = None;
+    for events in [
+        vec![],
+        vec![key(egui::Key::Tab)],
+        vec![key(egui::Key::Space)],
+        vec![],
+    ] {
+        shown = false;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                // Shorter than the 400-point threshold: the panel starts collapsed.
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(860., 300.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                display_panel(ui, "keyboard-panel-test", |_| shown = true);
+                header = ui.ctx().memory(|memory| memory.focused());
+            },
+        );
+        output.textures_delta.clear();
+    }
+    assert!(header.is_some(), "Tab focuses the Display and tools header");
+    assert!(shown, "Space on the focused header opens the panel");
+    assert_eq!(window_number(3.0000000549775576e38, 0..=6), "3.0000e38");
+    assert_eq!(window_number(-1_500_000., 0..=6), "-1.5000e6");
+    assert_eq!(window_number(40., 0..=0), "40");
+}

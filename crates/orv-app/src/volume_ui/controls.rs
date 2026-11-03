@@ -112,148 +112,149 @@ pub(super) fn show(
         }
         clipping(ui, state, bounds);
     });
-    crate::toolbar::row(ui, |ui| {
-        if narrow {
-            quality(ui, state);
-        }
-        for (label, value) in [
-            ("Yaw", &mut state.camera.yaw_degrees),
-            ("Pitch", &mut state.camera.pitch_degrees),
-            ("Roll", &mut state.camera.roll_degrees),
-        ] {
-            crate::toolbar::number(
-                ui,
-                label,
-                egui::DragValue::new(value)
-                    .clamp_existing_to_range(false)
-                    .speed(0.5)
-                    .range(-360.0..=360.0)
-                    .suffix("°"),
-            );
-        }
-        if state.projection == Projection::Composite {
-            crate::toolbar::number(
-                ui,
-                "Density / mm",
-                egui::DragValue::new(&mut state.transfer.opacity_per_mm)
-                    .clamp_existing_to_range(false)
-                    .speed(0.001)
-                    .range(0.0..=10.0),
-            );
-        }
-    });
-    crate::toolbar::row(ui, |ui| {
-        if !color {
-            if let Some(choices) = choices {
-                egui::ComboBox::from_id_salt("volume source presentation")
-                    .selected_text(match display.window.function {
-                        orv_core::VoiFunction::Lookup { index } => {
-                            format!("Source LUT {}", index + 1)
-                        }
-                        _ => choices
-                            .windows()
-                            .iter()
-                            .position(|value| *value == display.window)
-                            .map(|index| format!("Source window {}", index + 1))
-                            .unwrap_or_else(|| "Source display".into()),
-                    })
-                    .show_ui(ui, |ui| {
-                        for (index, window) in choices.windows().iter().copied().enumerate() {
-                            if ui
-                                .selectable_label(
-                                    display.window == window,
-                                    format!("Source window {}", index + 1),
-                                )
-                                .clicked()
-                            {
-                                display.window = window;
-                                ui.close();
-                            }
-                        }
-                        for (index, _) in choices.luts().iter().enumerate() {
-                            let window = orv_core::WindowLevel::lookup(index as u8);
-                            if ui
-                                .selectable_label(
-                                    display.window == window,
-                                    format!("Source LUT {}", index + 1),
-                                )
-                                .clicked()
-                            {
-                                display.window = window;
-                                ui.close();
-                            }
-                        }
-                    });
+    // Short windows collapse camera and display rows to keep the volume visible.
+    crate::controls::display_panel(ui, "volume-display-controls", |ui| {
+        crate::toolbar::row(ui, |ui| {
+            if narrow {
+                quality(ui, state);
             }
-            crate::controls::window_function(ui, &mut display.window);
-            let lookup = matches!(
-                display.window.function,
-                orv_core::VoiFunction::Lookup { .. }
-            );
-            let minimum = if display.window.function == orv_core::VoiFunction::Linear {
-                1.
-            } else {
-                0.000001
-            };
-            if !lookup {
-                for (label, value) in [
-                    ("Width", &mut display.window.width),
-                    ("Level", &mut display.window.center),
-                ] {
-                    crate::toolbar::number(
-                        ui,
-                        label,
-                        egui::DragValue::new(value)
-                            .clamp_existing_to_range(false)
-                            .speed(1.0)
-                            .range(if label == "Width" {
-                                minimum..=1_000_000.0
-                            } else {
-                                -1_000_000_000.0..=1_000_000_000.0
-                            }),
-                    );
+            for (label, value) in [
+                ("Yaw", &mut state.camera.yaw_degrees),
+                ("Pitch", &mut state.camera.pitch_degrees),
+                ("Roll", &mut state.camera.roll_degrees),
+            ] {
+                crate::toolbar::number(
+                    ui,
+                    label,
+                    egui::DragValue::new(value)
+                        .clamp_existing_to_range(false)
+                        .speed(0.5)
+                        .range(-360.0..=360.0)
+                        .suffix("°"),
+                );
+            }
+            if state.projection == Projection::Composite {
+                crate::toolbar::number(
+                    ui,
+                    "Density / mm",
+                    egui::DragValue::new(&mut state.transfer.opacity_per_mm)
+                        .clamp_existing_to_range(false)
+                        .speed(0.001)
+                        .range(0.0..=10.0),
+                );
+            }
+        });
+        crate::toolbar::row(ui, |ui| {
+            if !color {
+                if let Some(choices) = choices {
+                    egui::ComboBox::from_id_salt("volume source presentation")
+                        .selected_text(match display.window.function {
+                            orv_core::VoiFunction::Lookup { index } => {
+                                format!("Source LUT {}", index + 1)
+                            }
+                            _ => choices
+                                .windows()
+                                .iter()
+                                .position(|value| *value == display.window)
+                                .map(|index| format!("Source window {}", index + 1))
+                                .unwrap_or_else(|| "Source display".into()),
+                        })
+                        .show_ui(ui, |ui| {
+                            for (index, window) in choices.windows().iter().copied().enumerate() {
+                                if ui
+                                    .selectable_label(
+                                        display.window == window,
+                                        format!("Source window {}", index + 1),
+                                    )
+                                    .clicked()
+                                {
+                                    display.window = window;
+                                    ui.close();
+                                }
+                            }
+                            for (index, _) in choices.luts().iter().enumerate() {
+                                let window = orv_core::WindowLevel::lookup(index as u8);
+                                if ui
+                                    .selectable_label(
+                                        display.window == window,
+                                        format!("Source LUT {}", index + 1),
+                                    )
+                                    .clicked()
+                                {
+                                    display.window = window;
+                                    ui.close();
+                                }
+                            }
+                        });
+                }
+                crate::controls::window_function(ui, &mut display.window);
+                let lookup = matches!(
+                    display.window.function,
+                    orv_core::VoiFunction::Lookup { .. }
+                );
+                let minimum = if display.window.function == orv_core::VoiFunction::Linear {
+                    1.
+                } else {
+                    0.000001
+                };
+                if !lookup {
+                    for (label, value) in [
+                        ("Width", &mut display.window.width),
+                        ("Level", &mut display.window.center),
+                    ] {
+                        crate::toolbar::number(
+                            ui,
+                            label,
+                            egui::DragValue::new(value)
+                                .clamp_existing_to_range(false)
+                                .speed(1.0)
+                                .custom_formatter(crate::controls::window_number)
+                                .range(if label == "Width" {
+                                    minimum..=1_000_000.0
+                                } else {
+                                    -1_000_000_000.0..=1_000_000_000.0
+                                }),
+                        );
+                    }
                 }
             }
-        }
-        if state.projection == Projection::Composite {
-            crate::toolbar::number(
-                ui,
-                if color {
-                    "Brightness min"
-                } else {
-                    "Opacity min"
-                },
-                egui::DragValue::new(&mut state.transfer.low)
-                    .clamp_existing_to_range(false)
-                    .speed(1.0)
-                    .range(
-                        if color { 0. } else { -1_000_000_000.0 }
-                            ..=state
-                                .transfer
-                                .high
-                                .next_down()
-                                .min(state.transfer.high - 1e-20),
-                    ),
-            );
-            crate::toolbar::number(
-                ui,
-                if color {
-                    "Brightness max"
-                } else {
-                    "Opacity max"
-                },
-                egui::DragValue::new(&mut state.transfer.high)
-                    .clamp_existing_to_range(false)
-                    .speed(1.0)
-                    .range(
-                        state.transfer.low.next_up().max(state.transfer.low + 1e-20)..=if color {
-                            255.
-                        } else {
-                            1_000_000_000.0
-                        },
-                    ),
-            );
-        }
+            if state.projection == Projection::Composite {
+                crate::toolbar::number(
+                    ui,
+                    if color {
+                        "Brightness min"
+                    } else {
+                        "Opacity min"
+                    },
+                    egui::DragValue::new(&mut state.transfer.low)
+                        .clamp_existing_to_range(false)
+                        .speed(1.0)
+                        .range(
+                            if color { 0. } else { -1_000_000_000.0 }
+                                ..=state
+                                    .transfer
+                                    .high
+                                    .next_down()
+                                    .min(state.transfer.high - 1e-20),
+                        ),
+                );
+                crate::toolbar::number(
+                    ui,
+                    if color {
+                        "Brightness max"
+                    } else {
+                        "Opacity max"
+                    },
+                    egui::DragValue::new(&mut state.transfer.high)
+                        .clamp_existing_to_range(false)
+                        .speed(1.0)
+                        .range(
+                            state.transfer.low.next_up().max(state.transfer.low + 1e-20)
+                                ..=if color { 255. } else { 1_000_000_000.0 },
+                        ),
+                );
+            }
+        });
     });
     fit
 }

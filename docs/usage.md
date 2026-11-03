@@ -57,7 +57,9 @@ sagittal planes through one linked point; choose Crosshair to move that point.
 the loaded volume; drag to orbit, and use the named transfer presets/controls.
 MPR and projections require consistent geometry and a volume within the budget.
 Their interpolated values can differ from source pixels. In compact windows,
-**Display and tools** opens a scrollable panel that leaves room for the images.
+2D, MPR, oblique and 3D/MIP place their display rows under **Display and tools**,
+a scrollable panel that leaves room for the images. Tab and Shift+Tab reach every
+control and scroll it into view; Escape closes informational dialogs.
 For scalar MPR/oblique views, choose **Slab MIP**, **Slab MinIP** or **Slab mean** and a
 physical thickness. These show the discrete maximum, minimum or mean of valid
 samples along the plane normal,

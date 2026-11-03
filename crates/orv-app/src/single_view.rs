@@ -90,60 +90,60 @@ impl Workspace {
             })
             .unwrap_or(self.view.window);
         let before = self.view.window;
-        if color {
-            let description = self.current_image().and_then(|(_, image)| {
-                image.color.as_ref().map(|data| {
-                    format!(
-                        "RGB · {}-bit codes · {}",
-                        data.info.bits,
-                        data.info.presentation()
-                    )
-                })
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(description.unwrap_or_else(|| "RGB color".into()));
-                ui.checkbox(
+        // In short windows these rows collapse so the image keeps its room.
+        let current = self.current_image().map(|(_, frame)| frame);
+        let description = current.as_ref().and_then(|image| {
+            image.color.as_ref().map(|data| {
+                format!(
+                    "RGB · {}-bit codes · {}",
+                    data.info.bits,
+                    data.info.presentation()
+                )
+            })
+        });
+        let monochrome1 = current.as_ref().is_some_and(|image| image.monochrome1);
+        let layers = current.clone().filter(|image| image.presentation.is_some());
+        let mut applied = false;
+        controls::display_panel(ui, "image-display-controls", |ui| {
+            if color {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(description.unwrap_or_else(|| "RGB color".into()));
+                    ui.checkbox(
+                        &mut self.view.invert,
+                        crate::actions::label(ui.ctx(), crate::actions::Action::Invert),
+                    );
+                    if ui.button("Reset display").clicked() {
+                        self.view.invert = false;
+                    }
+                });
+            } else {
+                let choices = current
+                    .as_ref()
+                    .and_then(|frame| frame.scalar.as_ref())
+                    .map(|data| &**data.choices());
+                controls::window(
+                    ui,
+                    &mut self.view.window,
                     &mut self.view.invert,
-                    crate::actions::label(ui.ctx(), crate::actions::Action::Invert),
+                    original,
+                    choices,
                 );
-                if ui.button("Reset display").clicked() {
-                    self.view.invert = false;
+            }
+            applied = crate::toolbar::row(ui, |ui| {
+                let applied = (!color)
+                    && self
+                        .presentation
+                        .controls(ui, series, &mut self.view, monochrome1);
+                if let Some(image) = &layers {
+                    self.source_layers.controls(ui, image);
                 }
-            });
-        } else {
-            let current = self.current_image().map(|(_, frame)| frame);
-            let choices = current
-                .as_ref()
-                .and_then(|frame| frame.scalar.as_ref())
-                .map(|data| &**data.choices());
-            controls::window(
-                ui,
-                &mut self.view.window,
-                &mut self.view.invert,
-                original,
-                choices,
-            );
-        }
+                applied
+            })
+            .inner;
+        });
         if self.view.window != before {
             self.initialize_window = false;
         }
-        let monochrome1 = self
-            .current_image()
-            .is_some_and(|(_, image)| image.monochrome1);
-        let layers = self
-            .current_image()
-            .filter(|(_, image)| image.presentation.is_some());
-        let applied = crate::toolbar::row(ui, |ui| {
-            let applied = (!color)
-                && self
-                    .presentation
-                    .controls(ui, series, &mut self.view, monochrome1);
-            if let Some((_, image)) = &layers {
-                self.source_layers.controls(ui, image);
-            }
-            applied
-        })
-        .inner;
         if applied || self.presentation.follow(&mut self.view) {
             self.initialize_window = false;
             ui.ctx().request_repaint();
@@ -159,6 +159,8 @@ impl Workspace {
         if self.labels.region_preview_visible() {
             ui.weak("Connected edit preview only · Open Labels… to Apply or Discard");
         }
+        // Short windows drop the gesture hint (also in Help) to keep image room.
+        let compact = ui.available_height() < 420.;
         let footer = if count > 1
             && timing
                 .as_ref()
@@ -167,7 +169,7 @@ impl Workspace {
             140.
         } else {
             62.
-        };
+        } - if compact { 22. } else { 0. };
         let size = Vec2::new(content_width, (ui.available_height() - footer).max(60.0));
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
         let painting = self.labels.painting(self.selected);
@@ -312,7 +314,7 @@ impl Workspace {
         }
         if self.labels.painting(self.selected) {
             ui.weak(self.labels.pointer_controls());
-        } else {
+        } else if !compact {
             controls::navigation_hint(ui, self.tool);
         }
         self.request_image(ui.ctx());

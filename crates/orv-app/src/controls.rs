@@ -208,7 +208,7 @@ pub fn window(
 }
 /// Float sources can produce windows far outside typical integer ranges. Show
 /// those compactly instead of widening the toolbar with dozens of digits.
-fn window_number(value: f64, decimals: std::ops::RangeInclusive<usize>) -> String {
+pub(crate) fn window_number(value: f64, decimals: std::ops::RangeInclusive<usize>) -> String {
     if value.abs() >= 1_000_000. {
         format!("{value:.4e}")
     } else {
