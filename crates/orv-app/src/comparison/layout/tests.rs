@@ -138,11 +138,12 @@ fn selecting_any_valid_pair_links_only_its_physical_slices_and_refuses_invalid_p
     assert_eq!(session.panes[3].view.slice, 3);
 }
 #[test]
-fn four_grid_uses_two_rows_without_overlap_and_two_grid_adapts_to_narrow_width() {
+fn four_grid_uses_two_rows_without_overlap_and_two_grid_stacks_only_when_tall() {
     for (count, size, expected) in [
         (4, egui::vec2(600., 300.), [2, 2]),
         (4, egui::vec2(1000., 600.), [2, 2]),
-        (2, egui::vec2(600., 300.), [1, 2]),
+        (2, egui::vec2(600., 300.), [2, 1]),
+        (2, egui::vec2(400., 700.), [1, 2]),
         (2, egui::vec2(1000., 600.), [2, 1]),
     ] {
         let gap = egui::vec2(8., 12.);

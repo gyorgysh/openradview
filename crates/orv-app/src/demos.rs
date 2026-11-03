@@ -38,6 +38,7 @@ impl Demo {
 }
 
 pub fn credits(ctx: &egui::Context, open: &mut bool) {
+    crate::dialogs::escape(ctx, open);
     crate::dialogs::window("Public scan credits", ctx)
         .open(open)
         .default_width(610.0)

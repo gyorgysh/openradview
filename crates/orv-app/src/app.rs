@@ -131,6 +131,8 @@ impl OpenRadView {
                     "OFFLINE BY DEFAULT  /  NO TELEMETRY  /  NO ACCOUNT"
                 },
             );
+            // In a minimum-size window, Tab reaches controls below the fold.
+            crate::dialogs::reveal_focus(ui);
         });
     }
 }
@@ -314,6 +316,7 @@ impl eframe::App for OpenRadView {
             self.help_open = true;
         }
         let mut privacy_open = self.privacy_open;
+        crate::dialogs::escape(&ctx, &mut privacy_open);
         crate::dialogs::window("Privacy", &ctx).open(&mut privacy_open)
             .collapsible(false).resizable(false).default_width(470.0).default_height(480.0).show(&ctx, |ui| {
                 ui.label("OpenRadView has no telemetry or app account.");

@@ -74,6 +74,7 @@ impl Licenses {
             }
         }
         let mut back = false;
+        crate::dialogs::escape(ctx, &mut self.open);
         crate::dialogs::window("Third-party licenses", ctx)
             .open(&mut self.open)
             .default_width(700.)

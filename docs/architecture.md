@@ -383,7 +383,7 @@ RAM admission; comparison does not materialize dense volumes. The active pane ow
 tools, contrast and single-picture export. Click/drag/scroll or the pane buttons
 activate it; passive hover does not change its tools.
 
-Four panes use a two-by-two grid; two panes stack vertically at narrow widths.
+Four panes use a two-by-two grid; two panes stack vertically only when the area is narrower than it is tall.
 Only the chosen pair receives slice/display links and reference lines. Changing
 the pair clears link opt-ins and pending actions. Extra panes remain outside the
 two-pane saved schemas, and comparison-file operations refuse the four-pane

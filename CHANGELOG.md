@@ -5,6 +5,11 @@
 - Open supported integer DICOM modality tables, with declared units, stored-code
   padding and endpoint clipping. Apply them before interpolation and VOI display;
   preserve uniform mapping context in reformats and picture metadata.
+- Keep images usable in small windows: 2D and 3D/MIP collapse their display rows
+  under **Display and tools**, and two comparison panes sit side by side unless
+  the area is taller than wide. Keyboard focus now scrolls hidden first-run
+  controls into view, the logo controls show focus, and Escape closes
+  informational dialogs.
 - Apply a chosen grayscale softcopy presentation state to the selected series:
   window, inversion, rotation and flip. States with annotations, shutters,
   tables or partial display areas are refused whole. **As acquired** returns.

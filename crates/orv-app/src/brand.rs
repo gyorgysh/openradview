@@ -29,6 +29,7 @@ pub fn symbol(ui: &mut egui::Ui, side: f32, seconds: f32, reduce_motion: bool) {
     if response.clicked() {
         replay(ui.ctx());
     }
+    focus_ring(ui, &response);
     response.on_hover_text(if reduce_motion {
         "OpenRadView · reduced motion"
     } else {
@@ -108,6 +109,18 @@ fn replay(ctx: &egui::Context) {
     ctx.request_repaint();
 }
 
+/// Custom-painted controls get the same visible keyboard focus as buttons.
+fn focus_ring(ui: &egui::Ui, response: &egui::Response) {
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            response.rect.expand(3.0),
+            3.0,
+            egui::Stroke::new(1.5, crate::theme::SMOKE),
+            egui::StrokeKind::Outside,
+        );
+    }
+}
+
 pub fn lockup(
     ui: &mut egui::Ui,
     texture: Option<&egui::TextureHandle>,
@@ -119,14 +132,12 @@ pub fn lockup(
         symbol(ui, 34.0, seconds, reduce_motion);
         if let Some(texture) = texture {
             let ratio = texture.size_vec2().x / texture.size_vec2().y;
-            if ui
-                .add(
-                    egui::Image::new((texture.id(), egui::vec2(174.0, 174.0 / ratio)))
-                        .sense(egui::Sense::click()),
-                )
-                .on_hover_text("Replay OpenRadView logo")
-                .clicked()
-            {
+            let response = ui.add(
+                egui::Image::new((texture.id(), egui::vec2(174.0, 174.0 / ratio)))
+                    .sense(egui::Sense::click()),
+            );
+            focus_ring(ui, &response);
+            if response.on_hover_text("Replay OpenRadView logo").clicked() {
                 replay(ui.ctx());
             }
         }

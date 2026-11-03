@@ -4,6 +4,7 @@ use eframe::egui::{self, RichText};
 
 pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
     let mut licenses = false;
+    crate::dialogs::escape(ctx, open);
     crate::dialogs::window("Help", ctx)
         .open(open).default_width(610.0).default_height(640.0)
         .resizable(true).collapsible(false).vscroll(true)
@@ -12,7 +13,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool) -> bool {
             ui.label("Personal education and research only. Not for diagnosis or clinical decisions.");
             licenses = ui.button("Third-party licenses…").clicked();
             egui::CollapsingHeader::new("Offline controls guide").show(ui, crate::guide::show);
-            ui.label("Shortcuts in the top bar offers searchable actions and saved single-letter bindings. Tool keys are suppressed while a control or text field has focus or a menu/dialog is open. Click the image to leave a field. Tab and Shift+Tab move between controls; Enter or Space activates buttons.");
+            ui.label("Shortcuts in the top bar offers searchable actions and saved single-letter bindings. Tool keys are suppressed while a control or text field has focus or a menu/dialog is open. Click the image to leave a field. Tab and Shift+Tab move between controls and scroll them into view; Enter or Space activates buttons. Escape closes Help, Privacy, Image information, credits and licenses.");
             egui::CollapsingHeader::new("Move, zoom and browse images")
                 .default_open(true).show(ui, |ui| {
                     ui.label(format!("{} is the starting tool: drag or scroll to move the image. Hold Space while dragging to move temporarily from any 2D tool. Right or middle drag also moves.", crate::actions::label(ctx, crate::actions::Action::Pan)));

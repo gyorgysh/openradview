@@ -8,7 +8,13 @@ pub(super) struct Grid {
     pub pane: egui::Vec2,
 }
 pub(super) fn grid(count: usize, size: egui::Vec2, gap: egui::Vec2) -> Grid {
-    let columns = if count == 4 || size.x >= 640. { 2 } else { 1 };
+    // Stack two panes only when the area is taller than wide; in a short window
+    // stacking would leave each image a thin strip.
+    let columns = if count == 4 || size.x >= 640. || size.x >= size.y {
+        2
+    } else {
+        1
+    };
     let rows = count / columns;
     Grid {
         columns,
