@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use crate::index::{SegmentationError, read_binary_segmentation};
+use crate::index::{SegmentationError, read_segmentation};
 use dicom_core::{DataElement, DicomValue, Length, PrimitiveValue, Tag, VR};
 use dicom_object::{DefaultDicomObject, InMemDicomObject as Object};
 use std::io::Cursor;
@@ -180,7 +180,7 @@ fn native_little_endian_masks_support_shared_single_frame_macros() {
             PrimitiveValue::U8(vec![0xa9, 0xff].into()),
         ));
         let path = write_mask(&temp, &object);
-        let masks = read_binary_segmentation(&path, &study.series[0], || false).unwrap();
+        let masks = read_segmentation(&path, &study.series[0], || false).unwrap();
         assert_eq!(
             masks
                 .infos()
@@ -198,7 +198,7 @@ fn replacing_the_selected_mask_file_during_reading_refuses_the_result() {
     let study = sources(&temp);
     let path = write_mask(&temp, &mask());
     let checks = std::cell::Cell::new(0usize);
-    read_binary_segmentation(&path, &study.series[0], || {
+    read_segmentation(&path, &study.series[0], || {
         checks.set(checks.get() + 1);
         false
     })
@@ -207,7 +207,7 @@ fn replacing_the_selected_mask_file_during_reading_refuses_the_result() {
     let replacement = temp.0.join("replacement.dcm");
     fs::copy(&path, &replacement).unwrap();
     checks.set(0);
-    let result = read_binary_segmentation(&path, &study.series[0], || {
+    let result = read_segmentation(&path, &study.series[0], || {
         checks.set(checks.get() + 1);
         if checks.get() == midpoint {
             fs::rename(&replacement, &path).unwrap();
@@ -224,7 +224,7 @@ fn binary_masks_resolve_explicit_sources_and_keep_sparse_overlapping_bits_on_the
     let series = &study.series[0];
     let volume = series.volume(|| false).unwrap();
     let path = write_mask(&temp, &mask());
-    let masks = read_binary_segmentation(&path, series, || false).unwrap();
+    let masks = read_segmentation(&path, series, || false).unwrap();
     assert!(Arc::ptr_eq(&masks.source_arc(), &volume));
     assert_eq!(
         masks
@@ -278,7 +278,7 @@ fn identical_numeric_geometry_cannot_replace_missing_or_wrong_source_references(
             )])],
         ));
         object.put(seq(Tag(0x5200, 0x9230), frames));
-        let error = read_binary_segmentation(&write_mask(&temp, &object), series, || false)
+        let error = read_segmentation(&write_mask(&temp, &object), series, || false)
             .err()
             .unwrap();
         assert!(matches!(
@@ -292,7 +292,7 @@ fn identical_numeric_geometry_cannot_replace_missing_or_wrong_source_references(
     let mut object = mask();
     object.put_str(Tag(0x20, 0x52), VR::UI, "2.25.88888");
     assert_eq!(
-        read_binary_segmentation(&write_mask(&temp, &object), series, || false).err(),
+        read_segmentation(&write_mask(&temp, &object), series, || false).err(),
         Some(SegmentationError::Geometry)
     );
 }
@@ -380,7 +380,7 @@ fn malformed_ids_frames_geometry_payloads_and_other_kinds_are_refused() {
             }
         }
         assert!(
-            read_binary_segmentation(&write_mask(&temp, &object), series, || false).is_err(),
+            read_segmentation(&write_mask(&temp, &object), series, || false).is_err(),
             "case {case}"
         );
     }
@@ -388,7 +388,7 @@ fn malformed_ids_frames_geometry_payloads_and_other_kinds_are_refused() {
     let mut bytes = fs::read(&path).unwrap();
     bytes.extend([0, 0]);
     fs::write(&path, bytes).unwrap();
-    assert!(read_binary_segmentation(&path, series, || false).is_err());
+    assert!(read_segmentation(&path, series, || false).is_err());
 }
 #[test]
 fn changed_backing_sources_are_refused_even_while_the_original_decoded_volume_is_alive() {
@@ -399,7 +399,7 @@ fn changed_backing_sources_are_refused_even_while_the_original_decoded_volume_is
     let path = write_mask(&temp, &mask());
     fs::write(temp.0.join("source-1.dcm"), b"changed generated input").unwrap();
     assert_eq!(
-        read_binary_segmentation(&path, series, || false).err(),
+        read_segmentation(&path, series, || false).err(),
         Some(SegmentationError::Changed)
     );
     assert_eq!(volume.dimensions(), [3, 2, 3]);
@@ -412,7 +412,7 @@ fn cancelling_during_parsing_or_association_never_returns_a_partial_mask_set() {
     let path = write_mask(&temp, &mask());
     for after in [0, 1, 4, 20, 60] {
         let calls = std::cell::Cell::new(0);
-        let result = read_binary_segmentation(&path, series, || {
+        let result = read_segmentation(&path, series, || {
             let n = calls.get();
             calls.set(n + 1);
             n >= after
@@ -447,7 +447,7 @@ fn unsupported_mask_syntax_is_rejected_before_any_dataset_values_are_read() {
         let path = temp.0.join("unsupported-mask.dcm");
         fs::write(&path, bytes).unwrap();
         assert_eq!(
-            read_binary_segmentation(&path, series, || false).err(),
+            read_segmentation(&path, series, || false).err(),
             Some(SegmentationError::Encoding)
         );
     }
@@ -498,8 +498,7 @@ fn reversed_tilted_source_planes_are_associated_by_reference_and_pose() {
         ));
     }
     object.put(seq(Tag(0x5200, 0x9230), frames));
-    let masks =
-        read_binary_segmentation(&write_mask(&temp, &object), &study.series[0], || false).unwrap();
+    let masks = read_segmentation(&write_mask(&temp, &object), &study.series[0], || false).unwrap();
     assert_eq!(masks.value(9, [2, 1, 2]), Some(true));
     assert_eq!(masks.value(2, [1, 1, 1]), Some(true));
     assert_eq!(
@@ -632,7 +631,7 @@ fn multiframe_sources_require_one_explicit_original_frame_number() {
     let study = multiframe_source(&temp);
     let series = &study.series[0];
     assert_eq!(series.frame_count(), 3);
-    let masks = read_binary_segmentation(
+    let masks = read_segmentation(
         &write_mask(&temp, &multiframe_mask(Some("3"))),
         series,
         || false,
@@ -648,7 +647,7 @@ fn multiframe_sources_require_one_explicit_original_frame_number() {
     assert_eq!(masks.value(9, [2, 1, 2]), Some(true));
     for first in [None, Some("0"), Some("4"), Some("1\\3")] {
         assert_eq!(
-            read_binary_segmentation(&write_mask(&temp, &multiframe_mask(first)), series, || {
+            read_segmentation(&write_mask(&temp, &multiframe_mask(first)), series, || {
                 false
             })
             .err(),
@@ -656,7 +655,7 @@ fn multiframe_sources_require_one_explicit_original_frame_number() {
         );
     }
     assert_eq!(
-        read_binary_segmentation(
+        read_segmentation(
             &write_mask(&temp, &multiframe_mask(Some("1"))),
             series,
             || false
@@ -664,4 +663,192 @@ fn multiframe_sources_require_one_explicit_original_frame_number() {
         .err(),
         Some(SegmentationError::Geometry)
     );
+}
+fn fractional_mask(values: Vec<u8>) -> DefaultDicomObject {
+    let mut object = mask();
+    object.put_str(Tag(0x62, 1), VR::CS, "FRACTIONAL");
+    object.put_str(Tag(0x62, 0x10), VR::CS, "PROBABILITY");
+    object.put(us(Tag(0x62, 0xe), 200));
+    for (tag, value) in [(0x100, 8), (0x101, 8), (0x102, 7)] {
+        object.put(us(Tag(0x28, tag), value));
+    }
+    object.put(DataElement::new(
+        Tag(0x7fe0, 0x10),
+        VR::OB,
+        PrimitiveValue::U8(values.into()),
+    ));
+    object
+}
+#[test]
+fn fractional_masks_become_positive_at_half_the_declared_maximum() {
+    let temp = Temp::new();
+    let study = sources(&temp);
+    let series = &study.series[0];
+    // Frames: (9, z4), (2, z0), (9, z0), (2, z2); threshold 100 of 200.
+    let values = [[0, 99, 100, 200, 1, 150], [0; 6], [100; 6], [50; 6]].concat();
+    let masks = read_segmentation(
+        &write_mask(&temp, &fractional_mask(values.clone())),
+        series,
+        || false,
+    )
+    .unwrap();
+    assert_eq!(
+        masks
+            .infos()
+            .map(|i| (
+                i.number,
+                i.positive_cells,
+                i.valid_source_cells,
+                i.supplied_planes
+            ))
+            .collect::<Vec<_>>(),
+        [(9, 9, 8, 2), (2, 0, 0, 2)]
+    );
+    assert_eq!(masks.overlap_cells(), 0);
+    assert_eq!(masks.value(9, [0, 0, 2]), Some(false));
+    assert_eq!(masks.value(9, [2, 0, 2]), Some(true));
+    assert_eq!(masks.value(9, [1, 0, 2]), Some(false));
+    assert_eq!(masks.value(2, [0, 0, 1]), Some(false));
+    let mut above = values.clone();
+    above[7] = 201;
+    assert!(matches!(
+        read_segmentation(&write_mask(&temp, &fractional_mask(above)), series, || {
+            false
+        }),
+        Err(SegmentationError::Mask(_))
+    ));
+    for case in 0..3 {
+        let mut object = fractional_mask(values.clone());
+        match case {
+            0 => {
+                object.put(us(Tag(0x62, 0xe), 0));
+            }
+            1 => {
+                object.put_str(Tag(0x62, 0x10), VR::CS, "OTHER");
+            }
+            _ => {
+                object.put(us(Tag(0x28, 0x100), 16));
+            }
+        }
+        assert!(
+            read_segmentation(&write_mask(&temp, &object), series, || false).is_err(),
+            "case {case}"
+        );
+    }
+}
+const LABELMAP_CLASS: &str = "1.2.840.10008.5.1.4.1.1.66.7";
+fn labelmap(values: Vec<u16>, eight_bit: bool) -> DefaultDicomObject {
+    let mut object = mask();
+    object.put_str(Tag(8, 0x16), VR::UI, LABELMAP_CLASS);
+    object.update_meta(|meta| meta.media_storage_sop_class_uid = LABELMAP_CLASS.into());
+    object.put_str(Tag(0x62, 1), VR::CS, "LABELMAP");
+    object.put_str(Tag(0x28, 8), VR::IS, "3");
+    object.remove_element(Tag(0x62, 0x13));
+    let frames = [(4., 1), (0., 9), (2., 5)]
+        .map(|(z, instance)| {
+            let mut item = frame(9, z, instance);
+            item.remove_element(Tag(0x62, 0xa));
+            item
+        })
+        .into();
+    object.put(seq(Tag(0x5200, 0x9230), frames));
+    let bits = if eight_bit { 8 } else { 16 };
+    for (tag, value) in [(0x100, bits), (0x101, bits), (0x102, bits - 1)] {
+        object.put(us(Tag(0x28, tag), value));
+    }
+    if eight_bit {
+        object.put_str(Tag(0x28, 4), VR::CS, "PALETTE");
+    }
+    object.put(if eight_bit {
+        let mut bytes: Vec<u8> = values.iter().map(|v| *v as u8).collect();
+        bytes.resize(bytes.len().next_multiple_of(2), 0);
+        DataElement::new(Tag(0x7fe0, 0x10), VR::OB, PrimitiveValue::U8(bytes.into()))
+    } else {
+        DataElement::new(
+            Tag(0x7fe0, 0x10),
+            VR::OW,
+            PrimitiveValue::U16(values.into()),
+        )
+    });
+    object
+}
+#[test]
+fn label_maps_supply_every_listed_plane_for_every_segment_without_overlap() {
+    let temp = Temp::new();
+    let study = sources(&temp);
+    let series = &study.series[0];
+    // Planes in frame order z4, z0, z2; z0 pixel 1 is a missing source sample.
+    let values = [[9u16, 9, 0, 2, 0, 0], [0, 2, 2, 0, 0, 9], [0; 6]].concat();
+    for eight_bit in [false, true] {
+        let masks = read_segmentation(
+            &write_mask(&temp, &labelmap(values.clone(), eight_bit)),
+            series,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(
+            masks
+                .infos()
+                .map(|i| (
+                    i.number,
+                    i.positive_cells,
+                    i.valid_source_cells,
+                    i.supplied_planes
+                ))
+                .collect::<Vec<_>>(),
+            [(9, 3, 3, 3), (2, 3, 2, 3)]
+        );
+        assert_eq!(masks.overlap_cells(), 0);
+        assert_eq!(masks.value(2, [1, 0, 0]), Some(true));
+        assert_eq!(masks.value(9, [0, 0, 2]), Some(true));
+        assert_eq!(masks.value(9, [0, 0, 1]), Some(false));
+        assert!(masks.plane_is_supplied(2, 1));
+    }
+    let mut undeclared = values.clone();
+    undeclared[4] = 7;
+    assert!(matches!(
+        read_segmentation(
+            &write_mask(&temp, &labelmap(undeclared, false)),
+            series,
+            || false
+        ),
+        Err(SegmentationError::Mask(_))
+    ));
+    for case in 0..4 {
+        let mut object = labelmap(values.clone(), false);
+        match case {
+            // Label-map frames must not name one segment.
+            0 => {
+                object.put(seq(
+                    Tag(0x5200, 0x9230),
+                    [(4., 1), (0., 9), (2., 5)]
+                        .map(|(z, instance)| frame(9, z, instance))
+                        .into(),
+                ));
+            }
+            // The same source plane twice.
+            1 => {
+                object.put(seq(
+                    Tag(0x5200, 0x9230),
+                    [(4., 1), (4., 1), (2., 5)]
+                        .map(|(z, instance)| {
+                            let mut item = frame(9, z, instance);
+                            item.remove_element(Tag(0x62, 0xa));
+                            item
+                        })
+                        .into(),
+                ));
+            }
+            2 => {
+                object.put_str(Tag(0x62, 1), VR::CS, "BINARY");
+            }
+            _ => {
+                object.put(us(Tag(0x28, 0x100), 32));
+            }
+        }
+        assert!(
+            read_segmentation(&write_mask(&temp, &object), series, || false).is_err(),
+            "case {case}"
+        );
+    }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Explicit local BINARY masks; source references remain private to this module.
+//! Explicit local BINARY, FRACTIONAL and LABELMAP masks; source references remain
+//! private to this module.
 use super::{IndexedSeries, header, source::Stamp};
 use crate::{
     dicom_geometry::{group, item},
@@ -19,6 +20,19 @@ use std::{
     sync::Arc,
 };
 const CLASS: &str = "1.2.840.10008.5.1.4.1.1.66.4";
+const LABELMAP_CLASS: &str = "1.2.840.10008.5.1.4.1.1.66.7";
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Binary,
+    /// Positive at or above half the declared maximum fractional value.
+    Fractional {
+        maximum: u8,
+    },
+    /// One segment number per pixel, zero background, 8 or 16 bits.
+    Labels {
+        bytes: usize,
+    },
+}
 const SHARED: Tag = Tag(0x5200, 0x9229);
 const PER_FRAME: Tag = Tag(0x5200, 0x9230);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,8 +53,8 @@ impl std::fmt::Display for SegmentationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Cancelled=>"Mask import cancelled.", Self::Changed=>"A selected source changed. Close and reopen it before loading masks.",
-            Self::Io=>"Could not read the selected local mask file.",Self::Kind=>"Choose a BINARY DICOM segmentation object. Other segmentation kinds are not supported.",
-            Self::Encoding=>"Supplied masks currently require native, uncompressed little-endian one-bit pixels.",
+            Self::Io=>"Could not read the selected local mask file.",Self::Kind=>"Choose a BINARY, FRACTIONAL or LABELMAP DICOM segmentation object. Other segmentation kinds are not supported.",
+            Self::Encoding=>"Supplied masks require native, uncompressed little-endian pixels: one-bit binary, 8-bit fractional or 8/16-bit label maps.",
             Self::Metadata=>"The mask metadata is incomplete, contradictory or outside the supported subset.",
             Self::Association=>"Mask source references do not uniquely match the selected loaded DICOM series.",
             Self::Geometry=>"Mask rows, columns, reference and plane geometry must match their referenced source images. Resampling is not performed.",
@@ -281,7 +295,7 @@ fn matches_plane(
 }
 /// Worker-only selected-file import. It follows source SOP/frame references only
 /// within the selected indexed series; no referenced paths or identifiers leave core.
-pub fn read_binary_segmentation(
+pub fn read_segmentation(
     path: &Path,
     series: &Series,
     cancelled: impl Fn() -> bool,
@@ -327,7 +341,7 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
         &mut reader,
         cancel,
         &mut reason,
-        |class| class == CLASS,
+        |class| class == CLASS || class == LABELMAP_CLASS,
         |syntax| matches!(syntax, "1.2.840.10008.1.2" | "1.2.840.10008.1.2.1"),
     )
     .map_err(|error| match reason {
@@ -343,19 +357,53 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
         return Err(SegmentationError::Encoding);
     };
     let root: &Object = &prefix.object;
-    if uid(root, Tag(8, 0x16))? != CLASS
+    let class = uid(root, Tag(8, 0x16))?;
+    if !matches!(class.as_str(), CLASS | LABELMAP_CLASS)
         || uid(root, Tag(8, 0x18))? != prefix.object.meta().media_storage_sop_instance_uid()
     {
         return Err(SegmentationError::Metadata);
     };
-    if text(root, Tag(0x62, 1))? != "BINARY" {
-        return Err(SegmentationError::Kind);
+    let kind = match (class.as_str(), text(root, Tag(0x62, 1))?.as_str()) {
+        (CLASS, "BINARY") => Kind::Binary,
+        (CLASS, "FRACTIONAL") => {
+            let maximum = u8::try_from(one_u32(root, Tag(0x62, 0xe))?)
+                .ok()
+                .filter(|m| *m > 0)
+                .ok_or(SegmentationError::Metadata)?;
+            if !matches!(
+                text(root, Tag(0x62, 0x10))?.as_str(),
+                "PROBABILITY" | "OCCUPANCY"
+            ) {
+                return Err(SegmentationError::Metadata);
+            }
+            Kind::Fractional { maximum }
+        }
+        (LABELMAP_CLASS, "LABELMAP") => Kind::Labels {
+            bytes: match one_u32(root, Tag(0x28, 0x100))? {
+                8 => 1,
+                16 => 2,
+                _ => return Err(SegmentationError::Encoding),
+            },
+        },
+        _ => return Err(SegmentationError::Kind),
+    };
+    let (bits, photometric_ok) = match kind {
+        Kind::Binary => (1, text(root, Tag(0x28, 4))? == "MONOCHROME2"),
+        Kind::Fractional { .. } => (8, text(root, Tag(0x28, 4))? == "MONOCHROME2"),
+        // A palette only colours values; segment numbers stay the stored values.
+        Kind::Labels { bytes } => (
+            bytes as u32 * 8,
+            matches!(
+                text(root, Tag(0x28, 4))?.as_str(),
+                "MONOCHROME2" | "PALETTE"
+            ),
+        ),
     };
     if one_u32(root, Tag(0x28, 2))? != 1
-        || text(root, Tag(0x28, 4))? != "MONOCHROME2"
-        || one_u32(root, Tag(0x28, 0x100))? != 1
-        || one_u32(root, Tag(0x28, 0x101))? != 1
-        || one_u32(root, Tag(0x28, 0x102))? != 0
+        || !photometric_ok
+        || one_u32(root, Tag(0x28, 0x100))? != bits
+        || one_u32(root, Tag(0x28, 0x101))? != bits
+        || one_u32(root, Tag(0x28, 0x102))? != bits - 1
         || one_u32(root, Tag(0x28, 0x103))? != 0
     {
         return Err(SegmentationError::Encoding);
@@ -389,12 +437,16 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
     }
     let layout = crate::inspection::series_info(series, cancel)?.geometry?;
     Segments::check_layout(layout.dimensions, numbers.len()).map_err(SegmentationError::Mask)?;
-    let expected = (size[0] as usize)
+    let pixels = (size[0] as usize)
         .checked_mul(size[1] as usize)
         .and_then(|n| n.checked_mul(frames))
-        .ok_or(SegmentationError::Limit)?
-        .div_ceil(8)
-        .next_multiple_of(2);
+        .ok_or(SegmentationError::Limit)?;
+    let expected = match kind {
+        Kind::Binary => pixels.div_ceil(8),
+        Kind::Fractional { .. } => pixels,
+        Kind::Labels { bytes } => pixels.checked_mul(bytes).ok_or(SegmentationError::Limit)?,
+    }
+    .next_multiple_of(2);
     if expected > MAX_INPUT_BYTES {
         return Err(SegmentationError::Limit);
     }
@@ -427,12 +479,17 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
             return Err(SegmentationError::Cancelled);
         };
         let frame = per_frame.map(|values| &values[i]);
-        let segment =
-            group(Some(shared), frame, Tag(0x62, 0xa))?.ok_or(SegmentationError::Metadata)?;
-        let number = u16::try_from(one_u32(segment, Tag(0x62, 0xb))?)
-            .map_err(|_| SegmentationError::Metadata)?;
-        if !numbers.contains(&number) {
-            return Err(SegmentationError::Metadata);
+        let segment = group(Some(shared), frame, Tag(0x62, 0xa))?;
+        // Label-map frames carry every segment, so they name none.
+        let number = match (kind, segment) {
+            (Kind::Labels { .. }, None) => 0,
+            (Kind::Labels { .. }, Some(_)) | (_, None) => {
+                return Err(SegmentationError::Metadata);
+            }
+            (_, Some(segment)) => u16::try_from(one_u32(segment, Tag(0x62, 0xb))?)
+                .ok()
+                .filter(|n| numbers.contains(n))
+                .ok_or(SegmentationError::Metadata)?,
         };
         let derivation =
             group(Some(shared), frame, Tag(8, 0x9124))?.ok_or(SegmentationError::Association)?;
@@ -509,6 +566,50 @@ fn read_inner(path: &Path, series: &Series, cancel: &impl Fn() -> bool) -> Resul
     } else {
         None
     };
-    Segments::from_binary(volume, &numbers, &associated, &payload, overlap, cancel)
-        .map_err(SegmentationError::Mask)
+    match kind {
+        Kind::Binary => {
+            Segments::from_binary(volume, &numbers, &associated, &payload, overlap, cancel)
+        }
+        Kind::Fractional { maximum } => {
+            let _bits = MemoryBudget::volumes()
+                .reserve(pixels.div_ceil(8) as u64)
+                .ok_or(SegmentationError::Limit)?;
+            let mut bits = Vec::new();
+            bits.try_reserve_exact(pixels.div_ceil(8).next_multiple_of(2))
+                .map_err(|_| SegmentationError::Limit)?;
+            bits.resize(pixels.div_ceil(8).next_multiple_of(2), 0u8);
+            for (index, value) in payload[..pixels].iter().enumerate() {
+                if *value > maximum {
+                    return Err(SegmentationError::Mask(
+                        "Fractional mask values exceed the declared maximum",
+                    ));
+                }
+                if u16::from(*value) * 2 >= u16::from(maximum) && *value > 0 {
+                    bits[index / 8] |= 1 << (index % 8);
+                }
+            }
+            Segments::from_binary(volume, &numbers, &associated, &bits, overlap, cancel)
+        }
+        Kind::Labels { bytes } => {
+            let _values = MemoryBudget::volumes()
+                .reserve(pixels as u64 * 2)
+                .ok_or(SegmentationError::Limit)?;
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(pixels)
+                .map_err(|_| SegmentationError::Limit)?;
+            values.extend(
+                payload[..pixels * bytes]
+                    .chunks_exact(bytes)
+                    .map(|b| match b {
+                        [value] => u16::from(*value),
+                        [low, high] => u16::from_le_bytes([*low, *high]),
+                        _ => 0,
+                    }),
+            );
+            let planes: Vec<usize> = associated.iter().map(|(_, z)| *z).collect();
+            Segments::from_label_values(volume, &numbers, &planes, &values, cancel)
+        }
+    }
+    .map_err(SegmentationError::Mask)
 }

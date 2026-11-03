@@ -100,6 +100,76 @@ impl Segments {
         cancelled: &dyn Fn() -> bool,
         budget: &Arc<MemoryBudget>,
     ) -> Result<Self, &'static str> {
+        if frames.is_empty() || frames.len() > MAX_FRAMES {
+            return Err("Supplied masks need one to 4096 frames");
+        }
+        let [w, h, _] = source.dimensions();
+        let plane = w * h;
+        let encoded_bits = plane
+            .checked_mul(frames.len())
+            .ok_or("Mask payload size overflow")?;
+        let encoded_bytes = encoded_bits.div_ceil(8).next_multiple_of(2);
+        if encoded_bytes > MAX_INPUT_BYTES || payload.len() != encoded_bytes {
+            return Err("Mask payload length does not match the supported native bit frames");
+        }
+        Self::build(
+            source,
+            numbers,
+            frames,
+            declared_overlap,
+            cancelled,
+            budget,
+            &|frame, pixel| bit(payload, frame * plane + pixel),
+        )
+    }
+    /// Worker-only: one label value per source cell on each listed affine-sorted
+    /// plane, zero meaning background. Every listed plane is supplied for every
+    /// segment, values cannot overlap, and an undeclared nonzero value is refused.
+    pub fn from_label_values(
+        source: Arc<Volume>,
+        numbers: &[u16],
+        planes: &[usize],
+        values: &[u16],
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, &'static str> {
+        let [w, h, _] = source.dimensions();
+        let plane = w * h;
+        if planes.is_empty() || planes.len() > MAX_FRAMES {
+            return Err("Supplied masks need one to 4096 frames");
+        }
+        if plane.checked_mul(planes.len()) != Some(values.len()) {
+            return Err("Label map payload length does not match its frames");
+        }
+        if values.iter().any(|v| *v != 0 && !numbers.contains(v)) {
+            return Err("Label map values must be zero or a declared segment number");
+        }
+        let mut frames = Vec::new();
+        frames
+            .try_reserve_exact(planes.len() * numbers.len())
+            .map_err(|_| "Not enough memory for segment metadata")?;
+        for &z in planes {
+            frames.extend(numbers.iter().map(|number| (*number, z)));
+        }
+        let count = numbers.len().max(1);
+        Self::build(
+            source,
+            numbers,
+            &frames,
+            Some(false),
+            &cancelled,
+            &MemoryBudget::volumes(),
+            &|frame, pixel| values[frame / count * plane + pixel] == numbers[frame % count],
+        )
+    }
+    fn build(
+        source: Arc<Volume>,
+        numbers: &[u16],
+        frames: &[(u16, usize)],
+        declared_overlap: Option<bool>,
+        cancelled: &dyn Fn() -> bool,
+        budget: &Arc<MemoryBudget>,
+        positive: &dyn Fn(usize, usize) -> bool,
+    ) -> Result<Self, &'static str> {
         if cancelled() {
             return Err("Cancelled");
         }
@@ -112,17 +182,7 @@ impl Segments {
         {
             return Err("Segment IDs must be unique nonzero numbers");
         }
-        if frames.is_empty() || frames.len() > MAX_FRAMES {
-            return Err("Supplied masks need one to 4096 frames");
-        }
         let plane = dimensions[0] * dimensions[1];
-        let encoded_bits = plane
-            .checked_mul(frames.len())
-            .ok_or("Mask payload size overflow")?;
-        let encoded_bytes = encoded_bits.div_ceil(8).next_multiple_of(2);
-        if encoded_bytes > MAX_INPUT_BYTES || payload.len() != encoded_bytes {
-            return Err("Mask payload length does not match the supported native bit frames");
-        }
         if frames
             .iter()
             .any(|(number, z)| !numbers.contains(number) || *z >= dimensions[2])
@@ -175,7 +235,7 @@ impl Segments {
                 if pixel.is_multiple_of(1024) && cancelled() {
                     return Err("Cancelled");
                 }
-                if !bit(payload, frame_index * plane + pixel) {
+                if !positive(frame_index, pixel) {
                     continue;
                 }
                 let index = z * plane + pixel;

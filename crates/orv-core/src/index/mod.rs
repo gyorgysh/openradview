@@ -17,7 +17,7 @@ mod presentation_state;
 mod segments;
 mod source;
 pub use presentation_state::{PresentationError, PresentationState, read_presentation_state};
-pub use segments::{SegmentationError, read_binary_segmentation};
+pub use segments::{SegmentationError, read_segmentation};
 #[cfg(test)]
 mod tests;
 

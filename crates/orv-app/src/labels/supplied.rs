@@ -240,7 +240,7 @@ impl Supplied {
         ui.separator();
         ui.small("Read-only on source images and thin MPR/oblique planes. Slabs, 3D and agent snapshots exclude masks. Nothing is saved automatically.");
         ui.collapsing("Supported mask inputs", |ui| {
-            ui.small("Choose native uncompressed little-endian BINARY DICOM SEG. Source references and plane geometry must match the selected loaded DICOM series; no resampling is performed.");
+            ui.small("Choose native uncompressed little-endian BINARY, FRACTIONAL or LABELMAP DICOM SEG. Fractional values count at or above half the declared maximum. Source references and plane geometry must match the selected loaded DICOM series; no resampling is performed.");
             ui.small("Up to 64 segments and 4096 mask/source planes, 32 million source voxels and 4 million pixels per plane. Other encodings and differing grids are unsupported. Closing the source releases this set.");
         });
     }
@@ -318,7 +318,7 @@ fn read(series: Arc<Series>, cancel: &dyn Fn() -> bool) -> Result<Option<Arc<Seg
     else {
         return Ok(None);
     };
-    orv_core::index::read_binary_segmentation(&path, &series, cancel)
+    orv_core::index::read_segmentation(&path, &series, cancel)
         .map(|masks| Some(Arc::new(masks)))
         .map_err(|error| error.to_string())
 }
