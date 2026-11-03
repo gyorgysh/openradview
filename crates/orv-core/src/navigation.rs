@@ -154,6 +154,10 @@ impl NavigationStack {
             _memory: memory,
         })
     }
+    /// Regular spacing between neighbouring planes along the normal, in mm.
+    pub fn step(&self) -> f64 {
+        self.step
+    }
     pub fn compatible(&self, other: &Self) -> bool {
         self.reference.frame_of_reference == other.reference.frame_of_reference
             && self.reference.nifti_transform == other.reference.nifti_transform

@@ -384,6 +384,16 @@ workers, marks and GPU slots, and restores the original pair. Marks in all panes
 participate in existing source-replacement and workspace-close guards. Image and
 illustration exports capture only the active pane.
 
+Fusion draws the pair's second pane over its first as a display-only texture. A
+coalescing worker resamples the second pane's current image onto the first
+pane's pixel grid only when both pass the same compatibility test as slice
+linking and their planes lie within half the second stack's spacing. Sampling
+is pixel-centre bilinear and leaves a point missing when any weighted neighbour
+is missing, so absent data never becomes zero. The second pane's own window and
+inversion map its values; opacity is applied at paint time. Probes, statistics,
+picture exports and snapshots never include the fused texture, and the pair
+change clears it. There is no registration or transform import.
+
 Optional reference lines use only matching completed frame/view pairs. Core clips
 thin-plane intersections to both declared image footprints and rejects unknown or
 different private references/NIfTI contexts. Parallel/coplanar cases are explicit.

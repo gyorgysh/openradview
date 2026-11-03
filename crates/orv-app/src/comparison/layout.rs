@@ -69,6 +69,7 @@ impl ComparisonSession {
             return false;
         }
         self.pair = pair;
+        self.fusion.clear();
         self.linked = false;
         self.display_links = display_link::Group::default();
         self.notice = None;
@@ -118,6 +119,7 @@ impl ComparisonSession {
         self.panes.truncate(2);
         self.active = self.active.min(1);
         self.pair = [0, 1];
+        self.fusion.clear();
         self.linked = false;
         self.display_links = display_link::Group::default();
         self.notice = None;
