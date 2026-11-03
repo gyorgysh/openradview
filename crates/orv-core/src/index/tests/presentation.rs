@@ -238,3 +238,56 @@ fn unsupported_layers_are_counted_without_refusing_the_image() {
         assert!(decoded.presentation.is_none());
     }
 }
+
+#[test]
+fn overlay_padding_is_not_retained_and_many_vertex_shutters_stay_row_bounded() {
+    let mut object = image(phantom_syntax(), 1);
+    // A 3x3 overlay needs two bytes; the supplied value carries 64.
+    overlay(&mut object, 0x6000, 3, 3, [1, 1]);
+    object.put(DataElement::new(
+        Tag(0x6000, 0x3000),
+        VR::OB,
+        PrimitiveValue::U8(vec![0xff; 64].into()),
+    ));
+    // A 512-vertex polygon tracing the square rows 1.5-3.5, columns 1.5-3.5.
+    let mut vertices = Vec::new();
+    for corner in [[1.5, 1.5], [1.5, 3.5], [3.5, 3.5], [3.5, 1.5]] {
+        vertices.push(corner);
+    }
+    let mut points = Vec::new();
+    for edge in 0..4 {
+        let (a, b): ([f64; 2], [f64; 2]) = (vertices[edge], vertices[(edge + 1) % 4]);
+        for step in 0..128 {
+            let t = f64::from(step) / 128.;
+            points.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+        }
+    }
+    // IS values are integers; scale both axes by 10 on a 40x40 image.
+    let text: Vec<String> = points
+        .iter()
+        .flat_map(|p| {
+            [
+                ((p[0] * 10.) as i64).to_string(),
+                ((p[1] * 10.) as i64).to_string(),
+            ]
+        })
+        .collect();
+    object.put_str(Tag(0x0018, 0x1600), VR::CS, "POLYGONAL");
+    object.put_str(Tag(0x0018, 0x1620), VR::IS, text.join("\\"));
+    for decoded in both(&object, 0) {
+        let layers = decoded.presentation.as_ref().unwrap();
+        assert_eq!(layers.retained_bytes(), 2);
+        assert!(layers.has_shutter());
+        let rgba = layers.rgba(0, 40, 40, false, true).unwrap();
+        for (index, pixel) in rgba.chunks(4).enumerate() {
+            let (row, column) = (index / 40 + 1, index % 40 + 1);
+            // Integer vertices put some centres exactly on the boundary,
+            // where inclusion is a convention; check every other pixel.
+            if [row, column].iter().any(|v| *v == 15 || *v == 35) {
+                continue;
+            }
+            let inside = (16..=34).contains(&row) && (16..=34).contains(&column);
+            assert_eq!(pixel[3] == 0, inside, "{row},{column}");
+        }
+    }
+}
