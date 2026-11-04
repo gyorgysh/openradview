@@ -16,6 +16,15 @@ rendering code remain independent of the UI.
 
 ## Input, memory and geometry
 
+Core volume materials describe bounded piecewise linear luminance and extinction
+per physical millimetre, independently of source values and display windows.
+They are not implicitly added to existing saved scenes or snapshot parameters.
+The CPU gradient reference transforms index derivatives by the affine inverse
+transpose, including regular shear. Its boundary stencil stays within the source;
+missing samples give no gradient, and constant fields give no surface normal.
+Normalizing by component scale avoids an intensity-unit cutoff. These definitions
+allow derived rendering to be checked independently of a GPU shader.
+
 Metadata-first indexing avoids decoding every image at import. A bounded metadata
 prefix reader applies object-class admission before reading dataset values and
 stops at the pixel payload without allocating it. Image admission checks both file

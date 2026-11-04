@@ -4,7 +4,7 @@ use orv_core::{
     ViewState, WindowLevel,
     study::{Frame, Geometry},
     volume::Volume,
-    volume_view::{Quality, VolumeView},
+    volume_view::{Projection, Quality, VolumeView},
 };
 use orv_render::{slice::SliceRenderer, volume::VolumeRenderer};
 use serde_json::{Value, json};
@@ -163,67 +163,127 @@ fn main() -> Result<()> {
         },
         120,
     )?;
+    let before_volume = orv_core::resources::MemoryBudget::gpu().used();
     let upload = Instant::now();
     let mut engine = VolumeRenderer::new(&device, &queue, volume.clone(), format, || false)?;
     let upload_ms = upload.elapsed().as_secs_f64() * 1000.;
-    let mut state = VolumeView::fit(&volume);
-    state.quality = Quality::Interactive;
-    let interactive = measure(
-        |index| {
-            state.camera.yaw_degrees = 25. + index as f64 * 0.1;
-            let mut encoder = device.create_command_encoder(&Default::default());
-            engine.render(&device, &mut encoder, &display, &state, [256, 256])?;
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("synthetic volume paint"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &target,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                engine.paint(&mut pass);
-            }
-            submit(&device, &queue, encoder)
-        },
-        120,
+    // Freeze display/camera state so each projection is measured on the same rays.
+    display.window = WindowLevel::BONE;
+    let mut cases = Vec::new();
+    for projection in [Projection::Maximum, Projection::Composite] {
+        let mut state = VolumeView::fit(&volume);
+        state.projection = projection;
+        state.camera.yaw_degrees = 25.;
+        state.camera.pitch_degrees = 15.;
+        state.quality = Quality::Interactive;
+        let interactive = measure(
+            |index| {
+                state.camera.yaw_degrees = 25. + index as f64 * 0.1;
+                let mut encoder = device.create_command_encoder(&Default::default());
+                engine.render(&device, &mut encoder, &display, &state, [256, 256])?;
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("synthetic volume paint"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &target,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        ..Default::default()
+                    });
+                    engine.paint(&mut pass);
+                }
+                submit(&device, &queue, encoder)
+            },
+            120,
+        )?;
+        state.camera.yaw_degrees = 25.;
+        state.quality = Quality::Refined;
+        let tile = measure(
+            |index| {
+                let y = (index % 96) as u32 * 8;
+                let mut encoder = device.create_command_encoder(&Default::default());
+                engine.render_region(
+                    &device,
+                    &mut encoder,
+                    &display,
+                    &state,
+                    [768, 768],
+                    [[0, y], [768, 8]],
+                )?;
+                submit(&device, &queue, encoder)
+            },
+            120,
+        )?;
+        let complete = measure(
+            |_| {
+                let mut encoder = device.create_command_encoder(&Default::default());
+                engine.render(&device, &mut encoder, &display, &state, [768, 768])?;
+                submit(&device, &queue, encoder)
+            },
+            12,
+        )?;
+        let submitted_tiles = measure(
+            |_| {
+                for y in (0..768).step_by(8) {
+                    let mut encoder = device.create_command_encoder(&Default::default());
+                    engine.render_region(
+                        &device,
+                        &mut encoder,
+                        &display,
+                        &state,
+                        [768, 768],
+                        [[0, y], [768, 8]],
+                    )?;
+                    submit(&device, &queue, encoder)?;
+                }
+                Ok(())
+            },
+            12,
+        )?;
+        cases.push(json!({
+            "projection": projection,
+            "view": display,
+            "refined_state": state,
+            "interactive_size":[256,256],"refined_size":[768,768],
+            "interactive_and_paint":interactive,
+            "refined_8row_compute":tile,
+            "refined_complete_compute":complete,
+            "refined_complete_96_fenced_tiles":submitted_tiles,
+            "tile_scope":"96 sequential submissions with completion fences; no native event/frame pacing"
+        }));
+    }
+    let adapter_limits = adapter.limits();
+    let device_limits = device.limits();
+    let reserved = orv_core::resources::MemoryBudget::gpu().used();
+    drop(engine);
+    submit(
+        &device,
+        &queue,
+        device.create_command_encoder(&Default::default()),
     )?;
-    state.quality = Quality::Refined;
-    let tile = measure(
-        |index| {
-            let y = (index % 96) as u32 * 8;
-            let mut encoder = device.create_command_encoder(&Default::default());
-            engine.render_region(
-                &device,
-                &mut encoder,
-                &display,
-                &state,
-                [768, 768],
-                [[0, y], [768, 8]],
-            )?;
-            submit(&device, &queue, encoder)
-        },
-        120,
-    )?;
+    let after_drop = orv_core::resources::MemoryBudget::gpu().used();
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "schema_version":1,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),
+            "schema_version":2,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),
             "adapter":info.name,"backend":format!("{:?}",info.backend),
+            "adapter_limits":{"texture_2d":adapter_limits.max_texture_dimension_2d,"texture_3d":adapter_limits.max_texture_dimension_3d},
+            "requested_device_limits":{"texture_2d":device_limits.max_texture_dimension_2d,"texture_3d":device_limits.max_texture_dimension_3d},
             "source_dimensions":[512,512,128],"retained_scalar_bytes":512*512*128*4,
-            "retained_mask_bytes":if padding {512*512*128} else {0},
-            "output_size":[1600,1000],"warmup_per_case":4,
+            "retained_validity_bytes":if padding {512*512*128} else {0},
+            "paint_target_size":[1600,1000],"warmup_per_case":4,
             "scope":"CPU encode/upload/submit through GPU completion fence; excludes OS input, display/vsync, file decode and PNG readback",
+            "memory_scope":"Shared GPU admission reservations, not measured allocation, free VRAM or RSS; external paint target is additional",
+            "gpu_reserved_before_volume_bytes":before_volume,
+            "gpu_reserved_after_refinement_bytes":reserved,"gpu_reserved_after_renderer_drop_bytes":after_drop,
+            "paint_target_bytes":1600*1000*4,
             "synthetic_generation_ms":generation_ms,"volume_upload_and_pipeline_ms":upload_ms,
-            "scalar_scroll":scalar,"volume_interactive_256_and_paint":interactive,"refined_768_8row_compute":tile
+            "scalar_scroll":scalar,"cases":cases
         }))?
     );
     Ok(())

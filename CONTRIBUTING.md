@@ -29,6 +29,22 @@ results; normal bundles exclude QA. These checks do not cover file dialogs or
 consumer GPU performance.
 [Platform requirements](docs/platforms.md) describe Linux and Windows tooling.
 
+Measure generated GPU workloads explicitly:
+
+```sh
+cargo run --locked --release -p orv-render --example latency
+cargo run --locked --release -p orv-render --example latency -- --padding
+```
+
+The JSON identifies MIP and Composite separately, fixed view parameters, complete
+refined frames, individual tiles and complete sequences of fenced tile submissions.
+It also records adapter/requested limits and shared GPU admission before/after
+renderer teardown. Reservations are not measured driver memory or free VRAM.
+Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
+exclude native input, display/vsync and file decoding; native interaction and
+quiet-window acceptance remain separate checks. This example opens no study and
+records no user input or source paths.
+
 Generate fresh local input without using patient files:
 
 ```sh

@@ -38,6 +38,7 @@ mod vector;
 pub mod view;
 pub mod view_mapping;
 pub mod volume;
+pub mod volume_material;
 pub mod volume_view;
 pub use view::{DisplayTransform, Plane, ViewState, VoiFunction, WindowLevel};
 
