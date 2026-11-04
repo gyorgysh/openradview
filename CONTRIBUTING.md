@@ -51,6 +51,13 @@ Material cases use an explicit four-knot optical mapping and headlight, with
 512-side interactive and 1024/2048-side refined complete compute. They retain
 linear float16 output and exclude final presentation. The 2048 case has only
 four measured samples; inspect the JSON sample counts before comparing timings.
+For generated CPU label edit/checkpoint timings, run
+`cargo run --locked --release -p orv-core --example benchmark_labels`. Its JSON
+separates brush edits, full-grid fill, shared checkpoints and raw byte-copy timing;
+the latter is not a timing of the former application. The generated source shares
+one constant plane across slices, and label reservations exclude source storage,
+allocator overhead and process RSS. It measures no native input/display latency.
+
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and

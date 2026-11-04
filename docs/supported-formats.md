@@ -254,9 +254,9 @@ image or closing the study discards pending results.
 
 The desktop can create a uint8 label volume for one selected regular source series.
 Paint/erase on its acquired 2D grid, fill a scalar range on one/all slices, change
-visibility/opacity and undo the last two edits. Labels have no anatomical names or
-inferred meaning. Thresholds follow the selected scalar representation; no color
-threshold, automatic organ segmentation or model inference is provided.
+visibility/opacity and undo or redo up to 16 edits while the map stays open.
+Labels have no anatomical names or inferred meaning. Thresholds follow the
+selected scalar representation; no color threshold, automatic organ segmentation or model inference is provided.
 
 Load a scalar NIfTI label volume with integer values0–255 (zero background), exact
 dimensions/affine and the same NIfTI spatial-reference code. DICOM sources accept
@@ -272,9 +272,11 @@ files are never overwritten. Maps remain in memory until export; closing, study
 replacement and quitting protect unsaved work. Only one source series has a label
 map at a time; changing series retains it until explicitly removed. The limits
 are32Mi voxels and4Mi pixels/slice, alongside the adaptive shared source-volume allowance.
-Workers clone a private edit, publish only successful results and retain two
-checkpoints; cancellation leaves the displayed map unchanged. Labels appear on
-source 2D and matching thin MPR/oblique planes, with per-ID visibility and
+Workers prepare a private edit and publish only successful results; cancellation
+leaves the displayed map unchanged. Checkpoints share unchanged tiles under the
+same memory allowance. A new change clears redo; a stroke that changes no cells
+preserves history. Returning to the last exported revision clears the unsaved
+indicator. Labels appear on source 2D and matching thin MPR/oblique planes, with per-ID visibility and
 fill/outline/hatching. Nearest-voxel display never interpolates IDs; half ties
 choose the larger index, with source cells covering [-0.5, dimension-0.5).
 Stored IDs on missing samples are preserved but not displayed. Output validity
@@ -302,12 +304,13 @@ inference, registration or model is provided.
 Selection and its proposed map are prepared privately on workers. Preview is
 bound to exact map/source identity, source seed, interval, scope, label and edit
 kind. A changed input or view mode invalidates it. Apply swaps one immutable
-checkpoint into the current map with the existing two-step undo/unsaved guard.
+checkpoint into the current map with the same undo/redo history and unsaved-work
+guard.
 Cancel/admission failure cannot partly change the current map. Source counts and
 exports continue using applied labels. The preview does not enter agent snapshots.
 Grid limits are checked from metadata before dense preparation; every retained
-map/checkpoint is charged to the CPU volume pool. Traversal admits up to one byte
-of mask and four bytes of queue per cell in scope before allocation. The queue is
+directory and uniquely allocated tile is charged to the CPU volume pool.
+Traversal admits up to one byte of mask and four bytes of queue per cell in scope before allocation. The queue is
 released after computation; the mask is private until a proposed map is prepared.
 
 ## Local inspection

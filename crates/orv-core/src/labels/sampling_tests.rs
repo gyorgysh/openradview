@@ -7,10 +7,12 @@ fn id(x: usize, y: usize, original_z: usize) -> u8 {
 }
 fn asymmetric(source: Arc<Volume>) -> Labels {
     let mut labels = Labels::empty(source).unwrap();
-    for (z, frame) in labels.source.frames().iter().enumerate() {
+    for (z, frame) in labels.source_arc().frames().iter().enumerate() {
         for y in 0..6 {
             for x in 0..8 {
-                labels.values[(z * 6 + y) * 8 + x] = id(x, y, frame.instance as usize)
+                labels
+                    .set_value((z * 6 + y) * 8 + x, id(x, y, frame.instance as usize))
+                    .unwrap();
             }
         }
     }
@@ -199,7 +201,7 @@ fn labels_on_missing_source_and_output_samples_are_preserved_but_not_display_eli
         let sampled = labels.sample_plane(&image, || false).unwrap();
         assert_eq!(sampled.ids(), [1, 2, 3]);
         assert_eq!(sampled.eligibility(), [0, 0, 1]);
-        assert_eq!(labels.values()[0], 1);
+        assert_eq!(labels.values().get(0).copied().unwrap(), 1);
     }
 }
 
@@ -215,9 +217,9 @@ fn source_label_counts_keep_missing_values_and_use_affine_determinant_instead_of
     frames[0] = Arc::new(first);
     let mut labels = Labels::empty(Arc::new(Volume::new(frames).unwrap())).unwrap();
     for index in [0, 1, 3, 48, 49, 143] {
-        labels.values[index] = 5
+        labels.set_value(index, 5).unwrap();
     }
-    labels.values[50] = 7;
+    labels.set_value(50, 7).unwrap();
     let counts = labels.statistics(|| false).unwrap();
     assert_eq!(
         counts.by_id[5],
@@ -248,7 +250,7 @@ fn source_label_counts_keep_missing_values_and_use_affine_determinant_instead_of
     assert!((counts.voxel_volume_mm3 - 2.25).abs() < 1e-12);
     assert!((counts.by_id[5].stored_voxels as f64 * counts.voxel_volume_mm3 - 13.5).abs() < 1e-12);
     assert!((counts.by_id[5].valid_voxels as f64 * counts.voxel_volume_mm3 - 9.).abs() < 1e-12);
-    assert_eq!(labels.values()[0], 5);
+    assert_eq!(labels.values().get(0).copied().unwrap(), 5);
     assert!(labels.statistics(|| true).is_err());
 }
 

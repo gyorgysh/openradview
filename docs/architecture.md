@@ -93,9 +93,26 @@ mutex to avoid a lost wakeup. No label data enters ordinary snapshots or tools.
 Seeded label operations traverse source-grid face neighbors with an admitted byte
 mask and u32 queue, bounded by the existing label-grid limits. Missing samples and
 other IDs stop traversal; cleanup preserves missing stored cells. Queue storage
-is transient and the proposal mask retains its reservation. Every immutable label
-map owns its own CPU-pool reservation; fallible cancellable checkpoints replace
-unbudgeted deep clones. Header-only grid checks precede dense preparation/import.
+is transient and the proposal mask retains its reservation.
+
+Manual label maps use immutable 32-cubed tiles with clipped edge allocations.
+A missing tile means stored zero IDs throughout; it does not replace source
+sample validity. Checkpoints copy a bounded directory and share unchanged tiles.
+The first actual write to a shared tile copies only that tile; erasing its last
+nonzero ID releases the empty tile. Directory, tile, revision and export scratch
+allocations retain CPU-pool reservations until their final reader drops them.
+Cancellation or admission failure discards the unpublished private checkpoint.
+Logical source-order iteration and bounded export chunks avoid a dense duplicate.
+
+RAM-only object/revision keys distinguish replacement maps and no-op operations.
+Tile differences bind an exact previous object/revision, including undo/redo;
+these keys contain no source tags and are not serialized. Native history retains
+up to 16 edits, with shared tiles charged once across all live revisions. A real
+new edit clears redo; a no-op preserves history. The exported revision marker
+retains keys without keeping a full map alive, and unsaved state follows that
+exact revision. These tile differences are not yet used for GPU mask uploads.
+
+Header-only grid checks precede dense preparation/import.
 Native previews bind exact map/source, operation parameters and an invalidation
 epoch; source-plane picking uses the inverse display transform. The worker also
 prepares the proposed immutable map. Explicit Apply only swaps that map and adds

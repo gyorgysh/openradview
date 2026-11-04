@@ -64,7 +64,12 @@ impl Labels {
                 eligible.push(0);
                 continue;
             };
-            ids.push(self.values[cell.index]);
+            ids.push(
+                *self
+                    .values
+                    .get(cell.index)
+                    .ok_or("Label tile is inconsistent")?,
+            );
             eligible.push(u8::from(cell.eligible));
         }
         if cancelled() {

@@ -107,8 +107,8 @@ fn face_connectivity_is_scope_specific_and_excludes_diagonals_on_a_tilted_revers
 fn missing_samples_and_competing_ids_are_barriers_and_existing_target_cells_are_not_additions() {
     for missing in [false, true] {
         let mut labels = map(if missing { &[6] } else { &[] });
-        labels.values[0] = 7;
-        labels.values[6] = if missing { 7 } else { 9 };
+        labels.set_value(0, 7).unwrap();
+        labels.set_value(6, if missing { 7 } else { 9 }).unwrap();
         let base = Arc::new(labels);
         let selection = base
             .select_region(grow(LabelScope::Volume), || false)
@@ -117,10 +117,16 @@ fn missing_samples_and_competing_ids_are_barriers_and_existing_target_cells_are_
         assert_eq!(selection.summary().changed_voxels, 1);
         let edited = selection.apply(|| false).unwrap();
         assert_eq!(
-            &edited.values[..8],
+            edited
+                .values
+                .iter()
+                .take(8)
+                .copied()
+                .collect::<Vec<_>>()
+                .as_slice(),
             &[7, 7, 0, 0, 0, 0, if missing { 7 } else { 9 }, 0]
         );
-        assert_eq!(base.values[1], 0);
+        assert_eq!(base.values.get(1).copied().unwrap(), 0);
     }
 }
 #[test]
@@ -181,9 +187,9 @@ fn inclusive_interval_and_boundary_seed_refusals_are_explicit() {
 fn components() -> Arc<Labels> {
     let mut labels = map(&[6]);
     for index in [0, 1, 6, 8, 12, 13, 4, 15, 26, 27, 28] {
-        labels.values[index] = 7;
+        labels.set_value(index, 7).unwrap();
     }
-    labels.values[14] = 9;
+    labels.set_value(14, 9).unwrap();
     Arc::new(labels)
 }
 #[test]
@@ -204,7 +210,7 @@ fn keep_seeded_component_preserves_missing_stored_labels_and_unselected_scopes()
     );
     let edited = selection.apply(|| false).unwrap();
     assert_eq!(selected(&edited, 7), [0, 1, 6, 26, 27, 28]);
-    assert_eq!(edited.values[14], 9);
+    assert_eq!(edited.values.get(14).copied().unwrap(), 9);
     assert!(
         base.select_region(
             request(
@@ -288,7 +294,7 @@ fn island_cutoff_is_strict_and_component_counts_are_independently_known() {
 #[test]
 fn traversal_admission_cancellation_and_checkpoint_failures_release_private_buffers() {
     let base = components();
-    let original = base.values.clone();
+    let original = base.values.iter().copied().collect::<Vec<_>>();
     let budget = MemoryBudget::new(299); // 60 mask bytes + 240 queue bytes required.
     assert!(
         base.select_with_budget(grow(LabelScope::Volume), &|| false, &budget)
@@ -315,7 +321,7 @@ fn traversal_admission_cancellation_and_checkpoint_failures_release_private_buff
         let result = base.select_with_budget(req, &cancel, &budget);
         assert!(result.is_err(), "cancellation after check {after}");
         assert_eq!(budget.used(), 0);
-        assert_eq!(base.values, original);
+        assert!(base.values.iter().eq(original.iter()));
     }
     assert!(Labels::check_dimensions([usize::MAX, 2, 2]).is_err());
     assert!(Labels::check_dimensions([2049, 2048, 2]).is_err());

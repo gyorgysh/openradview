@@ -59,18 +59,38 @@ impl LabelSelection {
     /// The caller must still match `base()` to its current revision before publishing.
     pub fn apply(&self, cancelled: impl Fn() -> bool) -> Result<Labels, &'static str> {
         let mut result = self.base.try_clone(&cancelled)?;
+        result.begin_edit();
         let value = if matches!(self.request.operation, RegionOperation::Grow { .. }) {
             self.request.label
         } else {
             0
         };
-        for (index, changed) in self.changes.iter().enumerate() {
-            if index.is_multiple_of(1024) && cancelled() {
+        let mut index = 0;
+        while index < self.changes.len() {
+            if cancelled() {
                 return Err("Cancelled");
             }
-            if *changed == 1 {
-                result.values[self.offset + index] = value;
+            let start = self.offset + index;
+            let current = result
+                .values
+                .run(start)
+                .ok_or("Label tile is inconsistent")?;
+            let count = current.len().min(self.changes.len() - index);
+            if count == 0 {
+                return Err("Label tile is inconsistent");
             }
+            let mut values = [0u8; 64];
+            values[..count].copy_from_slice(&current[..count]);
+            for (slot, changed) in values[..count]
+                .iter_mut()
+                .zip(&self.changes[index..index + count])
+            {
+                if *changed == 1 {
+                    *slot = value;
+                }
+            }
+            result.set_values(start, &values[..count])?;
+            index += count;
         }
         if cancelled() {
             return Err("Cancelled");
@@ -95,7 +115,9 @@ impl Search<'_> {
         if !frame.has_sample(pixel) {
             return false;
         }
-        let label = self.labels.values[index];
+        let Some(&label) = self.labels.values.get(index) else {
+            return false;
+        };
         match self.request.operation {
             RegionOperation::Grow { range, .. } => {
                 (label == 0 || label == self.request.label)
@@ -278,7 +300,9 @@ impl Labels {
                 return Err("Cancelled");
             }
             let change = match request.operation {
-                RegionOperation::Grow { .. } => *state == 2 && self.values[offset + index] == 0,
+                RegionOperation::Grow { .. } => {
+                    *state == 2 && self.values.get(offset + index) == Some(&0)
+                }
                 RegionOperation::KeepComponent { .. } => *state != 2 && search.eligible(index),
                 RegionOperation::RemoveSmall { .. } => *state == 3,
             };

@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Deterministic user labels. No anatomical inference, persistence or network access.
-use crate::{
-    resources::{MemoryBudget, Reservation},
-    study::Frame,
-    volume::Volume,
-};
+use crate::{resources::MemoryBudget, study::Frame, volume::Volume};
 use std::sync::Arc;
 mod export;
 mod regions;
 mod sampling;
 mod statistics;
+mod tiles;
 pub use regions::{
     LabelScope, LabelSelection, RegionOperation, SelectionRequest, SelectionSummary,
 };
 pub use sampling::{LabelPlane, MAX_PLANE_PIXELS};
 pub use statistics::{LabelCount, LabelStatistics};
+pub use tiles::{
+    LABEL_TILE_SIDE, LabelObjectId, LabelRevision, LabelStorageStatistics, LabelTile,
+    ValueIter as LabelValueIter, Values as LabelValues,
+};
 #[cfg(test)]
 mod sampling_tests;
 #[cfg(test)]
@@ -24,8 +25,10 @@ pub const MAX_VOXELS: usize = 32 * 1024 * 1024;
 
 pub struct Labels {
     source: Arc<Volume>,
-    values: Vec<u8>,
-    _reservation: Reservation,
+    values: tiles::Store,
+    object: LabelObjectId,
+    revision: LabelRevision,
+    parent: Option<LabelRevision>,
 }
 impl Labels {
     /// Header-only admission can call this before preparing or decoding a volume.
@@ -40,45 +43,92 @@ impl Labels {
             .ok_or("Label maps are limited to 32 million voxels")
     }
     pub fn empty(source: Arc<Volume>) -> Result<Self, &'static str> {
-        let count = Self::check_dimensions(source.dimensions())?;
-        let reservation = MemoryBudget::volumes()
-            .reserve(count as u64)
-            .ok_or("Not enough memory for labels")?;
-        let mut values = Vec::new();
-        values
-            .try_reserve_exact(count)
-            .map_err(|_| "Not enough memory for labels")?;
-        values.resize(count, 0);
+        Self::empty_with_budget(source, MemoryBudget::volumes())
+    }
+    fn empty_with_budget(
+        source: Arc<Volume>,
+        budget: Arc<MemoryBudget>,
+    ) -> Result<Self, &'static str> {
+        let values = tiles::Store::empty(source.dimensions(), LABEL_TILE_SIDE, budget.clone())?;
+        let (object, revision) = LabelObjectId::new(&budget)?;
         Ok(Self {
             source,
             values,
-            _reservation: reservation,
+            object,
+            revision,
+            parent: None,
         })
     }
-    /// Worker-only private checkpoint. Each retained map owns its allocation charge.
+    /// Worker-only private checkpoint. Unchanged pages retain their allocation
+    /// charge once across all readers and history revisions.
     pub fn try_clone(&self, cancelled: impl Fn() -> bool) -> Result<Self, &'static str> {
         if cancelled() {
             return Err("Cancelled");
         }
-        let count = Self::check_dimensions(self.source.dimensions())?;
-        let reservation = MemoryBudget::volumes()
-            .reserve(count as u64)
-            .ok_or("Not enough memory for a label checkpoint")?;
-        let mut values = Vec::new();
-        values
-            .try_reserve_exact(count)
-            .map_err(|_| "Not enough memory for a label checkpoint")?;
-        for chunk in self.values.chunks(4096) {
-            if cancelled() {
-                return Err("Cancelled");
-            }
-            values.extend_from_slice(chunk);
-        }
         Ok(Self {
             source: self.source.clone(),
-            values,
-            _reservation: reservation,
+            values: self.values.try_clone(cancelled)?,
+            object: self.object.clone(),
+            revision: self.revision.clone(),
+            parent: None,
         })
+    }
+    pub fn object_id(&self) -> &LabelObjectId {
+        &self.object
+    }
+    pub fn revision(&self) -> &LabelRevision {
+        &self.revision
+    }
+    /// Tile changes are applicable only when the consumer has this exact parent.
+    /// A replacement object or a nonconsecutive history revision needs a fresh upload.
+    pub fn parent_revision(&self) -> Option<&LabelRevision> {
+        self.parent.as_ref()
+    }
+    pub fn changed_tiles(&self) -> impl Iterator<Item = LabelTile> + '_ {
+        self.values.changed_tiles()
+    }
+    /// Conservative tile differences for forward edits or undo/redo. Consumers
+    /// must still match their resident object/revision to `previous` before upload.
+    pub fn changed_tiles_since<'a>(
+        &'a self,
+        previous: &'a Self,
+    ) -> Result<impl Iterator<Item = LabelTile> + 'a, &'static str> {
+        if self.object != previous.object || !Arc::ptr_eq(&self.source, &previous.source) {
+            return Err("Label changes belong to another object or source");
+        }
+        self.values.changed_since(&previous.values)
+    }
+    pub fn storage_statistics(&self) -> LabelStorageStatistics {
+        self.values.statistics()
+    }
+    fn begin_edit(&mut self) {
+        self.values.reset_changes();
+        self.parent = None;
+    }
+    fn set_value(&mut self, index: usize, value: u8) -> Result<(), &'static str> {
+        self.set_values(index, &[value])
+    }
+    fn set_values(&mut self, index: usize, values: &[u8]) -> Result<(), &'static str> {
+        if values.is_empty() {
+            return Ok(());
+        }
+        let previous = self
+            .values
+            .run(index)
+            .and_then(|run| run.get(..values.len()))
+            .ok_or("Label write crosses a tile row")?;
+        if previous == values {
+            return Ok(());
+        }
+        let revision = (!self.values.has_changes())
+            .then(|| LabelRevision::next(self.values.budget()))
+            .transpose()?;
+        self.values.write_run(index, values)?;
+        if let Some(revision) = revision {
+            self.parent = Some(self.revision.clone());
+            self.revision = revision;
+        }
+        Ok(())
     }
     pub fn source(&self) -> &Volume {
         &self.source
@@ -86,8 +136,18 @@ impl Labels {
     pub fn source_arc(&self) -> Arc<Volume> {
         self.source.clone()
     }
-    pub fn values(&self) -> &[u8] {
-        &self.values
+    pub fn values(&self) -> LabelValues<'_> {
+        // The layout has already been admitted against the exact source dimensions.
+        self.values.view()
+    }
+    /// Stored categorical ID, independently of source sample validity.
+    pub fn value(&self, voxel: [usize; 3]) -> Option<u8> {
+        let [w, h, d] = self.source.dimensions();
+        let [x, y, z] = voxel;
+        if x >= w || y >= h || z >= d {
+            return None;
+        }
+        self.values.get((z * h + y) * w + x).copied()
     }
     /// Numeric grid equality is necessary, not proof that two files describe the same anatomy.
     pub fn import(
@@ -127,11 +187,29 @@ impl Labels {
                 return Err("Cancelled");
             }
             let offset = z * frame.pixels.len();
-            for (i, value) in frame.pixels.iter().enumerate() {
-                if !value.is_finite() || *value < 0. || *value > 255. || value.fract() != 0. {
-                    return Err("Label maps need integer values from 0 to 255");
+            let mut i = 0;
+            while i < frame.pixels.len() {
+                if cancel() {
+                    return Err("Cancelled");
                 }
-                result.values[offset + i] = *value as u8;
+                let count = result
+                    .values
+                    .run(offset + i)
+                    .ok_or("Label tile is inconsistent")?
+                    .len()
+                    .min(frame.pixels.len() - i);
+                if count == 0 {
+                    return Err("Label tile is inconsistent");
+                }
+                let mut values = [0u8; 64];
+                for (target, value) in values[..count].iter_mut().zip(&frame.pixels[i..i + count]) {
+                    if !value.is_finite() || *value < 0. || *value > 255. || value.fract() != 0. {
+                        return Err("Label maps need integer values from 0 to 255");
+                    }
+                    *target = *value as u8;
+                }
+                result.set_values(offset + i, &values[..count])?;
+                i += count;
             }
         }
         Ok(result)
@@ -142,10 +220,11 @@ impl Labels {
         let z = voxel[2].round();
         let index = z as usize;
         let reference = self.source.frames().get(index)?;
+        // The acquired geometry is authoritative. Accepted regular stacks can
+        // retain decimal-position residuals relative to their fitted affine.
         (frame.width == reference.width
             && frame.height == reference.height
-            && frame.geometry == reference.geometry
-            && (voxel[2] - z).abs() < 1e-5)
+            && frame.geometry == reference.geometry)
             .then_some(index)
     }
     /// Mutations may be partial on cancellation/error: edit a private checkpoint and discard it on failure.
@@ -170,6 +249,7 @@ impl Labels {
         {
             return Err("Invalid label brush stroke");
         }
+        self.begin_edit();
         let mut total = 0usize;
         let mut previous = points[0];
         for &point in points {
@@ -199,7 +279,7 @@ impl Labels {
                         ..=((x + r).floor().min((w - 1) as f64) as usize)
                     {
                         if (col as f64 - x).powi(2) + (row as f64 - y).powi(2) <= r * r {
-                            self.values[(z * h + row) * w + col] = label;
+                            self.set_value((z * h + row) * w + col, label)?;
                         }
                     }
                 }
@@ -224,28 +304,42 @@ impl Labels {
         {
             return Err("Threshold needs scalar data, a nonzero label and a valid range");
         }
-        for (z, frame) in self.source.frames().iter().enumerate() {
+        self.begin_edit();
+        let source = self.source.clone();
+        for (z, frame) in source.frames().iter().enumerate() {
             if slice.is_some_and(|s| s != z) {
                 continue;
             }
-            for (i, row) in frame.pixels.chunks(frame.width as usize).enumerate() {
+            // Regular scalar volumes already reject nonfinite payloads. Without
+            // a supplied validity mask every source sample is present.
+            let mut pixel = 0;
+            while pixel < frame.pixels.len() {
                 if cancel() {
                     return Err("Cancelled");
                 }
-                for (x, value) in row.iter().enumerate() {
-                    let slot =
-                        &mut self.values[z * frame.pixels.len() + i * frame.width as usize + x];
-                    if *slot == 0 || *slot == label {
-                        *slot = if frame.has_sample(i * frame.width as usize + x)
-                            && *value >= range[0]
-                            && *value <= range[1]
-                        {
-                            label
-                        } else {
-                            0
-                        };
-                    }
+                let index = z * frame.pixels.len() + pixel;
+                let current = self.values.run(index).ok_or("Label tile is inconsistent")?;
+                let count = current.len().min(frame.pixels.len() - pixel);
+                if count == 0 {
+                    return Err("Label tile is inconsistent");
                 }
+                let mut values = [0u8; 64];
+                for local in 0..count {
+                    let old = current[local];
+                    let value = frame.pixels[pixel + local];
+                    values[local] = if old != 0 && old != label {
+                        old
+                    } else if (frame.validity.is_none() || frame.has_sample(pixel + local))
+                        && value >= range[0]
+                        && value <= range[1]
+                    {
+                        label
+                    } else {
+                        0
+                    };
+                }
+                self.set_values(index, &values[..count])?;
+                pixel += count;
             }
         }
         Ok(())
@@ -255,7 +349,11 @@ impl Labels {
         if z >= d {
             return Err("Label slice is outside the source");
         }
-        Ok(self.values[z * w * h..(z + 1) * w * h]
+        let values = self
+            .values
+            .range(z * w * h..(z + 1) * w * h)
+            .ok_or("Label slice is outside the source")?;
+        Ok(values
             .iter()
             .flat_map(|label| {
                 // Neutral shades carry no anatomical meaning; IDs remain distinct in the exported map.

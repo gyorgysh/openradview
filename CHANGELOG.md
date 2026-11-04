@@ -12,8 +12,16 @@ Versions follow [Semantic Versioning](https://semver.org).
   The material view uses a larger interaction image and refines in bounded tiles.
   It stays local; picture export and agent sharing use **Volume** or **MIP**.
 
+### Changed
+
+- Manual label editing shares unchanged tiles between revisions and keeps up to
+  16 undo/redo steps. Strokes that change no cells preserve the history; returning
+  to the last exported revision clears the unsaved indicator.
+
 ### Fixed
 
+- Manual label controls recognize acquired planes whose stored decimal positions
+  differ slightly from the fitted regular volume grid.
 - Thin-plane linked MPR keeps its requested image detail while moving the
   crosshair or a plane slider. Planes whose position did not change reuse their
   images instead of being resampled and uploaded again.
