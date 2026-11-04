@@ -161,7 +161,8 @@ impl VolumeRenderer {
             label: Some("physical volume rays"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}\n{}",
+                    "{}\n{}\n{}",
+                    include_str!("volume_sampling.wgsl"),
                     include_str!("voi.wgsl"),
                     include_str!("volume.wgsl")
                 )

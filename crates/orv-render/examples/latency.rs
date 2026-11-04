@@ -6,10 +6,14 @@ use orv_core::{
     slab::{Slab, SlabProjection},
     study::{Frame, Geometry},
     volume::Volume,
+    volume_material::{MaterialPoint, VolumeMaterial},
     volume_view::{Projection, Quality, VolumeView},
 };
 use orv_render::{
-    reslice::GpuReslicer, slice::SliceRenderer, volume::VolumeRenderer,
+    material_volume::{Lighting, MaterialVolumeRenderer},
+    reslice::GpuReslicer,
+    slice::SliceRenderer,
+    volume::VolumeRenderer,
     volume_source::GpuVolumeSource,
 };
 use serde_json::{Value, json};
@@ -315,10 +319,66 @@ fn main() -> Result<()> {
         )?;
         reslice_cases.push(json!({"kind":name,"requested_side":512,"grid_dimensions":dimensions,"slab":slab,"three_complete_planes":timing}));
     }
+    let material = VolumeMaterial::new(&[
+        MaterialPoint {
+            value: -1000.,
+            luminance: 0.,
+            extinction_per_mm: 0.,
+        },
+        MaterialPoint {
+            value: 150.,
+            luminance: 0.2,
+            extinction_per_mm: 0.,
+        },
+        MaterialPoint {
+            value: 300.,
+            luminance: 0.8,
+            extinction_per_mm: 0.02,
+        },
+        MaterialPoint {
+            value: 1000.,
+            luminance: 1.,
+            extinction_per_mm: 0.08,
+        },
+    ])?;
+    let mut material_renderer = MaterialVolumeRenderer::new(source.clone(), format)?;
+    let mut material_cases = Vec::new();
+    for (side, quality, count) in [
+        (512, Quality::Interactive, 60),
+        (1024, Quality::Refined, 12),
+        (2048, Quality::Refined, 4),
+    ] {
+        let mut state = VolumeView::fit(&volume);
+        state.projection = Projection::Composite;
+        state.camera.yaw_degrees = 25.;
+        state.camera.pitch_degrees = 15.;
+        state.quality = quality;
+        let timing = measure(
+            |_| {
+                let mut encoder = device.create_command_encoder(&Default::default());
+                material_renderer.render_target(
+                    &mut encoder,
+                    &display,
+                    &state,
+                    &material,
+                    Lighting::HEADLIGHT,
+                    orv_render::volume::VolumeTarget {
+                        slot: 0,
+                        size: [side, side],
+                        region: [[0, 0], [side, side]],
+                    },
+                )?;
+                submit(&device, &queue, encoder)
+            },
+            count,
+        )?;
+        material_cases.push(json!({"side":side,"state":state,"headlight_complete_compute":timing}));
+    }
     let adapter_limits = adapter.limits();
     let device_limits = device.limits();
     let reserved = orv_core::resources::MemoryBudget::gpu().used();
     drop(engine);
+    drop(material_renderer);
     drop(reslicer);
     drop(source);
     submit(
@@ -330,7 +390,7 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "schema_version":3,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),
+            "schema_version":4,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),
             "adapter":info.name,"backend":format!("{:?}",info.backend),
             "adapter_limits":{"texture_2d":adapter_limits.max_texture_dimension_2d,"texture_3d":adapter_limits.max_texture_dimension_3d},
             "requested_device_limits":{"texture_2d":device_limits.max_texture_dimension_2d,"texture_3d":device_limits.max_texture_dimension_3d},
@@ -343,7 +403,8 @@ fn main() -> Result<()> {
             "gpu_reserved_after_refinement_bytes":reserved,"gpu_reserved_after_renderer_drop_bytes":after_drop,
             "paint_target_bytes":1600*1000*4,
             "synthetic_generation_ms":generation_ms,"volume_upload_and_pipeline_ms":upload_ms,
-            "scalar_scroll":scalar,"cases":cases,"reslice_cases":reslice_cases,
+            "scalar_scroll":scalar,"cases":cases,"reslice_cases":reslice_cases,"material_cases":material_cases,
+            "material_scope":"Fixed explicit four-knot optical material, headlight, full linear RGBA16F compute only; excludes final display and native input",
             "reslice_scope":"Three moving full-detail scalar grids on the shared uploaded source; no readback, contrast mapping, native presentation or input timing"
         }))?
     );

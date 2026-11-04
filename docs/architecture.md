@@ -38,6 +38,16 @@ the reference. Missing nonzero-weight contributors invalidate a thin sample;
 slabs omit missing samples and retain the declared interval count. These backend
 APIs are not yet connected to desktop MPR, masks, exports or shared snapshots.
 
+The separate material volume backend integrates piecewise optical materials into
+linear RGBA16F targets up to 2048 pixels per side. Its optional two-sided headlight
+uses domain-clipped source secants and the affine inverse transpose. Constant or
+missing gradient stencils retain unlit material instead of supplying a boundary
+normal. Optical depth uses physical ray distances, with a stable small-depth
+opacity approximation. Final presentation interpolates linear radiance and encodes
+once for the framebuffer. Materials are explicit scalar-to-optics mappings;
+grayscale windows/VOI tables are not applied, and display inversion is refused.
+This backend has no native controls or saved/shared scene representation yet.
+
 Metadata-first indexing avoids decoding every image at import. A bounded metadata
 prefix reader applies object-class admission before reading dataset values and
 stops at the pixel payload without allocating it. Image admission checks both file

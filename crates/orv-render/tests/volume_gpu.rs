@@ -6,6 +6,8 @@ mod clipping;
 mod color;
 #[path = "volume_gpu/limits.rs"]
 mod limits;
+#[path = "volume_gpu/material.rs"]
+mod material;
 #[path = "volume_gpu/padding.rs"]
 mod padding;
 #[path = "volume_gpu/presentation.rs"]

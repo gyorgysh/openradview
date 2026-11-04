@@ -43,6 +43,10 @@ renderer teardown. Reservations are not measured driver memory or free VRAM.
 Reslice cases compute three moving 512-side grids on that same uploaded source:
 thin, 65-sample maximum and 257-sample mean. Those timings exclude display mapping,
 readback and native presentation; the reslicer is a backend prototype.
+Material cases use an explicit four-knot optical mapping and headlight, with
+512-side interactive and 1024/2048-side refined complete compute. They retain
+linear float16 output and exclude final presentation. The 2048 case has only
+four measured samples; inspect the JSON sample counts before comparing timings.
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and

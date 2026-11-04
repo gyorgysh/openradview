@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! UI-independent GPU rendering. Surface ownership belongs to the application.
 mod backend;
+mod linear_display;
+pub mod material_volume;
 pub mod reslice;
 pub mod slice;
 pub mod snapshot;
