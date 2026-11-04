@@ -14,6 +14,9 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Changed
 
+- Fractional segmentation imports retain their original values and probability
+  or occupancy meaning in memory. Counts and overlays still use values at or
+  above half the declared maximum.
 - Manual label editing shares unchanged tiles between revisions and keeps up to
   16 undo/redo steps. Strokes that change no cells preserve the history; returning
   to the last exported revision clears the unsaved indicator.

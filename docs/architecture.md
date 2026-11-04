@@ -121,8 +121,13 @@ one undo checkpoint, so no voxel scan occurs on the UI thread. Replaced/cancelle
 results cannot publish after input invalidation. Current counts/exports remain
 applied-map operations and ordinary agent snapshot contracts do not include labels.
 
-The core read-only segment model retains a separate packed mask and source-plane
-coverage for each numeric segment ID. Omitted planes stay distinct from supplied
+The core read-only segment model retains independent samples and source-plane
+coverage for each numeric segment ID. Binary and label-map memberships stay
+bit-packed. Fractional masks retain original bytes only for supplied planes, with
+the declared maximum and probability/occupancy meaning. Per-plane addresses avoid
+a dense byte grid per ID. The categorical view used by counts, overlays and mask
+rays applies the fixed half-maximum threshold without replacing those raw values.
+Omitted planes stay distinct from supplied
 zero masks; positive bits on missing source samples remain stored, with separate
 valid-source counts. Overlap counts source cells once even when three or more
 segments share them. Native one-bit frames concatenate before final even-byte
@@ -134,8 +139,9 @@ source association; it does not itself parse or validate DICOM references.
 The worker-only selected-file SEG reader verifies explicit SOP class/instance/
 frame references inside the selected indexed DICOM series, then maps original
 source frames to the exact prepared volume's affine order. Native little-endian
-one-bit pixels, matching reference/plane geometry and a single source per mask
-frame are required; no resampling or reference paths are followed. Multiframe
+binary, fractional or label-map pixels, matching reference/plane geometry and a
+single source per mask frame are required; no resampling or reference paths are
+followed. Multiframe
 sources require an explicit original frame number. Duplicate segment/source-plane
 pairs are refused rather than folded across acquisition axes. Metadata parsing
 rejects repeated attributes within a dataset while allowing separate frame items;
@@ -147,8 +153,12 @@ Series decoded in memory, such as the bundled demos, have no indexed headers;
 each of their frames keeps its SOP class, instance and object frame count so the
 same explicit references can be followed. An embedded demo mask is read from the
 app's own bytes through the same checks, without writing a file.
-FRACTIONAL frames are thresholded to bits at or above half the declared maximum
-before the same model is built. LABELMAP frames name no segment: each listed plane
+FRACTIONAL preflight admits retained source-plane bytes and addresses before
+reading the payload. Staging can copy one selected raw row while returning known
+coverage separately; unknown planes fill staging with zero but remain unknown.
+The 128 MiB sample limit covers packed binary masks or retained fractional bytes;
+coverage/metadata and temporary overlap checks also need shared admission.
+LABELMAP frames name no segment: each listed plane
 is supplied for every declared segment, zero is background, an undeclared value is
 refused, and segments cannot overlap.
 

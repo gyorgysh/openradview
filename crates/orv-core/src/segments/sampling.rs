@@ -83,6 +83,7 @@ impl Segments {
         }
         let mut previous_z = usize::MAX;
         let mut coverage = 0u64;
+        let [width, height, _] = self.source.dimensions();
         for index in 0..count {
             if index.is_multiple_of(1024) && cancel() {
                 return Err("Cancelled");
@@ -104,7 +105,11 @@ impl Segments {
             }
             let mut bits = 0u64;
             for (i, mask) in self.masks.iter().enumerate() {
-                if coverage & (1u64 << i) != 0 && bit(&mask.bits, cell.index) {
+                if coverage & (1u64 << i) != 0
+                    && mask
+                        .samples
+                        .positive(cell.index, width * height, self.encoding)
+                {
                     bits |= 1u64 << i;
                 }
             }

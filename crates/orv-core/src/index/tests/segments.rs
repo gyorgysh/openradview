@@ -713,6 +713,35 @@ fn fractional_masks_become_positive_at_half_the_declared_maximum() {
     assert_eq!(masks.value(9, [2, 0, 2]), Some(true));
     assert_eq!(masks.value(9, [1, 0, 2]), Some(false));
     assert_eq!(masks.value(2, [0, 0, 1]), Some(false));
+    use crate::segments::{FractionalEncoding, FractionalKind, SegmentEncoding};
+    assert_eq!(
+        masks.encoding(),
+        SegmentEncoding::Fractional(FractionalEncoding {
+            maximum: 200,
+            kind: FractionalKind::Probability
+        })
+    );
+    for (frame, (number, z)) in [(9, 2), (2, 0), (9, 0), (2, 1)].into_iter().enumerate() {
+        let mask = masks.mask(number).unwrap();
+        for i in 0..6 {
+            assert_eq!(
+                mask.raw_value([i % 3, i / 3, z]),
+                Some(values[frame * 6 + i])
+            );
+        }
+    }
+    assert_eq!(masks.mask(9).unwrap().raw_value([0, 0, 1]), None);
+    let mut occupancy = fractional_mask(values.clone());
+    occupancy.put_str(Tag(0x62, 0x10), VR::CS, "OCCUPANCY");
+    let retained = read_segmentation(&write_mask(&temp, &occupancy), series, || false).unwrap();
+    assert_eq!(
+        retained.encoding(),
+        SegmentEncoding::Fractional(FractionalEncoding {
+            maximum: 200,
+            kind: FractionalKind::Occupancy
+        })
+    );
+    assert_eq!(retained.mask(9).unwrap().raw_value([1, 0, 2]), Some(99));
     let mut above = values.clone();
     above[7] = 201;
     assert!(matches!(

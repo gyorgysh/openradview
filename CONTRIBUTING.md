@@ -57,6 +57,12 @@ separates brush edits, full-grid fill, shared checkpoints and raw byte-copy timi
 the latter is not a timing of the former application. The generated source shares
 one constant plane across slices, and label reservations exclude source storage,
 allocator overhead and process RSS. It measures no native input/display latency.
+Schema 2 also measures supplied mask construction, raw row copies and categorical
+source-plane sampling. It compares packed binary, full fractional and two-plane
+fractional storage on the same generated grid. Input/staging admission is separate
+from retained mask bytes. Construction has three samples; row/plane cases have
+120. Fractional values remain original bytes with a declared maximum and meaning;
+the sampled overlay uses the existing half-maximum categorical view.
 
 For complete GPU label revision uploads, run
 `cargo run --locked --release -p orv-render --example label_latency`. The workload
