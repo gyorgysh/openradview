@@ -2,6 +2,7 @@
 //! Physical optical materials with affine-correct headlight shading and linear output.
 use crate::{
     linear_display::LinearDisplay,
+    material_ranges::GpuMaterialRanges,
     volume::{VolumeTarget, allocation},
     volume_source::GpuVolumeSource,
 };
@@ -55,6 +56,8 @@ pub struct MaterialVolumeRenderer {
     layout: wgpu::BindGroupLayout,
     display: LinearDisplay,
     outputs: [Option<Output>; 2],
+    ranges: Option<Arc<GpuMaterialRanges>>,
+    use_range_bindings: bool,
     _scratch: allocation::GpuReservation,
 }
 impl MaterialVolumeRenderer {
@@ -62,12 +65,47 @@ impl MaterialVolumeRenderer {
         source: Arc<GpuVolumeSource>,
         format: wgpu::TextureFormat,
     ) -> Result<Self, &'static str> {
+        Self::prepare(source, format, false, None)
+    }
+    /// Dense reference using the same shared source stencil as acceleration.
+    /// It retains the original interpolation and is not a pick/export API.
+    pub fn new_dense_reference(
+        source: Arc<GpuVolumeSource>,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, &'static str> {
+        Self::prepare(source, format, true, None)
+    }
+    /// Skip only certified zero-extinction samples of the source interpolator.
+    /// Sample count, positions, validity, lighting and requested size are retained.
+    /// The caller retains this renderer through command submission, like `new`.
+    pub fn new_accelerated(
+        ranges: Arc<GpuMaterialRanges>,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, &'static str> {
+        Self::prepare(ranges.source().clone(), format, true, Some(ranges))
+    }
+    fn prepare(
+        source: Arc<GpuVolumeSource>,
+        format: wgpu::TextureFormat,
+        shared_stencil: bool,
+        ranges: Option<Arc<GpuMaterialRanges>>,
+    ) -> Result<Self, &'static str> {
         let device = source.device();
         crate::volume::check_limits(&device.limits())?;
         if source.volume.is_color() {
             return Err("Optical scalar materials do not accept color sources");
         }
+        let use_range_bindings = ranges.as_ref().is_some_and(|r| r.transparent_tiles() > 0);
+        if use_range_bindings
+            && (device.limits().max_bind_groups < 2
+                || device.limits().max_sampled_textures_per_shader_stage < 3
+                || device.limits().max_uniform_buffers_per_shader_stage < 2)
+        {
+            return Err("This GPU cannot bind scalar range acceleration resources");
+        }
         let scratch = allocation::reserve_bytes(65536, device, source.queue())?;
+        let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("physical material volume bindings"),
             entries: &[
@@ -113,9 +151,13 @@ impl MaterialVolumeRenderer {
                 },
             ],
         });
+        let mut layouts = vec![Some(&layout)];
+        if use_range_bindings && let Some(ranges) = &ranges {
+            layouts.push(Some(ranges.layout()));
+        }
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("physical material volume layout"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &layouts,
             immediate_size: 0,
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -124,7 +166,7 @@ impl MaterialVolumeRenderer {
                 format!(
                     "{}\n{}\n{}",
                     include_str!("volume_sampling.wgsl"),
-                    include_str!("material_optics.wgsl"),
+                    optics_shader(shared_stencil, use_range_bindings),
                     include_str!("material_volume.wgsl")
                 )
                 .into(),
@@ -139,12 +181,19 @@ impl MaterialVolumeRenderer {
             cache: None,
         });
         let display = LinearDisplay::new(device, format);
+        let invalid = pollster::block_on(validation.pop()).is_some();
+        let exhausted = pollster::block_on(memory.pop()).is_some();
+        if invalid || exhausted {
+            return Err("The graphics device could not prepare optical volume rendering");
+        }
         Ok(Self {
             source,
             compute,
             layout,
             display,
             outputs: Default::default(),
+            ranges,
+            use_range_bindings,
             _scratch: scratch,
         })
     }
@@ -162,6 +211,13 @@ impl MaterialVolumeRenderer {
         let VolumeTarget { slot, size, region } = target;
         if slot >= self.outputs.len() {
             return Err("Unsupported material volume output slot");
+        }
+        if self
+            .ranges
+            .as_ref()
+            .is_some_and(|ranges| ranges.material().as_ref() != material)
+        {
+            return Err("Material range classification no longer matches the requested material");
         }
         let parameters = parameters(
             &self.source,
@@ -252,6 +308,11 @@ impl MaterialVolumeRenderer {
         });
         pass.set_pipeline(&self.compute);
         pass.set_bind_group(0, &bindings, &[]);
+        if self.use_range_bindings
+            && let Some(ranges) = &self.ranges
+        {
+            pass.set_bind_group(1, ranges.bindings(), &[]);
+        }
         pass.dispatch_workgroups(region[1][0].div_ceil(8), region[1][1].div_ceil(8), 1);
         Ok(())
     }
@@ -263,6 +324,20 @@ impl MaterialVolumeRenderer {
             self.display.paint(&output.bindings, pass);
         }
     }
+}
+
+pub(crate) fn optics_shader(shared_stencil: bool, ranges: bool) -> String {
+    format!(
+        "const SHARED_OPTICAL_STENCIL:bool={shared_stencil};\n{}\n{}\n{}\n{}",
+        include_str!("material_stencil.wgsl"),
+        include_str!("material_sample.wgsl"),
+        if ranges {
+            include_str!("material_ranges.wgsl")
+        } else {
+            "fn transparent_advance(lower:vec3u,point:vec3f,origin:vec3f,near:f32,step:f32,index:u32,count:u32)->u32{return 0u;}"
+        },
+        include_str!("material_optics.wgsl")
+    )
 }
 
 pub(crate) fn parameters(

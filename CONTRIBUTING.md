@@ -160,6 +160,25 @@ coverage, and verify reservation release. Counts of zero-extinction vertex
 intervals are preparation metrics; these do not prove rounded GPU interpolation
 bounds or measure an implemented skip path.
 
+For the opt-in GPU path, run
+`cargo run --locked --release -p orv-render --example material_ranges_latency`.
+It uses distinct 512×512×128 planes with sparse geometric features, missing data
+and a dense field, comparing the legacy renderer, dense reference and
+certified tile skipping. Full 512 frames have 20 samples after three warmups;
+2048 frames have four samples after one warmup. The three modes run in rotating
+interleaved order. Timings include immutable uniforms,
+encoding and a complete GPU fence, with resident outputs. Preparation, verification
+readback and native input/display are excluded. The 512 cases also time complete
+16-row sequences with a fence per batch.
+
+Every output pixel must match the dense reference, and tiled output must
+retain that sample phase. The example records differences from the legacy image,
+checks 256 independent f64 optical rays for each unlit path and reports admission
+and final reservation release. Headlight equivalence is checked against the dense
+GPU reference; the independent optical rays use unlit material. Inspect the
+workload and sample counts before comparing timings. Dense and missing sources
+may have no transparent tiles; no native speedup or residency claim follows.
+
 Generate fresh local input without using patient files:
 
 ```sh

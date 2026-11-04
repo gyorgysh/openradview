@@ -11,18 +11,6 @@ struct Params {
 @group(0) @binding(1) var<uniform> p:Params;
 @group(0) @binding(3) var validity:texture_3d<u32>;
 
-fn material(value:f32)->vec2f {
-    var a=p.points[0];
-    for(var i=1u;i<u32(p.optics.x);i+=1u) {
-        let b=p.points[i];
-        if value<=b.x {
-            let t=clamp((value-a.x)/(b.x-a.x),0.,1.);
-            return mix(a.yz,b.yz,t);
-        }
-        a=b;
-    }
-    return a.yz;
-}
 fn illumination(point:vec3f)->f32 {
     if p.optics.z==0. {return p.optics.y;}
     let maximum=vec3f(textureDimensions(source))-1.;
@@ -52,10 +40,11 @@ fn integrate_material(origin:vec3f,ray:vec2f)->vec2f {
         let length=max(ray.y-ray.x,0.);
         let count=u32(clamp(ceil(length/p.sampling.x),1.,p.sampling.y));
         let step=length/f32(count);
-        for(var i=0u;i<count;i+=1u) {
-            let point=origin+p.direction.xyz*(ray.x+(f32(i)+0.5)*step);
-            if !scalar_valid(point) {continue;}
-            let optics=material(scalar(point));
+        for(var i=0u;i<count;) {
+            let point=material_point(origin,ray.x,step,i);
+            let sample=optical_sample(point,origin,ray.x,step,i,count);
+            i+=sample.advance;
+            let optics=sample.optics;
             // Stable for small optical depth, where 1-exp(-x) loses precision.
             let depth=optics.y*step;
             let alpha=select(1.-exp(-depth),depth*(1.-depth*(0.5-depth/6.)),depth<0.001);

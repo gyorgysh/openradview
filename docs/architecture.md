@@ -810,11 +810,46 @@ or a confirmed empty region. Invalid vertices remain in the raw extrema because
 zero-weight shader arithmetic can still read them at a valid grid node.
 
 The material interval predicate checks endpoint clamping and every internal knot;
-transparent endpoints cannot hide an opaque internal peak. These summaries are
-preparation data, with no GPU skipping connected yet. Stored vertex extrema alone
-do not certify a rounded sampler's range. Any future skip must account for that
-rounding, preserve integration sample positions and source validity, and prove
-equivalence to the dense renderer before it can accelerate native views.
+transparent endpoints cannot hide an opaque internal peak. Stored vertex extrema
+alone do not certify the legacy rounded sampler's range.
+
+An opt-in scalar material backend certifies the original trilinear sampler using
+an outward scalar error bound. Fully expanding its eight weighted vertices gives
+at most 27 signed monomials, with absolute sum at most 27 times the largest vertex
+magnitude. Fewer than 128 rounded additions/multiplications cover their evaluation
+and reassociation. The bound uses gamma-128 with full-ULP directed f32 rounding,
+plus a conservative absolute term for subnormal flushes, then rounds outward to
+f32. It changes no scalar value or source measurement. A shared integer stencil
+binds the classification to the same eight vertices and validity test as the loads.
+Lighting retains the existing validity-aware physical source gradient.
+
+An immutable GPU range grid retains the exact source, CPU summaries and material.
+Its flags require zero extinction coefficients on every segment touched by that
+expanded interval, including ties. An isolated zero knot next to a nonzero
+coefficient cannot certify a rounded GPU lerp. Material changes require new
+classification; missing coverage remains separate. Source binding uses Arc identity,
+not numeric geometry equality. Admission includes the R8Uint flags, side uniform,
+bounded padded staging and retained identity; retired GPU work keeps its charge.
+Material endpoint clamping precedes division, avoiding overflow for distant source
+values and closely spaced knots without changing endpoint semantics.
+
+The integrator keeps its original global midpoint count and spacing. A proven zero
+tile can advance over original indices after verifying endpoints one voxel inside
+that same integer tile. The affine guard requires at most 4096 samples, source
+origin components at most 4096, direction and near magnitudes at most one million,
+step in [1e-6, 1e6], and direction times near/total advance at most 4096. Under
+those limits the expanded affine expression has absolute term sum below 24,576;
+32 directed f32 rounding operations bound its error below 0.125 voxel, including
+negligible propagated flushes. Convexity of the exact line and both endpoint errors
+keep intervening rounded samples inside the tile. Boundary division proposes an
+index only; the original affine expression validates it, with bounded backoff.
+Large cancellation, narrow edge tiles or failed tests retain individual-sample
+evaluation. No transparent tile means no extra range binding.
+
+The native material renderer, opaque surfaces, picks and exports retain their
+existing integration path. The dense-reference and accelerated constructors are
+backend interfaces; they do not yet enable desktop acceleration or provide
+source-brick residency. Native integration requires interaction acceptance.
 
 A brick-layout prototype addresses one measured GPU-residency failure: a
 generated 4096×512×256 f32 volume is admitted on the CPU but exceeds Metal's
