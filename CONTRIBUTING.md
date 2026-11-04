@@ -58,6 +58,12 @@ the latter is not a timing of the former application. The generated source share
 one constant plane across slices, and label reservations exclude source storage,
 allocator overhead and process RSS. It measures no native input/display latency.
 
+For complete GPU label revision uploads, run
+`cargo run --locked --release -p orv-render --example label_latency`. The workload
+includes CPU checkpoints/paint, target allocation, a full prior-grid GPU copy,
+changed tile uploads and the upload fence. It records raw uploaded/copied bytes
+and app admission separately, excluding ray rendering, native input and display.
+
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and

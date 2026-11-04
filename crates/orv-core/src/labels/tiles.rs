@@ -262,6 +262,40 @@ impl Store {
             .enumerate()
             .filter_map(|(i, changed)| changed.then(|| self.layout.tile(i)).flatten())
     }
+    pub fn tiles(&self) -> impl Iterator<Item = LabelTile> + '_ {
+        (0..self.layout.tiles).filter_map(|index| self.layout.tile(index))
+    }
+    pub fn copy_tile(&self, tile: LabelTile, output: &mut [u8]) -> Result<(), &'static str> {
+        if tile
+            .coordinate
+            .iter()
+            .zip(self.layout.grid)
+            .any(|(a, b)| *a >= b)
+        {
+            return Err("Label tile is outside the source");
+        }
+        let [x, y, z] = tile.coordinate;
+        let index = (z * self.layout.grid[1] + y) * self.layout.grid[0] + x;
+        if self.layout.tile(index) != Some(tile) {
+            return Err("Label tile bounds differ from the source layout");
+        }
+        let [minimum, maximum] = tile.bounds;
+        let count: usize = (0..3).map(|a| maximum[a] - minimum[a]).product();
+        if output.len() != count {
+            return Err("Label tile output length is incorrect");
+        }
+        let width = maximum[0] - minimum[0];
+        let mut offset = 0;
+        for z in minimum[2]..maximum[2] {
+            for y in minimum[1]..maximum[1] {
+                let start =
+                    (z * self.layout.dimensions[1] + y) * self.layout.dimensions[0] + minimum[0];
+                self.copy_into(start, &mut output[offset..offset + width])?;
+                offset += width;
+            }
+        }
+        Ok(())
+    }
     pub fn changed_since<'a>(
         &'a self,
         previous: &'a Self,

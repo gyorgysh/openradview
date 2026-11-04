@@ -234,3 +234,33 @@ fn forward_and_undo_differences_keep_object_and_source_boundaries() {
     let other = Labels::empty(a.source_arc()).unwrap();
     assert!(a.changed_tiles_since(&other).is_err());
 }
+
+#[test]
+fn clipped_tile_reads_stream_exact_values_and_refuse_forged_bounds_or_lengths() {
+    let mut labels = Labels::empty(source()).unwrap();
+    for z in 32..34 {
+        for y in 32..35 {
+            for x in 64..67 {
+                labels
+                    .set_value((z * 35 + y) * 67 + x, (x + y + z) as u8)
+                    .unwrap();
+            }
+        }
+    }
+    let tiles = labels.tiles().collect::<Vec<_>>();
+    assert_eq!(tiles.len(), 12);
+    let edge = *tiles.last().unwrap();
+    let mut values = vec![0; 18];
+    labels.copy_tile(edge, &mut values).unwrap();
+    let expected = (32..34)
+        .flat_map(|z| (32..35).flat_map(move |y| (64..67).map(move |x| (x + y + z) as u8)))
+        .collect::<Vec<_>>();
+    assert_eq!(values, expected);
+    assert!(labels.copy_tile(edge, &mut values[..17]).is_err());
+    let mut wrong = edge;
+    wrong.bounds[1][0] += 1;
+    assert!(labels.copy_tile(wrong, &mut values).is_err());
+    wrong = edge;
+    wrong.coordinate[0] = usize::MAX;
+    assert!(labels.copy_tile(wrong, &mut values).is_err());
+}

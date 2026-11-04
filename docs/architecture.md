@@ -178,6 +178,22 @@ A caller must retain and revalidate the exact source, visible mask key/revision
 and completed scene before using a hit for an edit. This reference is not yet
 connected to GPU mask rendering or native picking.
 
+Manual GPU label uploads retain a separate immutable R8Uint texture bound to the
+exact admitted GPU source. A related revision admits a new target, submits a GPU
+copy of the previous grid, then queues only changed source tiles. The copy is
+submitted before tile staging so it cannot overwrite those edits. Creation, tile
+reads, uploads and bounded fence waits belong on a worker. A cancelled/failed
+upload discards the unpublished target and leaves earlier textures unchanged.
+Identical revisions reuse the existing allocation. Replacement objects get a
+full upload; another source/device cannot supply an incremental base.
+
+CPU staging is bounded to one clipped 32-cubed tile. GPU admission includes the
+new grid, conservatively padded staging rows and retirement while commands finish.
+The current prototype still copies the whole old GPU grid for each changed
+revision; it is not sparse GPU residency. Callers retain each revision Arc through
+submission/presentation of its texture view. Native 3D mask display, supplied-mask
+GPU packing and mask-ray shaders are not connected to this upload prototype.
+
 The native labels panel selects either manual labels or read-only supplied masks.
 Each keeps its own source association and state; manual undo/dirty guards never
 flatten supplied masks into uint8 IDs. A generic overlay cache retains weak map/

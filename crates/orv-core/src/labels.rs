@@ -87,6 +87,14 @@ impl Labels {
     pub fn changed_tiles(&self) -> impl Iterator<Item = LabelTile> + '_ {
         self.values.changed_tiles()
     }
+    pub fn tiles(&self) -> impl Iterator<Item = LabelTile> + '_ {
+        self.values.tiles()
+    }
+    /// Worker-only bounded tile read, x-fastest within the clipped source-cell bounds.
+    /// The caller admits its output buffer; source validity is not substituted for IDs.
+    pub fn copy_tile(&self, tile: LabelTile, output: &mut [u8]) -> Result<(), &'static str> {
+        self.values.copy_tile(tile, output)
+    }
     /// Conservative tile differences for forward edits or undo/redo. Consumers
     /// must still match their resident object/revision to `previous` before upload.
     pub fn changed_tiles_since<'a>(
