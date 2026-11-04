@@ -3,6 +3,7 @@
 mod backend;
 pub mod label_source;
 mod linear_display;
+pub mod mask_projection;
 pub mod material_volume;
 pub mod reslice;
 pub mod slice;

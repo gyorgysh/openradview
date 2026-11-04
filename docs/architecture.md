@@ -110,7 +110,8 @@ these keys contain no source tags and are not serialized. Native history retains
 up to 16 edits, with shared tiles charged once across all live revisions. A real
 new edit clears redo; a no-op preserves history. The exported revision marker
 retains keys without keeping a full map alive, and unsaved state follows that
-exact revision. These tile differences are not yet used for GPU mask uploads.
+exact revision. GPU label uploads use these tile differences. Native overlay
+preparation still rebuilds its layers.
 
 Header-only grid checks precede dense preparation/import.
 Native previews bind exact map/source, operation parameters and an invalidation
@@ -175,8 +176,8 @@ half ties choose the larger cell, and tied edge/corner crossings advance all axe
 without inventing zero-length cells. Physical clips preserve partial cell lengths.
 The first eligible hit ignores unknown coverage and missing source samples.
 A caller must retain and revalidate the exact source, visible mask key/revision
-and completed scene before using a hit for an edit. This reference is not yet
-connected to GPU mask rendering or native picking.
+and completed scene before using a hit for an edit. GPU traversal is checked
+against this reference. Native picking remains separate.
 
 Manual GPU label uploads retain a separate immutable R8Uint texture bound to the
 exact admitted GPU source. A related revision admits a new target, submits a GPU
@@ -191,8 +192,27 @@ CPU staging is bounded to one clipped 32-cubed tile. GPU admission includes the
 new grid, conservatively padded staging rows and retirement while commands finish.
 The current prototype still copies the whole old GPU grid for each changed
 revision; it is not sparse GPU residency. Callers retain each revision Arc through
-submission/presentation of its texture view. Native 3D mask display, supplied-mask
-GPU packing and mask-ray shaders are not connected to this upload prototype.
+submission/presentation of its texture view. Native 3D mask display and supplied
+mask GPU packing remain separate.
+
+The manual-mask projection backend traverses nearest source cells independently
+of scalar sampling steps. It writes integer (cell x/y/z, ID) texels and signed
+physical first-hit depth, skipping missing source samples. It intersects the
+half-open categorical domain and optional physical clip after f64 rebasing.
+Centred integer pixel offsets preserve exact centre rays before floating-point
+division. GPU arithmetic remains f32; an unresolved interval or traversal limit
+is an explicit error ID, distinct from an empty ray. Future edits must revalidate
+picks against the core f64 ray and the completed scene.
+
+Two pending mask outputs accept contiguous full-width row batches under one exact
+request. Only the last encoded row returns an immutable image retaining its label
+revision, source, selected ID, camera, view and clip. A published image is never
+overwritten. Outputs admit 20 bytes per pixel and bounded per-dispatch uniforms;
+each pending image permits at most 256 row batches. Callers submit or drop an
+encoder before discarding its pending target and retain completed images through
+GPU use. These mask-only first hits include no source opacity: composition must
+respect the physical ray order. Native mask display, combined optical rendering,
+ordinary exports and agent snapshots do not use this backend yet.
 
 The native labels panel selects either manual labels or read-only supplied masks.
 Each keeps its own source association and state; manual undo/dirty guards never

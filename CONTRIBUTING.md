@@ -62,7 +62,14 @@ For complete GPU label revision uploads, run
 `cargo run --locked --release -p orv-render --example label_latency`. The workload
 includes CPU checkpoints/paint, target allocation, a full prior-grid GPU copy,
 changed tile uploads and the upload fence. It records raw uploaded/copied bytes
-and app admission separately, excluding ray rendering, native input and display.
+and app admission separately. Schema 2 also includes mask-only first-cell/depth
+projection of empty, one-cell-plane and filled maps at a fixed camera, using one
+complete dispatch or a complete sequence of individually fenced 16-row batches.
+Projection timings include fresh output allocation and exclude source optical
+integration, readback, native input and display. The 512-side cases have 120 full
+and 30 tiled samples; 2048-side cases have only four of each. An untimed full
+cell/ID readback checks for arithmetic errors and ineligible reported hits at both
+sizes; it is not an exhaustive CPU ray comparison. Inspect the per-case scope.
 
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and

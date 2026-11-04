@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+struct Params {
+    origin:vec4f,right:vec4f,down:vec4f,direction:vec4f,
+    world_origin:vec4f,world_right:vec4f,world_down:vec4f,world_direction:vec4f,
+    clip_minimum:vec4f,clip_maximum:vec4f,region:vec4f,control:vec4f
+}
+@group(0) @binding(0) var labels:texture_3d<u32>;
+@group(0) @binding(1) var validity:texture_3d<u32>;
+@group(0) @binding(2) var<uniform> p:Params;
+@group(0) @binding(3) var cells:texture_storage_2d<rgba32uint,write>;
+@group(0) @binding(4) var depths:texture_storage_2d<r32float,write>;
+const ERROR:u32=0xffffffffu;
+fn store(pixel:vec2i,cell:vec3i,id:u32,distance:f32) {
+    textureStore(cells,pixel,vec4u(vec3u(max(cell,vec3i(0))),id));
+    textureStore(depths,pixel,vec4f(distance,0.,0.,1.));
+}
+@compute @workgroup_size(8,8,1)
+fn main(@builtin(global_invocation_id) gid:vec3u) {
+    if any(gid.xy>=vec2u(p.region.zw)) {return;}
+    let pixel=vec2i(vec2u(p.region.xy)+gid.xy);
+    // Subtract the centre before division: an exact centre ray must not
+    // acquire a signed offset from a backend's reciprocal approximation.
+    let offset=vec2f(pixel*2+vec2i(1)-vec2i(textureDimensions(cells)))/(vec2f(textureDimensions(cells))*2.);
+    let origin=p.origin.xyz+p.right.xyz*offset.x+p.down.xyz*offset.y;
+    let direction=p.direction.xyz;
+    let dimensions=vec3i(textureDimensions(labels));
+    var near=-1.e30;var far=1.e30;
+    for(var axis=0u;axis<3u;axis+=1u) {
+        let minimum=-0.5;let maximum=f32(dimensions[axis])-0.5;
+        if direction[axis]==0. {
+            if origin[axis]<minimum || origin[axis]>=maximum {store(pixel,vec3i(0),0u,0.);return;}
+        } else {
+            let a=(minimum-origin[axis])/direction[axis];let b=(maximum-origin[axis])/direction[axis];
+            near=max(near,min(a,b));far=min(far,max(a,b));
+        }
+    }
+    if p.control.z>0.5 {
+        let world=p.world_origin.xyz+p.world_right.xyz*offset.x+p.world_down.xyz*offset.y;
+        for(var axis=0u;axis<3u;axis+=1u) {
+            let delta=p.world_direction[axis];
+            if delta==0. {
+                if world[axis]<p.clip_minimum[axis] || world[axis]>p.clip_maximum[axis] {store(pixel,vec3i(0),0u,0.);return;}
+            } else {
+                let a=(p.clip_minimum[axis]-world[axis])/delta;let b=(p.clip_maximum[axis]-world[axis])/delta;
+                near=max(near,min(a,b));far=min(far,max(a,b));
+            }
+        }
+    }
+    if abs(near)>=1.e29 || abs(far)>=1.e29 {store(pixel,vec3i(0),ERROR,0.);return;}
+    if near>=far {store(pixel,vec3i(0),0u,0.);return;}
+    var cell=vec3i(clamp(floor(fma(direction,vec3f(near),origin)+0.5),vec3f(0.),vec3f(dimensions-1)));
+    let step=vec3i(sign(direction));
+    for(var axis=0u;axis<3u;axis+=1u) {
+        if direction[axis]==0. {continue;}
+        for(var adjust=0u;adjust<3u;adjust+=1u) {
+            let a=(f32(cell[axis])-0.5-origin[axis])/direction[axis];let b=(f32(cell[axis])+0.5-origin[axis])/direction[axis];
+            if near<min(a,b) {cell[axis]-=step[axis];}
+            else if near>=max(a,b) {cell[axis]+=step[axis];}
+            else {break;}
+        }
+        let a=(f32(cell[axis])-0.5-origin[axis])/direction[axis];let b=(f32(cell[axis])+0.5-origin[axis])/direction[axis];
+        if near<min(a,b) || near>=max(a,b) {store(pixel,vec3i(0),ERROR,0.);return;}
+    }
+    var cursor=near;let limit=u32(dimensions.x+dimensions.y+dimensions.z)+3u;
+    for(var visited=0u;visited<limit;visited+=1u) {
+        if any(cell<vec3i(0)) || any(cell>=dimensions) {store(pixel,vec3i(0),ERROR,0.);return;}
+        var crossing=vec3f(1.e30);
+        for(var axis=0u;axis<3u;axis+=1u) {
+            if direction[axis]!=0. {crossing[axis]=(f32(cell[axis])+f32(step[axis])*0.5-origin[axis])/direction[axis];}
+        }
+        let next=min(far,min(crossing.x,min(crossing.y,crossing.z)));
+        if next<=cursor {store(pixel,vec3i(0),ERROR,0.);return;}
+        if textureLoad(labels,cell,0).r==u32(p.control.x) {
+            if p.control.y<0.5 || textureLoad(validity,cell,0).r!=0u {store(pixel,cell,u32(p.control.x),cursor);return;}
+        }
+        cursor=next;
+        if cursor>=far {store(pixel,vec3i(0),0u,0.);return;}
+        // A corner has no positive-length side cells. Advance every tied plane.
+        for(var axis=0u;axis<3u;axis+=1u) {if crossing[axis]<=next {cell[axis]+=step[axis];}}
+    }
+    store(pixel,vec3i(0),ERROR,0.);
+}

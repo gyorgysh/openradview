@@ -62,14 +62,15 @@ fn limits(backend: Backend, available: &Limits, flags: DownlevelFlags) -> Limits
         && crate::volume::check_limits(available).is_ok()
     {
         // Keep slice display available on GL 3.x, while requesting only the
-        // compute resources used by ray marching on capable GL/ES drivers.
+        // compute resources used by native volume/mask views on capable GL/ES drivers.
         required.max_compute_workgroup_size_x = 8;
         required.max_compute_workgroup_size_y = 8;
         required.max_compute_workgroup_size_z = 1;
         required.max_compute_invocations_per_workgroup = 64;
         required.max_compute_workgroups_per_dimension =
             available.max_compute_workgroups_per_dimension.min(65535);
-        required.max_storage_textures_per_shader_stage = 1;
+        required.max_storage_textures_per_shader_stage =
+            available.max_storage_textures_per_shader_stage.min(2);
         required.max_texture_dimension_3d = available.max_texture_dimension_3d.min(2048);
     }
     required
@@ -108,6 +109,14 @@ mod tests {
         let compute = limits(Backend::Gl, &available, DownlevelFlags::COMPUTE_SHADERS);
         assert!(crate::volume::check_limits(&compute).is_ok());
         assert!(compute.check_limits(&available));
+        assert_eq!(compute.max_storage_textures_per_shader_stage, 2);
+        let one_output = Limits {
+            max_storage_textures_per_shader_stage: 1,
+            ..available.clone()
+        };
+        let legacy = limits(Backend::Gl, &one_output, DownlevelFlags::COMPUTE_SHADERS);
+        assert_eq!(legacy.max_storage_textures_per_shader_stage, 1);
+        assert!(crate::volume::check_limits(&legacy).is_ok());
         let small = Limits {
             max_texture_dimension_2d: 4096,
             ..available
