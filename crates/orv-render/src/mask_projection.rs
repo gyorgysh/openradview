@@ -144,7 +144,14 @@ impl GpuMaskProjector {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("source-cell mask rays"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("mask_projection.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!(
+                    "{}\n{}",
+                    include_str!("pixel_ray.wgsl"),
+                    include_str!("mask_projection.wgsl")
+                )
+                .into(),
+            ),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("first eligible source cell"),

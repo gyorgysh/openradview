@@ -71,6 +71,8 @@ fn limits(backend: Backend, available: &Limits, flags: DownlevelFlags) -> Limits
             available.max_compute_workgroups_per_dimension.min(65535);
         required.max_storage_textures_per_shader_stage =
             available.max_storage_textures_per_shader_stage.min(2);
+        required.max_storage_buffers_per_shader_stage =
+            available.max_storage_buffers_per_shader_stage.min(1);
         required.max_texture_dimension_3d = available.max_texture_dimension_3d.min(2048);
     }
     required
@@ -110,12 +112,15 @@ mod tests {
         assert!(crate::volume::check_limits(&compute).is_ok());
         assert!(compute.check_limits(&available));
         assert_eq!(compute.max_storage_textures_per_shader_stage, 2);
+        assert_eq!(compute.max_storage_buffers_per_shader_stage, 1);
         let one_output = Limits {
             max_storage_textures_per_shader_stage: 1,
+            max_storage_buffers_per_shader_stage: 0,
             ..available.clone()
         };
         let legacy = limits(Backend::Gl, &one_output, DownlevelFlags::COMPUTE_SHADERS);
         assert_eq!(legacy.max_storage_textures_per_shader_stage, 1);
+        assert_eq!(legacy.max_storage_buffers_per_shader_stage, 0);
         assert!(crate::volume::check_limits(&legacy).is_ok());
         let small = Limits {
             max_texture_dimension_2d: 4096,

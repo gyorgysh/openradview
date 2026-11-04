@@ -211,8 +211,27 @@ overwritten. Outputs admit 20 bytes per pixel and bounded per-dispatch uniforms;
 each pending image permits at most 256 row batches. Callers submit or drop an
 encoder before discarding its pending target and retain completed images through
 GPU use. These mask-only first hits include no source opacity: composition must
-respect the physical ray order. Native mask display, combined optical rendering,
-ordinary exports and agent snapshots do not use this backend yet.
+respect the physical ray order.
+
+A separate worker-only compositor integrates physical source material up to one
+opaque selected manual-mask hit. Foreground source attenuates that mask's unlit
+linear luminance; source behind it contributes nothing. Scalar interpolation
+stops at voxel centres, so the categorical outer half-cell space does not invent
+source opacity. Empty masks retain the source and background. The compositor
+requires the exact GPU source, completed mask image, camera, navigation and clip;
+inversion and MIP are unsupported. Transparent masks need joint ordered events
+and are outside this first-hit composition path.
+
+Two bounded pending outputs accept contiguous rows with immutable parameters.
+Only a complete image whose GPU arithmetic status has been checked can publish;
+cancellation, changed requests, admission refusal and unresolved mask traversal
+leave earlier images unchanged. The final four-byte readback uses a bounded,
+cancellable worker wait. RGBA16F stores linear radiance and the shared display
+pipeline encodes it once at presentation. Output admission includes eight bytes
+per pixel, validation state and up to 256 batches of uniforms/bindings. This
+backend requires a storage buffer; devices without it retain source-only views.
+Native mask display, supplied GPU masks, ordinary exports and agent snapshots
+do not use these backends yet.
 
 The native labels panel selects either manual labels or read-only supplied masks.
 Each keeps its own source association and state; manual undo/dirty guards never

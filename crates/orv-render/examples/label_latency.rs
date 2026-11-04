@@ -21,6 +21,8 @@ use std::{
     sync::{Arc, mpsc},
     time::{Duration, Instant},
 };
+#[path = "label_latency/opaque.rs"]
+mod opaque;
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 fn source() -> Result<Arc<Volume>> {
     let template = demo_study().series.remove(0).frames.remove(0);
@@ -279,9 +281,10 @@ fn main() -> Result<()> {
             if (kind == "empty") != (verified_hits == 0) {
                 return Err("Wrong generated mask projection coverage".into());
             }
+            let composition = opaque::run(&mut projector, verification.clone(), before_gpu)?;
             drop(verification);
             fence(&device)?;
-            projections.push(json!({"mask":kind,"verified_eligible_hit_pixels":verified_hits,"verification_scope":"Separate untimed full cell/ID readback: no arithmetic refusal, every reported hit has known membership and valid source. Not a full CPU ray comparison.","size":request.size,"yaw_degrees":request.camera.yaw_degrees,"pitch_degrees":request.camera.pitch_degrees,"roll_degrees":request.camera.roll_degrees,"complete_image":full,"complete_fenced_16_row_sequence":tiled,"maximum_observed_admitted_gpu_bytes_with_source":maximum_admitted,
+            projections.push(json!({"mask":kind,"verified_eligible_hit_pixels":verified_hits,"verification_scope":"Separate untimed full cell/ID readback: no arithmetic refusal, every reported hit has known membership and valid source. Not a full CPU ray comparison.","opaque_composition":composition,"size":request.size,"yaw_degrees":request.camera.yaw_degrees,"pitch_degrees":request.camera.pitch_degrees,"roll_degrees":request.camera.roll_degrees,"complete_image":full,"complete_fenced_16_row_sequence":tiled,"maximum_observed_admitted_gpu_bytes_with_source":maximum_admitted,
             "scope":"Mask-only first eligible cell and signed physical depth, target allocation/encoding and GPU fence. No source optical integration, display, picking readback or UI. Row sequence fences every 16-row batch; full image fences once."}));
             drop(request);
             fence(&device)?;
@@ -298,7 +301,7 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"schema_version":2,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),"adapter":info.name,"backend":format!("{:?}",info.backend),"source_dimensions":[512,512,128],"source_fixture":"Source CPU frames share one constant plane; GPU source is a full uploaded 512x512x128 scalar texture. No decode or process RSS measurement.","scope":"Label edit cases include worker CPU checkpoint/paint, target allocation, prior-grid GPU copy, changed tile uploads and fence. Mask projection cases have their own scope. No native input/display or vsync.","admission_scope":"App-owned GPU source/label/staging reservations; not measured driver residency or free VRAM. Maximum observed admission includes retired versions not yet released.","warmups_per_case":4,"full_empty_map_upload":full,"edits":cases,"mask_projections":projections,"cpu_and_gpu_admission_restored":true})
+            &json!({"schema_version":3,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),"adapter":info.name,"backend":format!("{:?}",info.backend),"source_dimensions":[512,512,128],"source_fixture":"Source CPU frames share one constant plane; GPU source is a full uploaded 512x512x128 scalar texture. No decode or process RSS measurement.","scope":"Label edit cases include worker CPU checkpoint/paint, target allocation, prior-grid GPU copy, changed tile uploads and fence. Mask projection cases have their own scope. No native input/display or vsync.","admission_scope":"App-owned GPU source/label/staging reservations; not measured driver residency or free VRAM. Maximum observed admission includes retired versions not yet released.","warmups_per_case":4,"full_empty_map_upload":full,"edits":cases,"mask_projections":projections,"cpu_and_gpu_admission_restored":true})
         )?
     );
     Ok(())

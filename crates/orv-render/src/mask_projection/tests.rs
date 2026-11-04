@@ -17,6 +17,15 @@ fn device() -> (wgpu::Device, wgpu::Queue) {
     pollster::block_on(adapter.request_device(&crate::device_descriptor(&adapter))).unwrap()
 }
 fn source(sheared: bool, reversed: bool, masked: bool, offset: f64) -> Arc<Volume> {
+    source_with_row_spacing(sheared, reversed, masked, offset, 1.5)
+}
+fn source_with_row_spacing(
+    sheared: bool,
+    reversed: bool,
+    masked: bool,
+    offset: f64,
+    row_spacing: f64,
+) -> Arc<Volume> {
     let template = demo_study().series.remove(0).frames.remove(0);
     Arc::new(
         Volume::new(
@@ -37,7 +46,7 @@ fn source(sheared: bool, reversed: bool, masked: bool, offset: f64) -> Arc<Volum
                         } else {
                             [1., 0., 0., 0., 1., 0.]
                         },
-                        spacing: [1.5, 0.75],
+                        spacing: [row_spacing, 0.75],
                         frame_of_reference: Some("generated mask ray source".into()),
                         nifti_transform: None,
                     });
@@ -175,7 +184,11 @@ fn compare(device: &wgpu::Device, queue: &wgpu::Queue, image: &MaskImage) -> usi
                 .unwrap()
                 .first_eligible_hit(|| false)
                 .unwrap();
-            assert_ne!(cells[i][3], RAY_ERROR, "arithmetic refusal at {x}/{y}");
+            assert_ne!(
+                cells[i][3], RAY_ERROR,
+                "arithmetic refusal at {x}/{y}: {:?} depth {}",
+                cells[i], depths[i]
+            );
             match hit {
                 Some(hit) => {
                     count += 1;
@@ -526,4 +539,34 @@ fn numeric_interval_collapse_is_not_reported_as_an_empty_ray() {
     let (cells, depth) = read(&device, &queue, &image);
     assert_eq!(cells, vec![[0, 0, 0, RAY_ERROR]]);
     assert_eq!(depth, vec![0.]);
+}
+
+#[test]
+fn oblique_clipped_entry_matches_the_physical_cell_reference() {
+    let (device, queue) = device();
+    for (reversed, offset) in [(false, 0.), (true, 300000.)] {
+        let source = source_with_row_spacing(true, reversed, false, offset, 2.);
+        let center = source.center();
+        let labels = labels(source.clone(), |_, y, _| if y == 2 { 7 } else { 0 });
+        let gpu = GpuVolumeSource::new(&device, &queue, source, || false).unwrap();
+        let (labels, _) = GpuLabels::upload(gpu.clone(), labels, None, || false).unwrap();
+        let mut projector = GpuMaskProjector::new(gpu).unwrap();
+        let mut request = request(labels);
+        request.size = [13, 11];
+        request.camera.yaw_degrees = 31.;
+        request.camera.pitch_degrees = 23.;
+        request.camera.roll_degrees = 11.;
+        request.display.pan = [0.03, -0.02];
+        request.clip = Some(PhysicalClip {
+            minimum_mm: std::array::from_fn(|a| center[a] - 2.),
+            maximum_mm: std::array::from_fn(|a| center[a] + 2.),
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        let image = projector
+            .encode_rows(&mut encoder, &request, 0, 0..11)
+            .unwrap()
+            .unwrap();
+        queue.submit([encoder.finish()]);
+        compare(&device, &queue, &image);
+    }
 }

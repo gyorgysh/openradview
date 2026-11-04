@@ -122,8 +122,9 @@ impl MaterialVolumeRenderer {
             label: Some("physical optical volume"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}\n{}",
+                    "{}\n{}\n{}",
                     include_str!("volume_sampling.wgsl"),
+                    include_str!("material_optics.wgsl"),
                     include_str!("material_volume.wgsl")
                 )
                 .into(),
@@ -264,7 +265,7 @@ impl MaterialVolumeRenderer {
     }
 }
 
-fn parameters(
+pub(crate) fn parameters(
     source: &GpuVolumeSource,
     navigation: &ViewState,
     state: &VolumeView,

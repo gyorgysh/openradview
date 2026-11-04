@@ -20,7 +20,7 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
     let pixel=vec2i(vec2u(p.region.xy)+gid.xy);
     // Subtract the centre before division: an exact centre ray must not
     // acquire a signed offset from a backend's reciprocal approximation.
-    let offset=vec2f(pixel*2+vec2i(1)-vec2i(textureDimensions(cells)))/(vec2f(textureDimensions(cells))*2.);
+    let offset=pixel_ray_offset(pixel,textureDimensions(cells));
     let origin=p.origin.xyz+p.right.xyz*offset.x+p.down.xyz*offset.y;
     let direction=p.direction.xyz;
     let dimensions=vec3i(textureDimensions(labels));
@@ -50,6 +50,7 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
     if near>=far {store(pixel,vec3i(0),0u,0.);return;}
     var cell=vec3i(clamp(floor(fma(direction,vec3f(near),origin)+0.5),vec3f(0.),vec3f(dimensions-1)));
     let step=vec3i(sign(direction));
+    var crossing=vec3f(1.e30);
     for(var axis=0u;axis<3u;axis+=1u) {
         if direction[axis]==0. {continue;}
         for(var adjust=0u;adjust<3u;adjust+=1u) {
@@ -60,14 +61,13 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
         }
         let a=(f32(cell[axis])-0.5-origin[axis])/direction[axis];let b=(f32(cell[axis])+0.5-origin[axis])/direction[axis];
         if near<min(a,b) || near>=max(a,b) {store(pixel,vec3i(0),ERROR,0.);return;}
+        // Retain the validated exit. Recomputing it with a signed half-step
+        // can round differently at a clipped face on a fast-math backend.
+        crossing[axis]=max(a,b);
     }
     var cursor=near;let limit=u32(dimensions.x+dimensions.y+dimensions.z)+3u;
     for(var visited=0u;visited<limit;visited+=1u) {
         if any(cell<vec3i(0)) || any(cell>=dimensions) {store(pixel,vec3i(0),ERROR,0.);return;}
-        var crossing=vec3f(1.e30);
-        for(var axis=0u;axis<3u;axis+=1u) {
-            if direction[axis]!=0. {crossing[axis]=(f32(cell[axis])+f32(step[axis])*0.5-origin[axis])/direction[axis];}
-        }
         let next=min(far,min(crossing.x,min(crossing.y,crossing.z)));
         if next<=cursor {store(pixel,vec3i(0),ERROR,0.);return;}
         if textureLoad(labels,cell,0).r==u32(p.control.x) {
@@ -76,7 +76,12 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
         cursor=next;
         if cursor>=far {store(pixel,vec3i(0),0u,0.);return;}
         // A corner has no positive-length side cells. Advance every tied plane.
-        for(var axis=0u;axis<3u;axis+=1u) {if crossing[axis]<=next {cell[axis]+=step[axis];}}
+        for(var axis=0u;axis<3u;axis+=1u) {
+            if crossing[axis]<=next {
+                cell[axis]+=step[axis];
+                crossing[axis]=(f32(cell[axis])+f32(step[axis])*0.5-origin[axis])/direction[axis];
+            }
+        }
     }
     store(pixel,vec3i(0),ERROR,0.);
 }

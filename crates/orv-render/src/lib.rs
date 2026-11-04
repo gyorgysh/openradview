@@ -5,6 +5,7 @@ pub mod label_source;
 mod linear_display;
 pub mod mask_projection;
 pub mod material_volume;
+pub mod opaque_material;
 pub mod reslice;
 pub mod slice;
 pub mod snapshot;
