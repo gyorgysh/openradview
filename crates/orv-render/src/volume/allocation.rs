@@ -120,6 +120,31 @@ pub(crate) fn buffer(
     }
 }
 
+pub(crate) fn initialized_buffer(
+    device: &wgpu::Device,
+    label: &'static str,
+    bytes: &[u8],
+    usage: wgpu::BufferUsages,
+) -> Result<wgpu::Buffer, &'static str> {
+    let buffer = buffer(
+        device,
+        &wgpu::BufferDescriptor {
+            label: Some(label),
+            size: bytes.len() as u64,
+            usage,
+            mapped_at_creation: true,
+        },
+    )?;
+    {
+        let mut mapped = buffer
+            .get_mapped_range_mut(..)
+            .map_err(|_| "Could not map initial GPU buffer contents")?;
+        mapped.copy_from_slice(bytes);
+    }
+    buffer.unmap();
+    Ok(buffer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

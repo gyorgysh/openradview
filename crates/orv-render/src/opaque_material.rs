@@ -163,10 +163,11 @@ impl OpaqueMaterialRenderer {
             label: Some("ordered source and opaque mask optics"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}\n{}\n{}\n{}",
+                    "{}\n{}\n{}\n{}\n{}",
                     include_str!("pixel_ray.wgsl"),
                     include_str!("volume_sampling.wgsl"),
                     include_str!("material_optics.wgsl"),
+                    include_str!("opaque_interval.wgsl"),
                     include_str!("opaque_material.wgsl")
                 )
                 .into(),

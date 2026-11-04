@@ -125,6 +125,16 @@ Untimed readback checks every owner/side/grid flag, finite depth and normal, plu
 256 independent f64 box rays per case. Output is an open known-interface surface,
 not the existing closed-mask image. Inspect the per-case scope/sample counts.
 
+Schema 2 adds cached ordered source composition, individually fenced 16-row
+sequences and complete projection plus composition with the previous completed
+front retained during replacement. Each output checks GPU arithmetic before
+publication. Untimed readback checks every composed pixel for finite grayscale
+and alpha, plus 256 independent f64 optical rays per path/case. Composition uses
+a homogeneous fully valid source with explicit constant optics and two-sided
+source/surface headlight. It does not measure missing-stencil performance, native
+latency or RSS. At 512, cached composition has 30 samples and row/combined paths
+have 12; each 2048 path has only four. Inspect the JSON scope before comparison.
+
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and

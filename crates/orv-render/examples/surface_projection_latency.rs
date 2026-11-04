@@ -8,10 +8,13 @@ use orv_core::{
     study::{Geometry, demo_study},
     surface::{CellSurface, SurfaceLimits},
     volume::Volume,
-    volume_view::Camera,
+    volume_material::{MaterialPoint, VolumeMaterial},
+    volume_view::{Camera, Projection, VolumeView},
 };
 use orv_render::{
     GpuReservation,
+    material_volume::Lighting,
+    opaque_surface::{OpaqueSurfaceImage, OpaqueSurfaceRenderer, OpaqueSurfaceScene},
     surface_projection::{GpuSurfaceProjector, SurfaceImage, SurfaceProjection},
     surface_source::GpuCellSurface,
     volume_source::GpuVolumeSource,
@@ -306,6 +309,124 @@ fn verify(image: &SurfaceImage, kind: &str, plane: Option<usize>) -> Result<Valu
         json!({"verified_pixels":cells.bytes.len()/16,"eligible_hits":hits,"independent_f64_box_rays":compared,"sampled_depth_tolerance_mm":0.002}),
     )
 }
+
+fn composition_reference(
+    scene: &OpaqueSurfaceScene,
+    pixel: [u32; 2],
+    kind: &str,
+    plane: Option<usize>,
+) -> Result<f64> {
+    let req = scene.surface.request();
+    let source = req.surface.source().volume();
+    let frame = req.camera.frame(&req.display, 1.)?;
+    let (world, direction) =
+        frame.ray(pixel.map(|v| (f64::from(v) + 0.5) / f64::from(req.size[0])));
+    let origin = source.world_to_voxel(world);
+    let vector = source.world_vector_to_voxel(direction);
+    let mut near = f64::NEG_INFINITY;
+    let mut far = f64::INFINITY;
+    for a in 0..3 {
+        let maximum = (source.dimensions()[a] - 1) as f64;
+        if vector[a] == 0. {
+            if origin[a] < 0. || origin[a] > maximum {
+                near = 1.;
+                far = 0.;
+                break;
+            }
+        } else {
+            let t0 = -origin[a] / vector[a];
+            let t1 = (maximum - origin[a]) / vector[a];
+            near = near.max(t0.min(t1));
+            far = far.min(t0.max(t1));
+        }
+    }
+    let hit = (kind != "empty")
+        .then(|| reference(req, pixel, plane))
+        .flatten();
+    let mut background = 0.0030352698;
+    if let Some((word, depth, _)) = hit {
+        let axis = ((word[3] >> 16) & 7) as usize / 2;
+        let normal = std::array::from_fn(|a| {
+            let mut u = [0.; 3];
+            u[a] = 1.;
+            source.world_vector_to_voxel(u)[axis]
+        });
+        let normal =
+            orv_core::volume_material::gradient_normal(normal).ok_or("Invalid face normal")?;
+        background = f64::from(scene.surface_luminance)
+            * (f64::from(scene.surface_lighting.ambient)
+                + f64::from(scene.surface_lighting.diffuse) * dot(normal, direction).abs());
+        let offset = dot(
+            std::array::from_fn(|a| world[a] - source.center()[a]),
+            direction,
+        );
+        far = far.min(depth - offset);
+    }
+    let optics = scene
+        .material
+        .sample(0.)
+        .ok_or("Invalid generated optics")?;
+    let transmission = (-optics.extinction_per_mm * (far - near).max(0.)).exp();
+    Ok(optics.luminance * (1. - transmission) + transmission * background)
+}
+fn verify_composition(
+    image: &OpaqueSurfaceImage,
+    kind: &str,
+    plane: Option<usize>,
+) -> Result<Value> {
+    let scene = image.scene();
+    let req = scene.surface.request();
+    let data = read(req.surface.source(), image.texture(), 8)?;
+    for pixel in data.bytes.as_chunks::<8>().0 {
+        let mut values = [0.; 4];
+        for (a, v) in pixel.as_chunks::<2>().0.iter().enumerate() {
+            values[a] = half(u16::from_le_bytes(*v))?;
+        }
+        if values[0] < 0.
+            || values[0] > 1.
+            || values[0] != values[1]
+            || values[0] != values[2]
+            || values[3] != 1.
+        {
+            return Err("Invalid composed linear output".into());
+        }
+    }
+    let mut max_error = 0f64;
+    for i in 0..256u32 {
+        let side = req.size[0];
+        let xy = [(i * 73 + 17) % side, (i * 151 + 31) % side];
+        let index = (xy[1] * side + xy[0]) as usize;
+        let bytes = &data.bytes[index * 8..index * 8 + 2];
+        let actual = half(u16::from_le_bytes([bytes[0], bytes[1]]))?;
+        let expected = composition_reference(scene, xy, kind, plane)?;
+        let error = (actual - expected).abs();
+        if error > 0.001 {
+            return Err(
+                format!("Composed optics differs at {xy:?}: {actual} vs {expected}").into(),
+            );
+        }
+        max_error = max_error.max(error);
+    }
+    Ok(
+        json!({"verified_finite_grayscale_alpha_pixels":data.bytes.len()/8,"independent_f64_optical_rays":256,"max_sampled_linear_error":max_error,"linear_tolerance":0.001}),
+    )
+}
+fn compose(
+    renderer: &mut OpaqueSurfaceRenderer,
+    scene: &OpaqueSurfaceScene,
+    rows: u32,
+) -> Result<Arc<OpaqueSurfaceImage>> {
+    let height = scene.surface.request().size[1];
+    for start in (0..height).step_by(rows as usize) {
+        if let Some(image) =
+            renderer.render_rows(scene, 0, start..(start + rows).min(height), || false)?
+        {
+            return Ok(image);
+        }
+        fence(scene.surface.request().surface.source().device())?;
+    }
+    Err("Incomplete generated composition".into())
+}
 fn main() -> Result<()> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: orv_render::configured_backends()?,
@@ -320,6 +441,14 @@ fn main() -> Result<()> {
     let cpu = source()?;
     let gpu = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false)?;
     let renderer = GpuSurfaceProjector::new(gpu.clone())?;
+    let mut compositor = OpaqueSurfaceRenderer::new(gpu.clone(), wgpu::TextureFormat::Rgba8Unorm)?;
+    let material = Arc::new(VolumeMaterial::new(&[-1., 1.].map(|value| {
+        MaterialPoint {
+            value,
+            luminance: 0.2,
+            extinction_per_mm: 0.005,
+        }
+    }))?);
     let source_admission = MemoryBudget::gpu().used() - before_gpu;
     let mut cases = Vec::new();
     for (kind, plane) in [
@@ -382,12 +511,82 @@ fn main() -> Result<()> {
             if MemoryBudget::gpu().used() != baseline {
                 return Err("Projection reservations not restored".into());
             }
+            let surface = renderer.render(req.clone(), || false)?;
+            let mut volume = VolumeView::fit(&cpu);
+            volume.camera = req.camera.clone();
+            volume.projection = Projection::Composite;
+            let mut scene = OpaqueSurfaceScene {
+                surface,
+                navigation: req.display.clone(),
+                volume,
+                material: material.clone(),
+                lighting: Lighting::HEADLIGHT,
+                surface_lighting: Lighting::HEADLIGHT,
+                surface_luminance: 0.85,
+            };
+            let output = compose(&mut compositor, &scene, side)?;
+            let verified_optics = verify_composition(&output, kind, plane)?;
+            drop(output);
+            fence(&device)?;
+            let output = compose(&mut compositor, &scene, 16)?;
+            let verified_rows = verify_composition(&output, kind, plane)?;
+            drop(output);
+            fence(&device)?;
+            let composed_baseline = MemoryBudget::gpu().used();
+            let cached = measure(
+                || {
+                    let output = compose(&mut compositor, &scene, side)?;
+                    drop(output);
+                    fence(&device)
+                },
+                if side == 512 { 30 } else { 4 },
+            )?;
+            let row_sequence = measure(
+                || {
+                    let output = compose(&mut compositor, &scene, 16)?;
+                    drop(output);
+                    fence(&device)
+                },
+                if side == 512 { 12 } else { 4 },
+            )?;
+            if MemoryBudget::gpu().used() != composed_baseline {
+                return Err("Cached composition reservations not restored".into());
+            }
+            let mut front = Some(compose(&mut compositor, &scene, side)?);
+            let mut combined_peak_gpu = MemoryBudget::gpu().used();
+            let combined = measure(
+                || {
+                    // Keep two completed generations, matching a front image while
+                    // the replacement is prepared. Geometry/source inputs are shared.
+                    scene.surface = renderer.render(req.clone(), || false)?;
+                    combined_peak_gpu = combined_peak_gpu.max(MemoryBudget::gpu().used());
+                    let output = compose(&mut compositor, &scene, side)?;
+                    combined_peak_gpu = combined_peak_gpu.max(MemoryBudget::gpu().used());
+                    front = Some(output);
+                    fence(&device)
+                },
+                if side == 512 { 12 } else { 4 },
+            )?;
+            let verified_combined = verify_composition(
+                front.as_ref().ok_or("No completed front image")?,
+                kind,
+                plane,
+            )?;
+            drop(front);
+            drop(scene);
+            fence(&device)?;
+            if MemoryBudget::gpu().used() != baseline {
+                return Err("Combined surface/source reservations not restored".into());
+            }
             cases.push(json!({"kind":kind,"size":[side,side],"faces":faces,"draws":stats.draws,"fenced_batches":stats.fenced_batches,
                 "complete_projection_allocation_fence_drop_retirement":timing,"untimed_readback":verification,
-                "gpu_admission_baseline_bytes":baseline,"max_observed_gpu_admission_bytes":peak_gpu}));
+                "cached_surface_source_composition":cached,"cached_surface_16_row_fenced_sequence":row_sequence,"complete_projection_plus_source_composition":combined,
+                "untimed_optics_full":verified_optics,"untimed_optics_rows":verified_rows,"untimed_optics_combined":verified_combined,
+                "gpu_admission_baseline_bytes":baseline,"projection_max_observed_gpu_admission_bytes":peak_gpu,"combined_max_observed_gpu_admission_bytes":combined_peak_gpu}));
         }
     }
     drop(renderer);
+    drop(compositor);
     drop(gpu);
     drop(cpu);
     fence(&device)?;
@@ -397,9 +596,9 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"schema":1,"adapter":info.name,"backend":format!("{:?}",info.backend),
+            &json!({"schema":2,"adapter":info.name,"backend":format!("{:?}",info.backend),
         "source_dimensions":[512,512,128],"logical_source_bytes":512*512*128*4u64,"shared_cpu_plane_bytes":512*512*4,
-        "source_and_pipeline_gpu_admission_bytes":source_admission,"scope":"Known cell interfaces only; fresh complete output, analytic ray-plane fragments, fenced batches, drop and retirement. Source/geometry extraction/upload, optics, readback, native input/display and RSS excluded. Admission is not driver VRAM.",
+        "source_and_pipeline_gpu_admission_bytes":source_admission,"scope":"Separate known-interface projection, cached ordered source composition, fenced 16-row sequences and complete projection plus composition. Timings include fresh output allocation, submitted work/checks, drop and retirement. Source/geometry extraction/upload, readback of pixels, native input/display and RSS excluded. Homogeneous fully valid source, constant linear luminance0.2/extinction0.005 per mm, two-sided source/surface headlight and surface base0.85; missing-stencil performance is not measured. Admission is not driver VRAM.",
         "cases":cases,"reservations_restored":true})
         )?
     );

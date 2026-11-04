@@ -34,7 +34,7 @@ struct Vertex {
 struct Pixel { @location(0) cell:vec4u, @location(1) depth:f32, @location(2) normal:vec4f, @builtin(frag_depth) hardware_depth:f32 };
 @fragment fn fs(input:Vertex)->Pixel {
     let flags=input.cell_face.w;let side=flags&7u;let axis=side/2u;
-    let uv=input.position.xy*vec2f(p.ray_origin.w,p.ray_right.w)-vec2f(.5);
+    let uv=pixel_ray_offset(vec2i(input.position.xy),vec2u(vec2f(p.ray_down.w,p.ray_direction.w)));
     let origin=p.ray_origin.xyz+p.ray_right.xyz*uv.x+p.ray_down.xyz*uv.y;
     if p.ray_direction[axis]==0. {discard;}
     let plane=f32(input.cell_face[axis])-p.center[axis]+select(-.5,.5,(side&1u)!=0u);

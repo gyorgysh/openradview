@@ -12,6 +12,7 @@ use orv_core::{
     resources::{MemoryBudget, Reservation},
     volume_view::{Camera, PhysicalClip},
 };
+pub(crate) use parameters::centred_frame;
 use std::sync::Arc;
 
 pub const MAX_SIDE: u32 = 2048;
@@ -127,7 +128,14 @@ impl GpuSurfaceProjector {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("known cell-boundary raster"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("surface_projection/raster.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!(
+                    "{}\n{}",
+                    include_str!("pixel_ray.wgsl"),
+                    include_str!("surface_projection/raster.wgsl")
+                )
+                .into(),
+            ),
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("nearest known cell interface"),

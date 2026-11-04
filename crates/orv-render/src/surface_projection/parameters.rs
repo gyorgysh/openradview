@@ -1,7 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::{MAX_SIDE, SurfaceProjection};
+use orv_core::volume_view::RayFrame;
 fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a.into_iter().zip(b).map(|(a, b)| a * b).sum()
+}
+/// Same ray lines, with the origin expressed relative to the source centre and
+/// moved along the direction onto its perpendicular plane before f32 conversion.
+pub(crate) fn centred_frame(request: &SurfaceProjection) -> Result<RayFrame, &'static str> {
+    let mut frame = request.camera.frame(
+        &request.display,
+        f64::from(request.size[0]) / f64::from(request.size[1]),
+    )?;
+    let center = request.surface.source().volume().center();
+    let relative = std::array::from_fn(|a| frame.origin_mm[a] - center[a]);
+    let along = dot(relative, frame.direction_unit);
+    frame.origin_mm = std::array::from_fn(|a| relative[a] - along * frame.direction_unit[a]);
+    Ok(frame)
 }
 pub(super) struct Values {
     pub uniform: [f32; 84],
@@ -16,10 +30,7 @@ pub(super) fn values(request: &SurfaceProjection) -> Result<Values, &'static str
         clip.validate()?;
     }
     let source = request.surface.source().volume();
-    let frame = request.camera.frame(
-        &request.display,
-        f64::from(request.size[0]) / f64::from(request.size[1]),
-    )?;
+    let frame = centred_frame(request)?;
     let reference_mm = source.center();
     let dimensions = source.dimensions();
     let basis: [[_; 3]; 3] = std::array::from_fn(|a| {
@@ -50,7 +61,7 @@ pub(super) fn values(request: &SurfaceProjection) -> Result<Values, &'static str
     if !radius.is_finite() || radius <= 0. || 2.02 * radius / minimum_spacing > 1048576. {
         return Err("Surface depth range exceeds supported GPU precision");
     }
-    let delta: [f64; 3] = std::array::from_fn(|a| reference_mm[a] - frame.origin_mm[a]);
+    let delta = frame.origin_mm.map(|v| -v);
     let mut all = [0f64; 84];
     for a in 0..3 {
         all[a] = 2. * dot(basis[a], frame.right_mm) / rr;
@@ -99,6 +110,8 @@ pub(super) fn values(request: &SurfaceProjection) -> Result<Values, &'static str
     }
     all[71] = 1. / f64::from(request.size[0]);
     all[75] = 1. / f64::from(request.size[1]);
+    all[79] = f64::from(request.size[0]);
+    all[83] = f64::from(request.size[1]);
     let uniform = all.map(|v| v as f32);
     if uniform.iter().any(|v| !v.is_finite() || v.abs() > 1e20) {
         return Err("Surface parameters exceed GPU arithmetic limits");

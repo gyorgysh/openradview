@@ -247,7 +247,10 @@ and do not establish current scene visibility or authorize picks, edits or shari
 
 Projection works around the source centre in voxel displacement coordinates,
 preserving reflected/sheared bases without subtracting large world offsets in
-f32. The camera remains physical and orthographic. A guarded screen rectangle
+f32. Rays are moved along their direction onto that centre plane in f64 before
+upload, preserving the same lines even with a distant camera target plane.
+Projection and composition use the same integer-centred pixel offsets.
+The camera remains physical and orthographic. A guarded screen rectangle
 covers each quad; its fragment shader intersects and bounds the actual cell face.
 This avoids fixed-point triangle edge omissions and interpolated depth drift.
 Physical and hardware depth come from that ray-plane intersection. Signed depth
@@ -265,8 +268,39 @@ returns a partial image or changes an older one. Three retained attachments admi
 28 bytes per pixel plus an allowance; temporary depth admits four more. Shared
 CPU metadata and GPU retirement keep old generations charged while referenced or
 submitted. This raster path needs three render targets and a uniform buffer,
-without compute or storage buffers. Source composition, smooth interpolation,
-authoritative picking and native presentation remain separate work.
+without compute or storage buffers. Smooth interpolation, authoritative picking
+and native presentation remain separate work.
+
+`OpaqueSurfaceRenderer` combines one completed `SurfaceImage` with the exact shared
+scalar source, original camera/navigation/clip, optical material and independent
+source/surface lighting. Source integration stops at the known opaque interface;
+foreground radiance and attenuation remain in front of it. A real backface visible
+through an open unknown boundary is not moved to a fabricated cap. Scalar samples
+stay within their centre domain, leaving the outer half-cell space empty. Surface
+headlight uses the inverse-transpose face normal with two-sided diffuse response;
+it does not need another normal texture binding. Linear float16 output is encoded
+once by the shared display pipeline.
+
+The compositor rebases rays onto the retained source-centre depth plane in f64;
+it does not subtract a large camera offset from depth in f32 or substitute the
+closed-mask image contract. A bounded GPU status check validates IDs/side/grid
+flags, cell/depth arithmetic and final radiance before publishing. It is an
+arithmetic consistency check, not exact membership or current pick authority.
+Pending row sequences retain the complete scene and require identical owners and
+view/material/light settings. Two slots, at most 256 batches, explicit cancellation,
+CPU identity admission and GPU output/retirement admission bound retained work.
+Only complete checked images return. This requires compute and a status buffer;
+devices without them can still use the separate surface projection backend.
+
+For sources with missing samples, this compositor splits integration at actual
+source interpolation-cell boundaries before applying optical steps. Validity is
+constant within each open interpolation cell, so a midpoint cannot assign an
+entire coarse step across a missing-data boundary. Traversal advances all tied
+axes, is bounded by the sum of source dimensions plus three and refuses unresolved
+arithmetic rather than publishing a partial image. Fully valid sources retain the
+ordinary material integrator. The existing closed-mask and source-only material
+paths retain their original stepped validity sampling. Native surfaces, multiple
+regions/transparency, authoritative picking and export/sharing remain separate.
 
 Manual GPU label uploads retain a separate immutable R8Uint texture bound to the
 exact admitted GPU source. A related revision admits a new target, submits a GPU

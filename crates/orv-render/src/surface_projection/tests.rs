@@ -344,6 +344,45 @@ fn physical_faces_match_independent_rays_for_orbit_pan_zoom_roll_and_reflection(
 }
 
 #[test]
+fn distant_camera_planes_preserve_source_centred_ray_lines_and_depth() {
+    let (device, queue) = device(|_| {});
+    let cpu = source([7, 5, 6], true, true, 1000000.);
+    let map = labels(
+        cpu.clone(),
+        |x, y, z| if (x + 2 * y + 3 * z) % 7 < 4 { 7 } else { 0 },
+    );
+    let gpu = GpuVolumeSource::new(&device, &queue, cpu, || false).unwrap();
+    let renderer = GpuSurfaceProjector::new(gpu.clone()).unwrap();
+    let mut req = request(upload(&gpu, MaskOwner::Manual(map), 7));
+    req.camera.yaw_degrees = 23.;
+    req.camera.pitch_degrees = -31.;
+    req.camera.roll_degrees = 17.;
+    let old = renderer.render(req.clone(), || false).unwrap();
+    assert!(compare(&old) > 20);
+    let saved = read(&old);
+    let direction = old.direction_unit();
+    for distance in [-1000000., 1000000.] {
+        let mut changed = req.clone();
+        for (a, d) in direction.into_iter().enumerate() {
+            changed.camera.target_mm[a] += distance * d;
+        }
+        let image = renderer.render(changed.clone(), || false).unwrap();
+        assert_eq!(image.request().camera, changed.camera);
+        assert!(compare(&image) > 20);
+        let actual = read(&image);
+        assert_eq!(actual.cells, saved.cells);
+        assert_eq!(actual.normals, saved.normals);
+        assert!(
+            actual
+                .depth
+                .iter()
+                .zip(&saved.depth)
+                .all(|(a, b)| (a - b).abs() < 0.00002)
+        );
+    }
+}
+
+#[test]
 fn clipping_discards_interfaces_without_inventing_cut_caps() {
     let (device, queue) = device(|_| {});
     let cpu = source([7, 5, 6], false, false, 0.);
