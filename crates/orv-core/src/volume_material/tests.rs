@@ -81,6 +81,43 @@ fn extreme_and_close_knots_do_not_overflow_or_collapse() {
 }
 
 #[test]
+fn transparent_intervals_include_internal_peaks_endpoint_clamping_and_adjacent_floats() {
+    let material = VolumeMaterial::new(&[
+        point(-100., 0., 0.),
+        point(-50., 1., 0.),
+        point(0., 0., 1.),
+        point(50., 1., 0.),
+        point(100., 0., 0.),
+    ])
+    .unwrap();
+    for (lo, hi) in [(-1e20, -50.), (50., 1e20), (-50., -50.), (50., 50.)] {
+        assert!(material.transparent_between(lo, hi), "{lo}..{hi}");
+    }
+    for (lo, hi) in [
+        (-100., 100.),
+        (-50., 50.),
+        (-50., (-50.0f32).next_up()),
+        (50.0f32.next_down(), 50.),
+        (-1., 1.),
+        (0., 0.),
+        (1., -1.),
+        (f32::NAN, 0.),
+        (0., f32::INFINITY),
+    ] {
+        assert!(!material.transparent_between(lo, hi), "{lo}..{hi}");
+    }
+    let tiny = VolumeMaterial::new(&[point(0., 1., 0.), point(1., 0., f32::from_bits(1))]).unwrap();
+    assert!(tiny.transparent_between(-1., 0.));
+    assert!(!tiny.transparent_between(0., f32::from_bits(1)));
+    // Luminance alone contributes no radiance without extinction.
+    let zero = VolumeMaterial::new(&[point(-1e20, 0., 0.), point(1e20, 1., 0.)]).unwrap();
+    assert!(zero.transparent_between(-f32::MAX, f32::MAX));
+    let opaque = VolumeMaterial::new(&[point(0., 0., 1.), point(1., 0., 0.)]).unwrap();
+    assert!(!opaque.transparent_between(-100., -50.));
+    assert!(opaque.transparent_between(1., 100.));
+}
+
+#[test]
 fn homogeneous_slab_attenuation_is_independent_of_partitioning() {
     let material = MaterialSample {
         luminance: 0.75,

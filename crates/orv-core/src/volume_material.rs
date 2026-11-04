@@ -64,6 +64,21 @@ impl VolumeMaterial {
     pub fn points(&self) -> &[MaterialPoint] {
         &self.points
     }
+    /// True only when extinction is zero throughout this entire scalar interval,
+    /// including endpoint clamping and every internal knot. The caller must
+    /// supply a conservative bound for its sampler, including rounding error.
+    pub fn transparent_between(&self, minimum: f32, maximum: f32) -> bool {
+        minimum.is_finite()
+            && maximum.is_finite()
+            && minimum <= maximum
+            && [minimum, maximum].into_iter().all(|value| {
+                self.sample(value)
+                    .is_some_and(|sample| sample.extinction_per_mm == 0.)
+            })
+            && self.points.iter().all(|point| {
+                point.value <= minimum || point.value >= maximum || point.extinction_per_mm == 0.
+            })
+    }
     /// Outside values use the endpoint material. Missing values have no material.
     pub fn sample(&self, value: f32) -> Option<MaterialSample> {
         if !value.is_finite() {

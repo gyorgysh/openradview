@@ -800,6 +800,22 @@ missing and outside samples stay missing. The result has no planar geometry,
 which keeps measurements unavailable, and exposes an exact source position per
 pixel plus a curve/sampling digest. It has no desktop editor or export yet.
 
+A source-bound scalar range grid summarizes powers-of-two tiles of 8–128
+interpolation cells. Each tile includes the positive vertex halo, original finite
+scalar extrema and separate valid/total vertex counts. At most 262,144 records
+(4 MiB) are admitted, with object metadata charged separately. Preparation scans
+on a cancellable worker without copying source pixels and retains the exact
+immutable source. Missing samples have coverage metadata, not a nonresident page
+or a confirmed empty region. Invalid vertices remain in the raw extrema because
+zero-weight shader arithmetic can still read them at a valid grid node.
+
+The material interval predicate checks endpoint clamping and every internal knot;
+transparent endpoints cannot hide an opaque internal peak. These summaries are
+preparation data, with no GPU skipping connected yet. Stored vertex extrema alone
+do not certify a rounded sampler's range. Any future skip must account for that
+rounding, preserve integration sample positions and source validity, and prove
+equivalence to the dense renderer before it can accelerate native views.
+
 A brick-layout prototype addresses one measured GPU-residency failure: a
 generated 4096×512×256 f32 volume is admitted on the CPU but exceeds Metal's
 2048-voxel 3D texture side. Bricks own cells along each axis and store one halo

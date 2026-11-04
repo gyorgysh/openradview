@@ -149,6 +149,17 @@ exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and
 records no user input or source paths.
 
+Measure scalar range preparation with
+`cargo run --locked --release -p orv-core --example volume_ranges`. It creates
+unique 512×512×128 scalar planes for a sparse ellipsoid and one-vertex plate,
+missing-data and dense-field cases, comparing 32/64/128-cell tile sides. Seven
+samples follow one warmup. Timings include the worker scan, summary admission,
+allocation and drop; source construction, GPU upload/rendering and native display
+are excluded. Independent checks retain global extrema and complete cell
+coverage, and verify reservation release. Counts of zero-extinction vertex
+intervals are preparation metrics; these do not prove rounded GPU interpolation
+bounds or measure an implemented skip path.
+
 Generate fresh local input without using patient files:
 
 ```sh
