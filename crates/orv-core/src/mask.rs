@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Read-only source-cell masks. Membership, coverage and source validity stay separate.
+mod owned;
 mod ray;
 pub use crate::mask_identity::{MaskObjectId, MaskRevision};
 use crate::{labels::Labels, segments::SegmentMask, volume::Volume};
+pub use owned::MaskOwner;
 pub use ray::{CellInterval, CellRay, MaskHit, MaskInterval, MaskRay};
 
 #[derive(Clone, Debug, PartialEq, Eq)]

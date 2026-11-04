@@ -189,6 +189,33 @@ A caller must retain and revalidate the exact source, visible mask key/revision
 and completed scene before using a hit for an edit. GPU traversal is checked
 against this reference. Native picking remains separate.
 
+`MaskOwner` retains an immutable manual or supplied map for local worker requests;
+it adds no persistence or disclosure authorization. The CPU `CellSurface` backend
+derives quad descriptors at exact half-cell boundaries for one selected ID.
+Positive cells contribute faces next to known, source-valid negative cells.
+Unknown coverage and missing source samples leave open interfaces. Outer grid
+truncation faces are marked separately. IDs and overlapping supplied maps stay
+separate; fractional inputs use the existing half-maximum categorical view.
+
+Descriptors retain global integer corner keys, with f64 physical geometry and
+inverse-transpose normals available under shear and reflected axes. This is an
+independent cell-boundary reference, without a smooth interpolant or topology
+repair. Diagonal contacts can be non-manifold. Open unknown boundaries do not
+claim equivalence to a closed-volume first-hit visualization. Source-cell counts
+remain authoritative. Surfaces do not authorize picks or edits.
+
+Extraction counts the complete prospective output before allocating faces.
+Limits are 2,097,152 quad descriptors, 65,536 chunks and 128 MiB of referenced
+typed storage per generation; a caller can lower them. Shared volume admission
+also bounds concurrent retained generations and transient work. Chunks own
+32-cubed source cells, using one bounded 34-cubed halo during counting/emission.
+Related manual edits and undo rebuild changed tiles and face-adjacent chunks;
+unchanged chunks retain their Arc and allocation charge. An identical revision
+reuses its whole surface without a scan/allocation. New objects, sources or IDs
+need a full extraction. Cancellation/admission refusal discards unpublished work
+and preserves prior generations. The backend has no GPU buffers, clipping caps,
+smoothing, desktop display, exports or agent access yet.
+
 Manual GPU label uploads retain a separate immutable R8Uint texture bound to the
 exact admitted GPU source. A related revision admits a new target, submits a GPU
 copy of the previous grid, then queues only changed source tiles. The copy is

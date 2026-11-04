@@ -36,6 +36,7 @@ pub mod segments;
 pub mod slab;
 pub mod spatial;
 pub mod study;
+pub mod surface;
 mod vector;
 pub mod view;
 pub mod view_mapping;

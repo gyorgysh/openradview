@@ -93,6 +93,18 @@ Every packed word and source-plane address is checked in untimed readback;
 reported mask hits and optical outputs use the same verification scopes above.
 IDs remain u16 and source dimensions remain independent of compact plane storage.
 
+For generated CPU cell-boundary geometry and edit timings, run
+`cargo run --locked --release -p orv-core --example surface_latency`. The workload
+uses a 512×512×128 grid with empty, filled and one-cell-plane masks. Fresh
+extraction counts and emits compact quad descriptors; one/four-tile brush edits
+rebuild changed and face-adjacent chunks. Three fresh-build samples and 30 edit
+samples are reported separately. Untimed checks verify every face against source
+membership and each final edited output against a fresh extraction. Comparison
+staging is admitted separately. Source frames share one constant plane; storage
+admission is not RSS. These are worker CPU timings, without smooth interpolation,
+expanded vertex/index buffers, GPU/native input or presentation. Unchanged-owner
+reuse timings are functional checks near clock resolution.
+
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and
