@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! First eligible manual-mask cells and physical ray depth, without image compositing.
+//! First eligible source-mask cells and physical ray depth, without image compositing.
 mod parameters;
-use crate::{label_source::GpuLabels, volume::allocation, volume_source::GpuVolumeSource};
+use crate::{mask_input::MaskInput, volume::allocation, volume_source::GpuVolumeSource};
 use orv_core::{
     ViewState,
     mask::{MaskKey, MaskRevision},
@@ -17,8 +17,8 @@ pub const RAY_ERROR: u32 = u32::MAX;
 
 #[derive(Clone)]
 pub struct MaskProjection {
-    pub labels: Arc<GpuLabels>,
-    pub number: u8,
+    pub input: MaskInput,
+    pub number: u16,
     pub camera: Camera,
     pub display: ViewState,
     pub clip: Option<PhysicalClip>,
@@ -26,7 +26,7 @@ pub struct MaskProjection {
 }
 impl MaskProjection {
     fn same(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.labels, &other.labels)
+        self.input.same(&other.input)
             && self.number == other.number
             && self.camera == other.camera
             && self.display == other.display
@@ -59,12 +59,12 @@ impl MaskImage {
     }
     pub fn key(&self) -> MaskKey {
         MaskKey {
-            object: self.request.labels.labels().object_id().clone(),
-            number: u16::from(self.request.number),
+            object: self.request.input.object_id().clone(),
+            number: self.request.number,
         }
     }
     pub fn revision(&self) -> &MaskRevision {
-        self.request.labels.labels().revision()
+        self.request.input.revision()
     }
 }
 struct Pending {
@@ -76,8 +76,8 @@ struct Pending {
 }
 pub struct GpuMaskProjector {
     source: Arc<GpuVolumeSource>,
-    pipeline: wgpu::ComputePipeline,
-    layout: wgpu::BindGroupLayout,
+    manual: Pipeline,
+    supplied: Option<Pipeline>,
     pending: [Option<Pending>; 2],
     _scratch: allocation::GpuReservation,
 }
@@ -87,84 +87,32 @@ impl GpuMaskProjector {
         let device = source.device();
         crate::volume::check_limits(&device.limits())?;
         let limits = device.limits();
+        let color = source.volume().is_color();
+        let sampled = if color { 3 } else { 2 };
+        let bindings = if color { 7 } else { 5 };
         if limits.max_storage_textures_per_shader_stage < 2
-            || limits.max_sampled_textures_per_shader_stage < 2
+            || limits.max_sampled_textures_per_shader_stage < sampled
             || limits.max_uniform_buffers_per_shader_stage < 1
             || limits.max_uniform_buffer_binding_size < 192
             || limits.max_buffer_size < 192
-            || limits.max_bindings_per_bind_group < 5
+            || limits.max_bindings_per_bind_group < bindings
             || limits.max_bind_groups < 1
         {
             return Err("This GPU cannot bind the mask projection resources");
         }
-        let scratch = allocation::reserve_bytes(65536, device, source.queue())?;
-        let sampled = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Uint,
-                view_dimension: wgpu::TextureViewDimension::D3,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let output = |binding, format| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::StorageTexture {
-                access: wgpu::StorageTextureAccess::WriteOnly,
-                format,
-                view_dimension: wgpu::TextureViewDimension::D2,
-            },
-            count: None,
-        };
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("categorical ray bindings"),
-            entries: &[
-                sampled(0),
-                sampled(1),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(192),
-                    },
-                    count: None,
-                },
-                output(3, wgpu::TextureFormat::Rgba32Uint),
-                output(4, wgpu::TextureFormat::R32Float),
-            ],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("categorical ray layout"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
-        });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("source-cell mask rays"),
-            source: wgpu::ShaderSource::Wgsl(
-                format!(
-                    "{}\n{}",
-                    include_str!("pixel_ray.wgsl"),
-                    include_str!("mask_projection.wgsl")
-                )
-                .into(),
-            ),
-        });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("first eligible source cell"),
-            layout: Some(&pipeline_layout),
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
+        let supports_supplied = limits.max_sampled_textures_per_shader_stage > sampled
+            && limits.max_bindings_per_bind_group >= bindings.max(6);
+        let scratch = allocation::reserve_bytes(
+            if supports_supplied { 131072 } else { 65536 },
+            device,
+            source.queue(),
+        )?;
+        let manual = Pipeline::new(device, false, color);
+        let supplied = supports_supplied.then(|| Pipeline::new(device, true, color));
         Ok(Self {
             source,
-            pipeline,
-            layout,
+            manual,
+            supplied,
             pending: Default::default(),
             _scratch: scratch,
         })
@@ -182,10 +130,17 @@ impl GpuMaskProjector {
         if slot >= self.pending.len() {
             return Err("Unsupported mask projection slot");
         }
-        if !Arc::ptr_eq(request.labels.source(), &self.source) {
+        if !Arc::ptr_eq(request.input.source(), &self.source) {
             return Err("Mask projection and GPU source differ");
         }
         let params = parameters::values(request, rows.clone())?;
+        let pipeline = match &request.input {
+            MaskInput::Manual(_) => &self.manual,
+            MaskInput::Supplied(_) => self
+                .supplied
+                .as_ref()
+                .ok_or("This GPU cannot bind supplied mask addresses")?,
+        };
         let device = self.source.device();
         if request
             .size
@@ -223,38 +178,51 @@ impl GpuMaskProjector {
             contents: bytemuck::cast_slice(&params),
             usage: wgpu::BufferUsages::UNIFORM,
         });
+        let mut entries = vec![
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(request.input.sampled_view()),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&self.source.validity),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: uniform.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&pending.cells),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&pending.depth),
+            },
+        ];
+        if matches!(request.input, MaskInput::Supplied(_)) {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(request.input.address_view()),
+            });
+        }
+        if self.source.volume().is_color() {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 6,
+                resource: wgpu::BindingResource::TextureView(&self.source.source),
+            });
+        }
         let bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("categorical ray dispatch"),
-            layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(request.labels.texture_view()),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&self.source.validity),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&pending.cells),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&pending.depth),
-                },
-            ],
+            layout: &pipeline.layout,
+            entries: &entries,
         });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("exact categorical row batch"),
                 timestamp_writes: None,
             });
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(&pipeline.compute);
             pass.set_bind_group(0, &bindings, &[]);
             pass.dispatch_workgroups(
                 request.size[0].div_ceil(8),
@@ -331,6 +299,108 @@ impl GpuMaskProjector {
             .ok_or("Unsupported mask projection slot")?
             .take();
         Ok(())
+    }
+}
+
+struct Pipeline {
+    compute: wgpu::ComputePipeline,
+    layout: wgpu::BindGroupLayout,
+}
+impl Pipeline {
+    fn new(device: &wgpu::Device, supplied: bool, color: bool) -> Self {
+        let sampled = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Uint,
+                view_dimension: wgpu::TextureViewDimension::D3,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let output = |binding, format| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::StorageTexture {
+                access: wgpu::StorageTextureAccess::WriteOnly,
+                format,
+                view_dimension: wgpu::TextureViewDimension::D2,
+            },
+            count: None,
+        };
+        let mut entries = vec![
+            sampled(0),
+            sampled(1),
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(192),
+                },
+                count: None,
+            },
+            output(3, wgpu::TextureFormat::Rgba32Uint),
+            output(4, wgpu::TextureFormat::R32Float),
+        ];
+        if supplied {
+            entries.push(sampled(5));
+        }
+        if color {
+            entries.push(wgpu::BindGroupLayoutEntry {
+                binding: 6,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D3,
+                    multisampled: false,
+                },
+                count: None,
+            });
+        }
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("categorical ray bindings"),
+            entries: &entries,
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("categorical ray layout"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("source-cell mask rays"),
+            source: wgpu::ShaderSource::Wgsl(
+                format!(
+                    "{}\n{}\n{}\n{}",
+                    include_str!("pixel_ray.wgsl"),
+                    if supplied {
+                        include_str!("mask_supplied.wgsl")
+                    } else {
+                        include_str!("mask_manual.wgsl")
+                    },
+                    if color {
+                        include_str!("mask_color_validity.wgsl")
+                    } else {
+                        include_str!("mask_validity.wgsl")
+                    },
+                    include_str!("mask_projection.wgsl")
+                )
+                .into(),
+            ),
+        });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("first eligible source cell"),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        Self {
+            compute: pipeline,
+            layout,
+        }
     }
 }
 

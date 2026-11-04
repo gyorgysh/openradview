@@ -3,7 +3,6 @@
 use orv_core::{
     ViewState,
     labels::Labels,
-    mask::MaskView,
     resources::MemoryBudget,
     study::{Geometry, demo_study},
     volume::Volume,
@@ -11,6 +10,7 @@ use orv_core::{
 };
 use orv_render::{
     label_source::{GpuLabels, UploadKind},
+    mask_input::MaskInput,
     mask_projection::{GpuMaskProjector, MaskImage, MaskProjection, RAY_ERROR},
     volume_source::GpuVolumeSource,
 };
@@ -23,6 +23,8 @@ use std::{
 };
 #[path = "label_latency/opaque.rs"]
 mod opaque;
+#[path = "label_latency/supplied.rs"]
+mod supplied;
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 fn source() -> Result<Arc<Volume>> {
     let template = demo_study().series.remove(0).frames.remove(0);
@@ -104,7 +106,7 @@ fn verify_mask(device: &wgpu::Device, queue: &wgpu::Queue, image: &MaskImage) ->
     rx.recv_timeout(Duration::from_secs(10))??;
     let data = buffer.get_mapped_range(..)?;
     let mut hits = 0;
-    let mask = MaskView::manual(image.request().labels.labels(), image.request().number)?;
+    let mask = image.request().input.view(image.request().number)?;
     for row in data.chunks_exact(stride as usize) {
         for pixel in row[..size.width as usize * 16].as_chunks::<16>().0 {
             let cell: [u32; 4] = std::array::from_fn(|i| {
@@ -227,7 +229,7 @@ fn main() -> Result<()> {
         camera.roll_degrees = 11.;
         for side in [512, 2048] {
             let request = MaskProjection {
-                labels: uploaded.clone(),
+                input: MaskInput::Manual(uploaded.clone()),
                 number: 9,
                 camera: camera.clone(),
                 display: ViewState::default(),
@@ -291,6 +293,7 @@ fn main() -> Result<()> {
         }
         fence(&device)?;
     }
+    let supplied = supplied::run(source_gpu.clone(), &mut projector, before_gpu)?;
     drop(projector);
     drop(blank);
     drop(source_gpu);
@@ -301,7 +304,7 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"schema_version":3,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),"adapter":info.name,"backend":format!("{:?}",info.backend),"source_dimensions":[512,512,128],"source_fixture":"Source CPU frames share one constant plane; GPU source is a full uploaded 512x512x128 scalar texture. No decode or process RSS measurement.","scope":"Label edit cases include worker CPU checkpoint/paint, target allocation, prior-grid GPU copy, changed tile uploads and fence. Mask projection cases have their own scope. No native input/display or vsync.","admission_scope":"App-owned GPU source/label/staging reservations; not measured driver residency or free VRAM. Maximum observed admission includes retired versions not yet released.","warmups_per_case":4,"full_empty_map_upload":full,"edits":cases,"mask_projections":projections,"cpu_and_gpu_admission_restored":true})
+            &json!({"schema_version":4,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),"adapter":info.name,"backend":format!("{:?}",info.backend),"source_dimensions":[512,512,128],"source_fixture":"Source CPU frames share one constant plane; GPU source is a full uploaded 512x512x128 scalar texture. No decode or process RSS measurement.","scope":"Label edit cases include worker CPU checkpoint/paint, target allocation, prior-grid GPU copy, changed tile uploads and fence. Mask projection cases have their own scope. No native input/display or vsync.","admission_scope":"App-owned GPU source/label/staging reservations; not measured driver residency or free VRAM. Maximum observed admission includes retired versions not yet released.","warmups_per_case":4,"full_empty_map_upload":full,"edits":cases,"mask_projections":projections,"supplied_masks":supplied,"cpu_and_gpu_admission_restored":true})
         )?
     );
     Ok(())

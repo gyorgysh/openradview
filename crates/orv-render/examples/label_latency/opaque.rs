@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::{Result, fence, measure};
 use orv_core::{
-    mask::MaskView,
     resources::MemoryBudget,
     volume_material::{MaterialPoint, VolumeMaterial},
     volume_view::{Projection, Quality, VolumeView},
@@ -24,7 +23,7 @@ pub fn run(
     before_gpu: u64,
 ) -> Result<Value> {
     let request = mask.request().clone();
-    let gpu = request.labels.source();
+    let gpu = request.input.source();
     let device = gpu.device();
     let queue = gpu.queue();
     let mut renderer = OpaqueMaterialRenderer::new(gpu.clone(), wgpu::TextureFormat::Rgba8Unorm)?;
@@ -127,7 +126,7 @@ fn half(bits: u16) -> Result<f64> {
     })
 }
 fn verify(image: &OpaqueMaterialImage) -> Result<usize> {
-    let gpu = image.scene().mask.request().labels.source();
+    let gpu = image.scene().mask.request().input.source();
     let device = gpu.device();
     let queue = gpu.queue();
     let texture = image.texture();
@@ -179,10 +178,11 @@ fn verify(image: &OpaqueMaterialImage) -> Result<usize> {
         &scene.navigation,
         f64::from(size.width) / f64::from(size.height),
     )?;
-    let mask = MaskView::manual(
-        scene.mask.request().labels.labels(),
-        scene.mask.request().number,
-    )?;
+    let mask = scene
+        .mask
+        .request()
+        .input
+        .view(scene.mask.request().number)?;
     let mut checked = 0;
     for gy in 0..16u32 {
         for gx in 0..16u32 {

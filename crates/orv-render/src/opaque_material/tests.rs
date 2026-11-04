@@ -2,11 +2,11 @@
 use super::*;
 use crate::{
     label_source::GpuLabels,
+    mask_input::MaskInput,
     mask_projection::{GpuMaskProjector, MaskProjection},
 };
 use orv_core::{
     labels::Labels,
-    mask::MaskView,
     study::{Geometry, NiftiMethod, NiftiTransform, demo_study},
     volume::Volume,
     volume_material::MaterialPoint,
@@ -106,8 +106,8 @@ fn mask(
     let (labels, _) = GpuLabels::upload(source.clone(), labels, None, || false).unwrap();
     let mut projector = GpuMaskProjector::new(source.clone()).unwrap();
     let request = MaskProjection {
-        labels,
-        number,
+        input: MaskInput::Manual(labels),
+        number: u16::from(number),
         camera: state.camera.clone(),
         display: view.clone(),
         clip: state.clip.clone(),
@@ -219,7 +219,7 @@ fn range(
 // Homogeneous Beer-Lambert optics; no discrete sampling loop is used here.
 fn analytic(scene: &OpaqueMaterialScene, pixel: [u32; 2]) -> f64 {
     let request = scene.mask.request();
-    let source = request.labels.labels().source();
+    let source = request.input.source().volume();
     let size = request.size;
     let frame = scene
         .volume
@@ -230,7 +230,9 @@ fn analytic(scene: &OpaqueMaterialScene, pixel: [u32; 2]) -> f64 {
         (f64::from(pixel[0]) + 0.5) / f64::from(size[0]),
         (f64::from(pixel[1]) + 0.5) / f64::from(size[1]),
     ]);
-    let hit = MaskView::manual(request.labels.labels(), request.number)
+    let hit = request
+        .input
+        .view(request.number)
         .unwrap()
         .ray(origin, direction, [-1e30, 1e30], scene.volume.clip.as_ref())
         .unwrap()

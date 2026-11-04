@@ -86,6 +86,12 @@ readback checks every output pixel for finite monochrome radiance/alpha and 256
 sampled rays against f64 cell traversal plus Beer-Lambert optics. Source and label
 uploads, presentation and pixel readback are outside these composition timings.
 The sample counts remain 120 full/30 row sequences at 512 and four each at 2048.
+Schema 4 adds supplied binary/fractional masks with full or two-plane coverage.
+It reports fresh selected-ID packing/upload (12 samples), exact-owner reuse
+(120), packed texture sizes and bytes, projection and checked source composition.
+Every packed word and source-plane address is checked in untimed readback;
+reported mask hits and optical outputs use the same verification scopes above.
+IDs remain u16 and source dimensions remain independent of compact plane storage.
 
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and

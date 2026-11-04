@@ -4,7 +4,6 @@ struct Params {
     world_origin:vec4f,world_right:vec4f,world_down:vec4f,world_direction:vec4f,
     clip_minimum:vec4f,clip_maximum:vec4f,region:vec4f,control:vec4f
 }
-@group(0) @binding(0) var labels:texture_3d<u32>;
 @group(0) @binding(1) var validity:texture_3d<u32>;
 @group(0) @binding(2) var<uniform> p:Params;
 @group(0) @binding(3) var cells:texture_storage_2d<rgba32uint,write>;
@@ -23,7 +22,7 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
     let offset=pixel_ray_offset(pixel,textureDimensions(cells));
     let origin=p.origin.xyz+p.right.xyz*offset.x+p.down.xyz*offset.y;
     let direction=p.direction.xyz;
-    let dimensions=vec3i(textureDimensions(labels));
+    let dimensions=mask_dimensions();
     var near=-1.e30;var far=1.e30;
     for(var axis=0u;axis<3u;axis+=1u) {
         let minimum=-0.5;let maximum=f32(dimensions[axis])-0.5;
@@ -70,8 +69,8 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
         if any(cell<vec3i(0)) || any(cell>=dimensions) {store(pixel,vec3i(0),ERROR,0.);return;}
         let next=min(far,min(crossing.x,min(crossing.y,crossing.z)));
         if next<=cursor {store(pixel,vec3i(0),ERROR,0.);return;}
-        if textureLoad(labels,cell,0).r==u32(p.control.x) {
-            if p.control.y<0.5 || textureLoad(validity,cell,0).r!=0u {store(pixel,cell,u32(p.control.x),cursor);return;}
+        if mask_member(cell) {
+            if source_eligible(cell) {store(pixel,cell,u32(p.control.x),cursor);return;}
         }
         cursor=next;
         if cursor>=far {store(pixel,vec3i(0),0u,0.);return;}

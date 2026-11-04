@@ -17,7 +17,8 @@ pub(super) fn values(
     if let Some(clip) = &request.clip {
         clip.validate()?;
     }
-    let source = request.labels.labels().source();
+    request.input.view(request.number)?;
+    let source = request.input.source().volume();
     let rays = request.camera.frame(
         &request.display,
         f64::from(request.size[0]) / f64::from(request.size[1]),
@@ -69,6 +70,12 @@ pub(super) fn values(
     ]);
     values[44] = f32::from(request.number);
     values[45] = u8::from(source.has_missing_scalar()) as f32;
+    let (representation, maximum) = request.input.representation();
+    values[47] = representation;
+    for (slot, dimension) in [3, 7, 11].into_iter().zip(source.dimensions()) {
+        values[slot] = dimension as f32;
+    }
+    values[15] = maximum;
     let speed = values[12..15]
         .iter()
         .copied()

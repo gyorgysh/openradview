@@ -202,10 +202,24 @@ CPU staging is bounded to one clipped 32-cubed tile. GPU admission includes the
 new grid, conservatively padded staging rows and retirement while commands finish.
 The current prototype still copies the whole old GPU grid for each changed
 revision; it is not sparse GPU residency. Callers retain each revision Arc through
-submission/presentation of its texture view. Native 3D mask display and supplied
-mask GPU packing remain separate.
+submission/presentation of its texture view. Native 3D mask display remains separate.
 
-The manual-mask projection backend traverses nearest source cells independently
+Supplied GPU inputs retain one selected ID and the complete immutable CPU segment
+owner on that exact GPU source. R32Uint texels pack 32 binary memberships or four
+original fractional bytes. Only supplied source planes occupy texture depth; a
+separate source-z address texture distinguishes known empty planes from omitted
+ones. Unused IDs have all-unknown addresses and one zero-initialized dummy texel.
+Selection never flattens overlapping regions or narrows their u16 numbers.
+
+Uploads admit compact data, addresses, padded staging and retirement before
+allocation. CPU staging holds one raw row, up to 32 packed rows and source-plane
+addresses; GPU staging is bounded by 16 MiB plus a final batch/address upload.
+Creation and fence waits belong on a cancellable worker. Identical source/object/
+revision/ID reuse the existing owner and upload nothing. Failed or cancelled
+replacements leave prior objects unchanged. Fractional values and meaning remain
+available; categorical first hits apply the same fixed half-maximum view as core.
+
+The mask projection backend traverses nearest source cells independently
 of scalar sampling steps. It writes integer (cell x/y/z, ID) texels and signed
 physical first-hit depth, skipping missing source samples. It intersects the
 half-open categorical domain and optional physical clip after f64 rebasing.
@@ -213,6 +227,14 @@ Centred integer pixel offsets preserve exact centre rays before floating-point
 division. GPU arithmetic remains f32; an unresolved interval or traversal limit
 is an explicit error ID, distinct from an empty ray. Future edits must revalidate
 picks against the core f64 ray and the completed scene.
+Manual and supplied inputs share that geometry contract. Supplied geometry uses
+the original source dimensions, independently of compact packed texture shape.
+Its additional address binding requires three sampled textures; a separate manual
+pipeline retains the previous two-texture device subset. Manual selection refuses
+IDs above 255; supplied selection must match the retained uploaded ID.
+Color-source projection reads alpha for eligibility, requiring one more sampled
+texture. It cannot use the scalar validity placeholder as proof of a color sample.
+The source-material compositor remains scalar-only.
 
 Two pending mask outputs accept contiguous full-width row batches under one exact
 request. Only the last encoded row returns an immutable image retaining its label
@@ -224,7 +246,7 @@ GPU use. These mask-only first hits include no source opacity: composition must
 respect the physical ray order.
 
 A separate worker-only compositor integrates physical source material up to one
-opaque selected manual-mask hit. Foreground source attenuates that mask's unlit
+opaque selected mask hit. Foreground source attenuates that mask's unlit
 linear luminance; source behind it contributes nothing. Scalar interpolation
 stops at voxel centres, so the categorical outer half-cell space does not invent
 source opacity. Empty masks retain the source and background. The compositor
@@ -240,7 +262,7 @@ cancellable worker wait. RGBA16F stores linear radiance and the shared display
 pipeline encodes it once at presentation. Output admission includes eight bytes
 per pixel, validation state and up to 256 batches of uniforms/bindings. This
 backend requires a storage buffer; devices without it retain source-only views.
-Native mask display, supplied GPU masks, ordinary exports and agent snapshots
+Native mask display, ordinary exports and agent snapshots
 do not use these backends yet.
 
 The native labels panel selects either manual labels or read-only supplied masks.

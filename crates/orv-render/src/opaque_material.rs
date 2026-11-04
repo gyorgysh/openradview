@@ -209,7 +209,7 @@ impl OpaqueMaterialRenderer {
         }
         let request = scene.mask.request();
         let size = request.size;
-        if !Arc::ptr_eq(request.labels.source(), &self.source)
+        if !Arc::ptr_eq(request.input.source(), &self.source)
             || request.camera != scene.volume.camera
             || request.display != scene.navigation
             || request.clip != scene.volume.clip

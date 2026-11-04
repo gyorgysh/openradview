@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::label_source::GpuLabels;
 use orv_core::{
     labels::Labels,
-    mask::MaskView,
     study::{Geometry, NiftiMethod, NiftiTransform, demo_study},
     volume::Volume,
 };
@@ -89,7 +89,7 @@ fn labels(source: Arc<Volume>, pattern: impl Fn(usize, usize, usize) -> u8) -> A
 fn request(labels: Arc<GpuLabels>) -> MaskProjection {
     MaskProjection {
         camera: Camera::fit(labels.labels().source()),
-        labels,
+        input: MaskInput::Manual(labels),
         number: 7,
         display: ViewState::default(),
         clip: None,
@@ -168,7 +168,7 @@ fn compare(device: &wgpu::Device, queue: &wgpu::Queue, image: &MaskImage) -> usi
         .camera
         .frame(&request.display, f64::from(size[0]) / f64::from(size[1]))
         .unwrap();
-    let mask = MaskView::manual(request.labels.labels(), request.number).unwrap();
+    let mask = request.input.view(request.number).unwrap();
     assert_eq!(image.key(), mask.key());
     assert_eq!(image.revision(), mask.revision());
     let mut count = 0;
@@ -252,7 +252,7 @@ fn mask_projection_matches_cpu_for_thin_regions_missing_samples_and_affine_camer
             .unwrap();
         queue.submit([encoder.finish()]);
         assert!(compare(&device, &queue, &image) > 0);
-        let center = request.labels.labels().source().center();
+        let center = request.input.source().volume().center();
         request.clip = Some(PhysicalClip {
             minimum_mm: std::array::from_fn(|a| center[a] - 1.25),
             maximum_mm: std::array::from_fn(|a| center[a] + 1.75),
@@ -503,7 +503,7 @@ fn excessive_batches_and_wrong_gpu_sources_cannot_publish_partial_images() {
     let other_gpu = GpuVolumeSource::new(&device, &queue, volume, || false).unwrap();
     let (other, _) = GpuLabels::upload(other_gpu, map, None, || false).unwrap();
     let mut wrong = request.clone();
-    wrong.labels = other;
+    wrong.input = MaskInput::Manual(other);
     let mut encoder = device.create_command_encoder(&Default::default());
     assert!(
         projector
