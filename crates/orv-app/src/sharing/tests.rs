@@ -431,3 +431,35 @@ fn failed_preview_worker_reports_errors_for_later_requests_instead_of_waiting_fo
     drop(worker);
     super::preview::finish_test_workers();
 }
+
+#[test]
+fn local_material_revokes_approval_and_refuses_queued_source_views_or_substitute_exports() {
+    use crate::workspace::ViewMode;
+    let ctx = egui::Context::default();
+    let mut workspace = workspace();
+    open(&mut workspace, &ctx);
+    approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
+    let session = workspace.sharing.live.as_ref().unwrap().session.clone();
+    let scene = session.current().unwrap();
+    session.request_view(scene.clone()).unwrap();
+    workspace.set_mode(ViewMode::Volume, &ctx);
+    let volume = workspace.volume.as_mut().unwrap();
+    volume.material_enabled = true;
+    assert!(volume.picture().is_none());
+    assert!(volume.shared_view().is_none());
+    workspace.sharing_after_ui(&ctx);
+    assert!(session.is_revoked());
+    assert!(!workspace.sharing.is_active());
+    assert!(workspace.sharing.draft.is_none());
+    workspace.sharing_before_ui(&ctx, false);
+    workspace.apply_shared_scene(&scene, &ctx);
+    assert_eq!(workspace.mode, ViewMode::Volume);
+    assert!(workspace.volume.as_ref().unwrap().local_material());
+    assert!(session.request_view(scene).is_err());
+    workspace.volume.as_mut().unwrap().material_enabled = false;
+    assert!(!workspace.sharing.is_active());
+    workspace.close();
+    wait_for_server(&monitor);
+    super::preview::finish_test_workers();
+}

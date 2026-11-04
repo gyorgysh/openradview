@@ -3,6 +3,7 @@
 mod callback;
 mod controls;
 mod input;
+mod material;
 mod sharing;
 #[cfg(all(test, feature = "gpu-tests"))]
 mod tests;
@@ -34,8 +35,14 @@ pub struct VolumeSession {
     prefer_source: bool,
     source_range: Option<DisplayRange>,
     initial_display: DisplayRange,
+    pub(super) material_enabled: bool,
+    material_editor: Option<material::MaterialEditor>,
+    material_error: Option<&'static str>,
 }
 impl VolumeSession {
+    pub(crate) fn local_material(&self) -> bool {
+        self.material_enabled
+    }
     pub(crate) fn picture(&self) -> Option<(crate::export::Pixels, [u32; 2])> {
         let (spec, true) = self.shared_view()? else {
             return None;
@@ -56,6 +63,9 @@ impl VolumeSession {
             prefer_source,
             source_range: None,
             initial_display,
+            material_enabled: false,
+            material_editor: None,
+            material_error: None,
             volume: None,
             gpu: None,
             state: None,
@@ -108,7 +118,20 @@ impl VolumeSession {
                 }
                 self.source_range = ready.source_range;
                 self.volume = Some(ready.volume);
-                self.gpu = Some(Arc::new(Mutex::new(Gpu::new(ready.renderer))));
+                let mut gpu = Gpu::new(ready.renderer);
+                if let Some(renderer) = ready.material_renderer {
+                    match renderer.and_then(|renderer| {
+                        material::MaterialEditor::new(&self.initial_display)
+                            .map(|editor| (renderer, editor))
+                    }) {
+                        Ok((renderer, editor)) => {
+                            gpu.material_renderer = Some(renderer);
+                            self.material_editor = Some(editor);
+                        }
+                        Err(error) => self.material_error = Some(error),
+                    }
+                }
+                self.gpu = Some(Arc::new(Mutex::new(gpu)));
                 self.upload = None;
             }
             Some(Ok(Err(error))) => {
@@ -153,7 +176,18 @@ impl VolumeSession {
             return;
         };
         crate::view_context::show(ui, &volume.frames()[0]);
-        if controls::show(
+        if self.material_enabled {
+            state.projection = Projection::Composite;
+            if let Some(editor) = &mut self.material_editor {
+                self.needs_fit |= editor.ui(
+                    ui,
+                    state,
+                    &mut self.display,
+                    volume.bounds(),
+                    &mut self.material_enabled,
+                );
+            }
+        } else if controls::show(
             ui,
             state,
             &mut self.display,
@@ -167,20 +201,32 @@ impl VolumeSession {
                     .as_ref()
                     .map(|data| &**data.choices()),
                 bounds: volume.bounds(),
+                material_selection: self
+                    .material_editor
+                    .as_ref()
+                    .map(|_| &mut self.material_enabled),
             },
         ) {
             self.needs_fit = true;
+        }
+        if let Some(error) = self.material_error {
+            ui.label(format!("Material view unavailable: {error}"));
         }
         if crate::actions::pressed(ui, crate::actions::Action::Fit) {
             self.display.zoom = 1.;
             self.display.pan = [0.; 2];
             self.needs_fit = true;
         }
-        if crate::actions::pressed(ui, crate::actions::Action::Invert) {
+        if !self.material_enabled && crate::actions::pressed(ui, crate::actions::Action::Invert) {
             self.display.invert = !self.display.invert;
         }
+        let compact = ui.ctx().content_rect().height() < 700.;
+        let bottom_space = if compact { 32. } else { 72. };
         let (rect, response) = ui.allocate_exact_size(
-            Vec2::new(content_width, (ui.available_height() - 72.).max(60.)),
+            Vec2::new(
+                content_width,
+                (ui.available_height() - bottom_space).max(60.),
+            ),
             egui::Sense::click_and_drag(),
         );
         let (interacting, fit) = input::interact(ui, &response, state, &mut self.display);
@@ -196,6 +242,10 @@ impl VolumeSession {
             self.needs_fit = false;
         }
         let pixels = rect.size() * ui.ctx().pixels_per_point();
+        let material = self
+            .material_enabled
+            .then(|| self.material_editor.as_ref().map(|editor| editor.style()))
+            .flatten();
         ui.painter_at(rect)
             .add(eframe::egui_wgpu::Callback::new_paint_callback(
                 rect,
@@ -205,6 +255,7 @@ impl VolumeSession {
                     state: state.clone(),
                     pixels,
                     interacting,
+                    material: material.clone(),
                     ctx: ui.ctx().clone(),
                 },
             ));
@@ -213,7 +264,7 @@ impl VolumeSession {
                 ui.label(error);
             } else {
                 let status = if state.quality == orv_core::volume_view::Quality::Interactive
-                    && gpu.completed(&self.display, state)
+                    && gpu.completed_style(&self.display, state, material.as_ref())
                 {
                     "Preview quality".into()
                 } else if gpu.refined {
@@ -222,9 +273,14 @@ impl VolumeSession {
                     format!("Interactive preview · refining {:.0}%", gpu.progress * 100.)
                 };
                 let [x, y, z] = volume.dimensions();
+                let style = if self.material_enabled {
+                    "Material · local · "
+                } else {
+                    ""
+                };
                 ui.label(
                     RichText::new(format!(
-                        "{status} · {x} × {y} × {z} source samples · {}%",
+                        "{style}{status} · {x} × {y} × {z} source samples · {}%",
                         (self.display.zoom * 100.).round()
                     ))
                     .small()
@@ -232,7 +288,9 @@ impl VolumeSession {
                 );
             }
         }
-        ui.label(RichText::new("Drag: orbit · Space / right / middle drag: move · Scroll/pinch: zoom · LPS coordinates · Experimental research projection").small().color(crate::theme::SILVER));
+        if !compact {
+            ui.label(RichText::new("Drag: orbit · Space / right / middle drag: move · Scroll/pinch: zoom · LPS coordinates · Experimental research projection").small().color(crate::theme::SILVER));
+        }
     }
 }
 fn preset_name(preset: TransferPreset) -> &'static str {

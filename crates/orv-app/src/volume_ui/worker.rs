@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use eframe::{egui, egui_wgpu::wgpu};
 use orv_core::volume::Volume;
-use orv_render::volume::VolumeRenderer;
+use orv_render::{
+    material_volume::MaterialVolumeRenderer, volume::VolumeRenderer, volume_source::GpuVolumeSource,
+};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -11,6 +13,7 @@ use std::sync::{
 pub(super) struct Ready {
     pub volume: Arc<Volume>,
     pub renderer: VolumeRenderer,
+    pub material_renderer: Option<Result<MaterialVolumeRenderer, &'static str>>,
     pub source_range: Option<super::DisplayRange>,
 }
 pub(super) struct Upload {
@@ -40,14 +43,20 @@ impl Upload {
                     orv_render::volume::check_limits(&device.limits()).map_err(str::to_owned)?;
                     let volume = frames.volume(|| worker.load(Ordering::Acquire))?;
                     let source_range = source_range(&volume, || worker.load(Ordering::Acquire))?;
-                    let renderer =
-                        VolumeRenderer::new(&device, &queue, volume.clone(), format, || {
-                            worker.load(Ordering::Acquire)
-                        })
-                        .map_err(str::to_owned)?;
+                    let source = GpuVolumeSource::new(&device, &queue, volume.clone(), || {
+                        worker.load(Ordering::Acquire)
+                    })
+                    .map_err(str::to_owned)?;
+                    let renderer = VolumeRenderer::from_source(source.clone(), format, || {
+                        worker.load(Ordering::Acquire)
+                    })
+                    .map_err(str::to_owned)?;
+                    let material_renderer =
+                        (!volume.is_color()).then(|| MaterialVolumeRenderer::new(source, format));
                     Ok(Ready {
                         volume,
                         renderer,
+                        material_renderer,
                         source_range,
                     })
                 })();

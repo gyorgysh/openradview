@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ## Unreleased
 
+### Added
+
+- **3D materials and lighting.** For scalar volumes, map intensity points to
+  brightness and opacity per millimetre, with optional lighting for depth cues.
+  The material view uses a larger interaction image and refines in bounded tiles.
+  It stays local; picture export and agent sharing use **Volume** or **MIP**.
+
 ### Fixed
 
 - Thin-plane linked MPR keeps its requested image detail while moving the

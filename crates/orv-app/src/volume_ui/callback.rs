@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use super::material::OpticalStyle;
 use eframe::{
     egui,
     egui_wgpu::{self, wgpu},
@@ -7,7 +8,10 @@ use orv_core::{
     ViewState,
     volume_view::{Quality, VolumeView},
 };
-use orv_render::volume::{VolumeRenderer, VolumeTarget};
+use orv_render::{
+    material_volume::MaterialVolumeRenderer,
+    volume::{VolumeRenderer, VolumeTarget},
+};
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -19,9 +23,11 @@ struct Key {
     state: VolumeView,
     interactive: [u32; 2],
     refined: [u32; 2],
+    material: Option<OpticalStyle>,
 }
 pub(super) struct Gpu {
     pub renderer: VolumeRenderer,
+    pub material_renderer: Option<MaterialVolumeRenderer>,
     key: Option<Key>,
     idle_after: Instant,
     row: u32,
@@ -42,12 +48,47 @@ impl Gpu {
         Some(size.map(|v| (v as f32 * scale).round().max(1.) as u32))
     }
     pub fn completed(&self, display: &ViewState, state: &VolumeView) -> bool {
+        self.completed_style(display, state, None)
+    }
+    pub fn completed_style(
+        &self,
+        display: &ViewState,
+        state: &VolumeView,
+        material: Option<&OpticalStyle>,
+    ) -> bool {
         self.error.is_none()
-            && self
-                .key
-                .as_ref()
-                .is_some_and(|key| key.display == *display && key.state == *state)
+            && self.key.as_ref().is_some_and(|key| {
+                key.display == *display && key.state == *state && key.material.as_ref() == material
+            })
             && (state.quality == Quality::Interactive || self.refined)
+    }
+    fn render(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        display: &ViewState,
+        state: &VolumeView,
+        material: Option<&OpticalStyle>,
+        target: VolumeTarget,
+    ) -> Result<(), &'static str> {
+        if let Some(style) = material {
+            let mut navigation = display.clone();
+            navigation.invert = false;
+            self.material_renderer
+                .as_mut()
+                .ok_or("Material renderer unavailable")?
+                .render_target(
+                    encoder,
+                    &navigation,
+                    state,
+                    &style.material,
+                    style.lighting,
+                    target,
+                )
+        } else {
+            self.renderer
+                .render_target(device, encoder, display, state, target)
+        }
     }
     #[cfg(all(test, feature = "gpu-tests"))]
     pub(super) fn expire_idle(&mut self) {
@@ -56,6 +97,7 @@ impl Gpu {
     pub fn new(renderer: VolumeRenderer) -> Self {
         Self {
             renderer,
+            material_renderer: None,
             key: None,
             idle_after: Instant::now(),
             row: 0,
@@ -72,13 +114,14 @@ pub(super) struct Callback {
     pub state: VolumeView,
     pub pixels: egui::Vec2,
     pub interacting: bool,
+    pub material: Option<OpticalStyle>,
     pub ctx: egui::Context,
 }
 fn resolution(pixels: egui::Vec2, cap: f32) -> [u32; 2] {
     let scale = (cap / pixels.x.max(pixels.y).max(1.)).min(1.);
     [
-        (pixels.x * scale).round().clamp(1., 1024.) as u32,
-        (pixels.y * scale).round().clamp(1., 1024.) as u32,
+        (pixels.x * scale).round().clamp(1., 2048.) as u32,
+        (pixels.y * scale).round().clamp(1., 2048.) as u32,
     ]
 }
 impl egui_wgpu::CallbackTrait for Callback {
@@ -97,18 +140,26 @@ impl egui_wgpu::CallbackTrait for Callback {
         let key = Key {
             display: self.display.clone(),
             state: self.state.clone(),
-            interactive: resolution(self.pixels, 256.),
-            refined: resolution(self.pixels, 768.),
+            interactive: resolution(
+                self.pixels,
+                if self.material.is_some() { 512. } else { 256. },
+            ),
+            refined: resolution(
+                self.pixels,
+                if self.material.is_some() { 2048. } else { 768. },
+            ),
+            material: self.material.clone(),
         };
         let result = (|| {
             if gpu.key.as_ref() != Some(&key) {
                 let mut state = self.state.clone();
                 state.quality = Quality::Interactive;
-                gpu.renderer.render_target(
+                gpu.render(
                     device,
                     encoder,
                     &self.display,
                     &state,
+                    self.material.as_ref(),
                     VolumeTarget {
                         slot: 0,
                         size: key.interactive,
@@ -141,13 +192,15 @@ impl egui_wgpu::CallbackTrait for Callback {
             if gpu.row < key.refined[1] {
                 let mut state = self.state.clone();
                 state.quality = Quality::Refined;
-                let height = (key.refined[1] - gpu.row).min(8);
+                let height =
+                    (key.refined[1] - gpu.row).min(if self.material.is_some() { 16 } else { 8 });
                 let row = gpu.row;
-                gpu.renderer.render_target(
+                gpu.render(
                     device,
                     encoder,
                     &self.display,
                     &state,
+                    self.material.as_ref(),
                     VolumeTarget {
                         slot: 1,
                         size: key.refined,
@@ -180,7 +233,13 @@ impl egui_wgpu::CallbackTrait for Callback {
         if let Ok(gpu) = self.gpu.try_lock()
             && gpu.error.is_none()
         {
-            gpu.renderer.paint_target(gpu.front, pass);
+            if self.material.is_some() {
+                if let Some(renderer) = &gpu.material_renderer {
+                    renderer.paint_target(gpu.front, pass);
+                }
+            } else {
+                gpu.renderer.paint_target(gpu.front, pass);
+            }
         }
     }
 }

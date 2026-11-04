@@ -46,7 +46,15 @@ normal. Optical depth uses physical ray distances, with a stable small-depth
 opacity approximation. Final presentation interpolates linear radiance and encodes
 once for the framebuffer. Materials are explicit scalar-to-optics mappings;
 grayscale windows/VOI tables are not applied, and display inversion is refused.
-This backend has no native controls or saved/shared scene representation yet.
+Native scalar volume controls expose a bounded material-point editor and lighting
+toggle. Invalid drafts retain the last valid material. The upload worker builds
+both renderers on one source; the callback key includes optical points and lighting.
+Material interaction uses up to 512 pixels per side; idle refinement uses up to
+2048 in 16-row batches, presenting only completed targets. The editor shares
+bounded dialog placement, Escape handling and numeric Enter/Tab focus behavior.
+This style has no saved/shared scene representation or picture capture yet:
+entering it revokes live/pending approval, denies agent view application and
+disables sharing/export instead of substituting the source-style image.
 
 Metadata-first indexing avoids decoding every image at import. A bounded metadata
 prefix reader applies object-class admission before reading dataset values and

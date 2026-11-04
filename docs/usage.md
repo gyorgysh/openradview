@@ -62,6 +62,17 @@ Their interpolated values can differ from source pixels. In compact windows,
 2D, MPR, oblique and 3D/MIP place their display rows under **Display and tools**,
 a scrollable panel that leaves room for the images. Tab and Shift+Tab reach every
 control and scroll it into view; Escape closes informational dialogs.
+
+In **3D / MIP**, **Material** offers an editable scalar-to-brightness and opacity
+mapping, with optional **Lighting** for depth cues. The selected **Material…** button lets
+you add, remove and edit up to 64 points. Values must stay in increasing order;
+an invalid edit leaves the last valid material visible. **Reset material** restores
+the initial mapping. These controls change appearance, not source values or masks.
+The last complete interaction image stays visible while a refined image is built.
+Material view ends any active sharing approval and has no picture export or agent
+sharing. Choose **Volume** or **MIP** for the original display controls and those
+features; sharing still requires a fresh Allow review.
+
 For scalar MPR/oblique views, choose **Slab MIP**, **Slab MinIP** or **Slab mean** and a
 physical thickness. These show the discrete maximum, minimum or mean of valid
 samples along the plane normal,

@@ -22,6 +22,10 @@ cargo build --locked --workspace
 
 Use cargo-nextest 0.9.149. The full suite requires a working GPU: a skipped render
 test does not validate rendering. Check native UI changes on the affected OS.
+For a minimum-window native review, build the QA-only binary with
+`ORV_QA_COMPACT=1 cargo build --locked -p orv-app --features qa`; its initial
+window is 860×640. Omit that build variable for normal-size QA. Distribution
+builds exclude QA and this override.
 The manual Linux package job also runs OpenGL rendering under Mesa/Xvfb and a
 QA-only native startup/idle check. This opens no study, disables input controls
 and closes after four seconds. Its temporary aggregate contains timing/count

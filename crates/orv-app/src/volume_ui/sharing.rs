@@ -5,6 +5,9 @@ use orv_core::scene::Reconstruction;
 use orv_core::scene::SceneState;
 impl VolumeSession {
     pub(crate) fn shared_view(&self) -> Option<(crate::rendered::ViewSpec, bool)> {
+        if self.local_material() {
+            return None;
+        }
         let state = self.state.as_ref()?;
         let gpu = self.gpu.as_ref()?.try_lock().ok()?;
         Some((

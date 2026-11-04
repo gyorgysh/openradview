@@ -30,6 +30,7 @@ impl VolumeSession {
                 state: state.clone(),
                 pixels: Vec2::new(96., 64.),
                 interacting: false,
+                material: None,
                 ctx: ctx.clone(),
             };
             let mut encoder = device.create_command_encoder(&Default::default());
@@ -110,6 +111,7 @@ fn idle_refinement_is_tiled_and_new_input_replaces_the_pending_view() {
         state: VolumeView::fit(&volume),
         pixels: Vec2::new(96., 64.),
         interacting: false,
+        material: None,
         ctx,
     };
     let screen = egui_wgpu::ScreenDescriptor {
@@ -207,4 +209,107 @@ fn non_ct_volume_starts_with_its_source_range_instead_of_bone_thresholds() {
         assert_eq!(session.state.as_ref().unwrap().transfer, expected.1);
         assert_eq!(session.initial_display, expected);
     }
+}
+
+#[test]
+fn native_material_uses_shared_source_and_never_presents_a_partial_refinement() {
+    use orv_render::{material_volume::MaterialVolumeRenderer, volume_source::GpuVolumeSource};
+    let (device, queue) = device();
+    let ctx = egui::Context::default();
+    let volume = Arc::new(Volume::new(demo_study().series[0].frames.clone()).unwrap());
+    let source = GpuVolumeSource::new(&device, &queue, volume.clone(), || false).unwrap();
+    let renderer = orv_render::volume::VolumeRenderer::from_source(
+        source.clone(),
+        wgpu::TextureFormat::Rgba8Unorm,
+        || false,
+    )
+    .unwrap();
+    let material_renderer =
+        MaterialVolumeRenderer::new(source, wgpu::TextureFormat::Rgba8Unorm).unwrap();
+    let mut engine = Gpu::new(renderer);
+    engine.material_renderer = Some(material_renderer);
+    let gpu = Arc::new(Mutex::new(engine));
+    let editor = super::material::MaterialEditor::new(&TransferPreset::Bone.values()).unwrap();
+    let mut state = VolumeView::fit(&volume);
+    state.projection = Projection::Composite;
+    let mut callback = Callback {
+        gpu: gpu.clone(),
+        display: ViewState::default(),
+        state,
+        pixels: Vec2::new(2200., 1400.),
+        interacting: false,
+        material: Some(editor.style()),
+        ctx: ctx.clone(),
+    };
+    let screen = egui_wgpu::ScreenDescriptor {
+        size_in_pixels: [2200, 1400],
+        pixels_per_point: 1.,
+    };
+    let mut encoder = device.create_command_encoder(&Default::default());
+    callback.prepare(
+        &device,
+        &queue,
+        &screen,
+        &mut encoder,
+        &mut Default::default(),
+    );
+    queue.submit([encoder.finish()]);
+    {
+        let engine = gpu.lock().unwrap();
+        let output = engine
+            .material_renderer
+            .as_ref()
+            .unwrap()
+            .output_texture(0)
+            .unwrap();
+        assert_eq!([output.width(), output.height()], [512, 326]);
+        assert_eq!(output.format(), wgpu::TextureFormat::Rgba16Float);
+        assert!(!engine.completed(&callback.display, &callback.state));
+        assert!(!engine.refined);
+        assert!(engine.error.is_none());
+    }
+    gpu.lock().unwrap().expire_idle();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    callback.prepare(
+        &device,
+        &queue,
+        &screen,
+        &mut encoder,
+        &mut Default::default(),
+    );
+    queue.submit([encoder.finish()]);
+    {
+        let engine = gpu.lock().unwrap();
+        assert!(!engine.refined);
+        assert!((engine.progress - 16. / 1303.).abs() < 0.00001);
+        let output = engine
+            .material_renderer
+            .as_ref()
+            .unwrap()
+            .output_texture(1)
+            .unwrap();
+        assert_eq!([output.width(), output.height()], [2048, 1303]);
+    }
+    callback.material.as_mut().unwrap().lighting = orv_render::material_volume::Lighting::UNLIT;
+    let mut encoder = device.create_command_encoder(&Default::default());
+    callback.prepare(
+        &device,
+        &queue,
+        &screen,
+        &mut encoder,
+        &mut Default::default(),
+    );
+    queue.submit([encoder.finish()]);
+    {
+        let engine = gpu.lock().unwrap();
+        assert_eq!(engine.progress, 0.);
+        assert!(!engine.refined);
+        assert!(engine.error.is_none());
+    }
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(30)),
+        })
+        .unwrap();
 }
