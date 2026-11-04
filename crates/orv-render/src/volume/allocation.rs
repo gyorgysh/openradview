@@ -104,6 +104,22 @@ pub(crate) fn texture(
     }
 }
 
+pub(crate) fn buffer(
+    device: &wgpu::Device,
+    descriptor: &wgpu::BufferDescriptor<'_>,
+) -> Result<wgpu::Buffer, &'static str> {
+    let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let buffer = device.create_buffer(descriptor);
+    let invalid = pollster::block_on(validation.pop()).is_some();
+    let exhausted = pollster::block_on(memory.pop()).is_some();
+    if invalid || exhausted {
+        Err("The graphics device cannot allocate this buffer; close another view")
+    } else {
+        Ok(buffer)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

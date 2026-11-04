@@ -105,6 +105,15 @@ admission is not RSS. These are worker CPU timings, without smooth interpolation
 expanded vertex/index buffers, GPU/native input or presentation. Unchanged-owner
 reuse timings are functional checks near clock resolution.
 
+For immutable GPU quad-buffer uploads, run
+`cargo run --locked --release -p orv-render --example surface_upload_latency`.
+It uses the same generated grid/cases, reports 12 fresh uploads and 120 complete
+checkpoint/brush/CPU-geometry/GPU-upload updates, and records changed/reused
+chunks, packed bytes and admission separately. Fresh upload excludes extraction;
+edit timings include it. Untimed readback checks every initial/final descriptor
+and an extra changed state against current CPU geometry. These inputs have no
+3D rasterization or native presentation yet. Admission is not driver memory/RSS.
+
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and

@@ -11,6 +11,7 @@ pub mod reslice;
 pub mod segment_source;
 pub mod slice;
 pub mod snapshot;
+pub mod surface_source;
 mod voi;
 pub mod volume;
 pub mod volume_source;

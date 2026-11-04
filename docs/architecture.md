@@ -216,6 +216,26 @@ need a full extraction. Cancellation/admission refusal discards unpublished work
 and preserves prior generations. The backend has no GPU buffers, clipping caps,
 smoothing, desktop display, exports or agent access yet.
 
+`GpuCellSurface` retains that complete CPU surface and the exact shared GPU source.
+Each immutable chunk buffer holds a 16-byte integer instance descriptor per quad:
+source cell coordinates and explicit side/grid-truncation flags. Segment identity
+stays on the parent surface as u16; packing does not reinterpret Rust enum padding
+or expand a second vertex/index/normal array. Unchanged geometry reuses its GPU
+chunk Arc, including equal faces re-emitted by a CPU halo update. A changed
+revision still gets a parent carrying its new CPU map identity. Replacement
+objects/IDs upload fresh buffers, and another GPU source/device cannot supply a
+base. No old buffer is overwritten or copied.
+
+Allocation, write-only mapped packing and bounded fence waits belong on a worker.
+CPU admission covers the directory and chunk owners. GPU target admission rounds
+each allocation conservatively to 4 KiB; it is not measured driver memory. Queued
+upload staging is bounded by 16 MiB plus the largest changed chunk and fences
+between batches. Cancelled/failed targets retire after submitted work completes;
+prior buffers remain valid. Buffer-limit or allocation refusals do not publish a
+partial model. Integer readback and vertex-input probes check the descriptor
+contract. These inputs have no 3D rasterizer, ordered source composition,
+smoothing, physical picking, desktop display or disclosure/export path yet.
+
 Manual GPU label uploads retain a separate immutable R8Uint texture bound to the
 exact admitted GPU source. A related revision admits a new target, submits a GPU
 copy of the previous grid, then queues only changed source tiles. The copy is
