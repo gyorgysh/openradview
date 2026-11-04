@@ -15,6 +15,7 @@ use orv_render::{
     GpuReservation,
     material_volume::Lighting,
     opaque_surface::{OpaqueSurfaceImage, OpaqueSurfaceRenderer, OpaqueSurfaceScene},
+    surface_pick::{GpuSurfacePicker, PickFrame, PickScope, PickState, SurfaceProbeKind},
     surface_projection::{GpuSurfaceProjector, SurfaceImage, SurfaceProjection},
     surface_source::GpuCellSurface,
     volume_source::GpuVolumeSource,
@@ -442,6 +443,7 @@ fn main() -> Result<()> {
     let gpu = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false)?;
     let renderer = GpuSurfaceProjector::new(gpu.clone())?;
     let mut compositor = OpaqueSurfaceRenderer::new(gpu.clone(), wgpu::TextureFormat::Rgba8Unorm)?;
+    let picker = GpuSurfacePicker::new(gpu.clone())?;
     let material = Arc::new(VolumeMaterial::new(&[-1., 1.].map(|value| {
         MaterialPoint {
             value,
@@ -572,6 +574,81 @@ fn main() -> Result<()> {
                 kind,
                 plane,
             )?;
+            let pick_frame = PickFrame::new(
+                front.as_ref().ok_or("No completed pick frame")?.clone(),
+                PickScope::new()?,
+            );
+            let current = PickState::from_frame(&pick_frame);
+            let pixel = [side / 2; 2];
+            let expected_hit = (kind != "empty")
+                .then(|| reference(&req, pixel, plane))
+                .flatten();
+            let probe = picker.probe(&pick_frame, &current, pixel, || false)?;
+            let expected_kind = if expected_hit.is_some() {
+                SurfaceProbeKind::Hit
+            } else {
+                SurfaceProbeKind::Empty
+            };
+            if probe.kind() != expected_kind || !probe.is_current(&current, pixel) {
+                return Err("Generated pick visibility/identity differs".into());
+            }
+            let mut transmission_error = 0f64;
+            if let Some((word, _, _)) = expected_hit {
+                let hit = probe.hit().ok_or("No verified interface hit")?;
+                let face = hit.face;
+                let actual = [
+                    face.cell()[0],
+                    face.cell()[1],
+                    face.cell()[2],
+                    u32::from(hit.key.number)
+                        | ((face.side() as u32) << 16)
+                        | (u32::from(face.boundary() == orv_core::surface::FaceBoundary::Grid)
+                            << 24),
+                ];
+                if actual != word {
+                    return Err("Generated physical pick differs from independent box ray".into());
+                }
+                let direction = req.camera.frame(&req.display, 1.)?.direction_unit;
+                let axis = ((word[3] >> 16) & 7) as usize / 2;
+                let normal = std::array::from_fn(|a| {
+                    let mut u = [0.; 3];
+                    u[a] = 1.;
+                    cpu.world_vector_to_voxel(u)[axis]
+                });
+                let normal = orv_core::volume_material::gradient_normal(normal)
+                    .ok_or("Invalid probe normal")?;
+                let background = f64::from(scene.surface_luminance)
+                    * (f64::from(scene.surface_lighting.ambient)
+                        + f64::from(scene.surface_lighting.diffuse) * dot(normal, direction).abs());
+                let expected =
+                    (composition_reference(&scene, pixel, kind, plane)? - 0.2) / (background - 0.2);
+                transmission_error = (f64::from(probe.foreground_transmittance()) - expected).abs();
+                if transmission_error > 0.001 {
+                    return Err("Generated pick foreground transmission differs".into());
+                }
+            }
+            drop(probe);
+            fence(&device)?;
+            let pick_cpu = MemoryBudget::volumes().used();
+            let pick_gpu = MemoryBudget::gpu().used();
+            let probe_timing = measure(
+                || {
+                    let probe = picker.probe(&pick_frame, &current, pixel, || false)?;
+                    if probe.kind() != expected_kind || !probe.is_current(&current, pixel) {
+                        return Err("Pick identity changed during timing".into());
+                    }
+                    drop(probe);
+                    fence(&device)
+                },
+                if side == 512 { 120 } else { 30 },
+            )?;
+            if MemoryBudget::volumes().used() != pick_cpu || MemoryBudget::gpu().used() != pick_gpu
+            {
+                return Err("Probe reservations not restored".into());
+            }
+            let probe_verification = json!({"pixel":pixel,"kind":format!("{expected_kind:?}"),"fixed_readback_bytes":56,"f64_box_membership_match":true,"foreground_transmission_error":transmission_error});
+            drop(current);
+            drop(pick_frame);
             drop(front);
             drop(scene);
             fence(&device)?;
@@ -582,11 +659,13 @@ fn main() -> Result<()> {
                 "complete_projection_allocation_fence_drop_retirement":timing,"untimed_readback":verification,
                 "cached_surface_source_composition":cached,"cached_surface_16_row_fenced_sequence":row_sequence,"complete_projection_plus_source_composition":combined,
                 "untimed_optics_full":verified_optics,"untimed_optics_rows":verified_rows,"untimed_optics_combined":verified_combined,
+                "complete_local_pixel_probe":probe_timing,"untimed_probe":probe_verification,
                 "gpu_admission_baseline_bytes":baseline,"projection_max_observed_gpu_admission_bytes":peak_gpu,"combined_max_observed_gpu_admission_bytes":combined_peak_gpu}));
         }
     }
     drop(renderer);
     drop(compositor);
+    drop(picker);
     drop(gpu);
     drop(cpu);
     fence(&device)?;
@@ -596,9 +675,10 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"schema":2,"adapter":info.name,"backend":format!("{:?}",info.backend),
+            &json!({"schema":3,"adapter":info.name,"backend":format!("{:?}",info.backend),
         "source_dimensions":[512,512,128],"logical_source_bytes":512*512*128*4u64,"shared_cpu_plane_bytes":512*512*4,
         "source_and_pipeline_gpu_admission_bytes":source_admission,"scope":"Separate known-interface projection, cached ordered source composition, fenced 16-row sequences and complete projection plus composition. Timings include fresh output allocation, submitted work/checks, drop and retirement. Source/geometry extraction/upload, readback of pixels, native input/display and RSS excluded. Homogeneous fully valid source, constant linear luminance0.2/extinction0.005 per mm, two-sided source/surface headlight and surface base0.85; missing-stencil performance is not measured. Admission is not driver VRAM.",
+        "probe_scope":"Separate complete one-pixel worker probe: optional pipeline is prepared once; per-call uniforms/target/readback allocation, shared optical evaluation, 56B copy/map/status/color check, independent f64 cell traversal, identity/visibility checks, result drop and retirement fence are timed. Original full viewport coordinates; current centre pixel only. No native input/display or per-frame ID copy. Probe samples120 at512 and30 at2048.",
         "cases":cases,"reservations_restored":true})
         )?
     );

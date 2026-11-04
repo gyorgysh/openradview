@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod ray;
 use super::*;
 use crate::{
     labels::Labels,

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod pick;
 use super::*;
 use crate::{
     surface_projection::{GpuSurfaceProjector, SurfaceProjection},

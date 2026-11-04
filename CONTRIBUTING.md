@@ -135,6 +135,15 @@ source/surface headlight. It does not measure missing-stencil performance, nativ
 latency or RSS. At 512, cached composition has 30 samples and row/combined paths
 have 12; each 2048 path has only four. Inspect the JSON scope before comparison.
 
+Schema 3 measures a separate one-pixel local probe of that completed front,
+including per-call allocation, the shared optical calculation, 56-byte readback,
+GPU status/completed-color checks, independent f64 membership traversal and
+result drop/retirement. The original viewport coordinates are preserved. Pipeline
+creation is excluded; the fixed centre pixel has 120 samples at 512 and 30 at
+2048. Untimed checks compare its interface and foreground transmission with the
+independent box/optical reference. This measures a worker operation, not native
+cursor or edit latency, and creates no study-sharing or editing interface.
+
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and

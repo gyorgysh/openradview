@@ -4,6 +4,7 @@
 //! faces are marked separately. These derived faces do not authorize an edit.
 mod face;
 mod layout;
+mod ray;
 mod walk;
 use crate::{
     labels::LABEL_TILE_SIDE,
@@ -13,6 +14,7 @@ use crate::{
 };
 pub use face::{CellFace, FaceBoundary, FaceGeometry, FaceSide};
 use layout::Layout;
+pub use ray::{InterfaceHit, InterfaceRay, InterfaceRayError};
 use std::sync::Arc;
 
 pub const CHUNK_SIDE: usize = LABEL_TILE_SIDE;

@@ -23,6 +23,8 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
+- Volume-camera turns at exact multiples of 90° avoid tiny off-axis errors that
+  could incorrectly hide valid samples beside missing data.
 - Manual label controls recognize acquired planes whose stored decimal positions
   differ slightly from the fitted regular volume grid.
 - Thin-plane linked MPR keeps its requested image detail while moving the

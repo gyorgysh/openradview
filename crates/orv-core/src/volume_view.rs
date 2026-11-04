@@ -119,6 +119,20 @@ pub struct RayFrame {
     pub down_mm: [f64; 3],
     pub direction_unit: [f64; 3],
 }
+fn sin_cos_degrees(degrees: f64) -> (f64, f64) {
+    // Exact declared quarter turns must stay on their source node planes.
+    // An epsilon here would instead change nearby intentional oblique views.
+    if degrees % 90. == 0. {
+        match (degrees / 90.).rem_euclid(4.) as u8 {
+            0 => (0., 1.),
+            1 => (1., 0.),
+            2 => (0., -1.),
+            _ => (-1., 0.),
+        }
+    } else {
+        degrees.to_radians().sin_cos()
+    }
+}
 impl Camera {
     pub fn fit(volume: &Volume) -> Self {
         let [min, max] = volume.bounds();
@@ -171,19 +185,19 @@ impl Camera {
         if !aspect.is_finite() || aspect <= 0.0 || aspect > 1024.0 {
             return Err("Invalid volume viewport aspect");
         }
-        let (yaw, pitch, roll) = (
-            self.yaw_degrees.to_radians(),
-            self.pitch_degrees.to_radians(),
-            self.roll_degrees.to_radians(),
+        let ((yaw_sin, yaw_cos), (pitch_sin, pitch_cos), (roll_sin, roll_cos)) = (
+            sin_cos_degrees(self.yaw_degrees),
+            sin_cos_degrees(self.pitch_degrees),
+            sin_cos_degrees(self.roll_degrees),
         );
-        let right = [yaw.cos(), yaw.sin(), 0.];
+        let right = [yaw_cos, yaw_sin, 0.];
         let down = add(
-            mul([0., 0., -1.], pitch.cos()),
-            mul(cross(right, [0., 0., -1.]), pitch.sin()),
+            mul([0., 0., -1.], pitch_cos),
+            mul(cross(right, [0., 0., -1.]), pitch_sin),
         );
         let direction_unit = cross(right, down);
-        let right_rotated = add(mul(right, roll.cos()), mul(down, roll.sin()));
-        let down_rotated = add(mul(down, roll.cos()), mul(right, -roll.sin()));
+        let right_rotated = add(mul(right, roll_cos), mul(down, roll_sin));
+        let down_rotated = add(mul(down, roll_cos), mul(right, -roll_sin));
         let span = self.vertical_span_mm / f64::from(view.zoom);
         let right_mm = mul(right_rotated, span * aspect);
         let down_mm = mul(down_rotated, span);

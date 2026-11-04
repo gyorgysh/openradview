@@ -128,6 +128,69 @@ fn orthographic_rays_use_physical_mm_and_clip_the_affine_domain() {
 }
 
 #[test]
+fn declared_quarter_turns_keep_axis_rays_on_valid_interpolation_nodes() {
+    let base = volume();
+    let source = Volume::new(
+        base.frames()
+            .iter()
+            .enumerate()
+            .map(|(z, frame)| {
+                let mut f = (**frame).clone();
+                f.pixels = vec![10.; 20].into();
+                f.validity = Some(
+                    (0..20)
+                        .map(|i| u8::from(i % 4 != 0 && i / 4 != 0))
+                        .collect::<Vec<_>>()
+                        .into(),
+                );
+                let g = f.geometry.as_mut().unwrap();
+                g.position = [0., 0., z as f64];
+                g.orientation = [1., 0., 0., 0., 1., 0.];
+                g.spacing = [1.; 2];
+                Arc::new(f)
+            })
+            .collect(),
+    )
+    .unwrap();
+    let mut camera = Camera::fit(&source);
+    camera.target_mm = [1.; 3];
+    for pitch in [-270., -90., 90., 270.] {
+        for yaw in [-360., -270., -180., -90., 0., 90., 180., 270., 360.] {
+            for roll in [-180., -90., 0., 90., 180.] {
+                camera.pitch_degrees = pitch;
+                camera.yaw_degrees = yaw;
+                camera.roll_degrees = roll;
+                let frame = camera.frame(&ViewState::default(), 1.).unwrap();
+                let (origin, direction) = frame.ray([0.5; 2]);
+                for t in [-1., -0.5, 0., 0.5, 1.] {
+                    let position = std::array::from_fn(|a| origin[a] + direction[a] * t);
+                    assert_eq!(
+                        source.sample(position),
+                        Some(10.),
+                        "{yaw}/{pitch}/{roll} at {t}: {position:?}"
+                    );
+                }
+                assert_eq!(direction[..2], [0.; 2]);
+                assert_eq!(direction[2].abs(), 1.);
+            }
+        }
+    }
+    camera.yaw_degrees = 0.;
+    camera.roll_degrees = 0.;
+    for pitch in [89.9999999, 90.0000001] {
+        camera.pitch_degrees = pitch;
+        assert_ne!(
+            camera
+                .frame(&ViewState::default(), 1.)
+                .unwrap()
+                .direction_unit[1],
+            0.,
+            "Nearby oblique angles must remain oblique"
+        );
+    }
+}
+
+#[test]
 fn physical_clipping_intersects_ordered_lps_bounds_and_preserves_legacy_views() {
     let volume = volume();
     let origin = volume.center();

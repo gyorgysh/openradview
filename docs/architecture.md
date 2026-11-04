@@ -204,6 +204,16 @@ repair. Diagonal contacts can be non-manifold. Open unknown boundaries do not
 claim equivalence to a closed-volume first-hit visualization. Source-cell counts
 remain authoritative. Surfaces do not authorize picks or edits.
 
+`InterfaceRay` is a separate f64 membership reference for known cell interfaces.
+It walks bounded source-cell intervals without allocating or scanning derived
+faces. Only eligible positive cells against known valid negatives or marked grid
+truncation can yield a hit. Unknown coverage and missing source samples remain
+open; clip/range entries inside a cell create no face. The consumed traversal
+returns the original signed ray parameter, physical point, positive cell interval
+and opaque map/revision identity. Exact quad-edge/corner contacts are ambiguous;
+zero-length tangent cells produce no hit. It uses no epsilon nudges. This geometry
+reference alone does not establish current scene or foreground visibility.
+
 Extraction counts the complete prospective output before allocating faces.
 Limits are 2,097,152 quad descriptors, 65,536 chunks and 128 MiB of referenced
 typed storage per generation; a caller can lower them. Shared volume admission
@@ -261,6 +271,11 @@ of full depth range to smallest source cell-plane spacing must be at most 2^20;
 non-finite, collapsed projection/clip parameters and unsupported limits refuse
 the request instead of reducing detail.
 
+Declared camera angles at exact multiples of 90 degrees use exact sine/cosine
+axes. Small trigonometric residuals could otherwise move a ray off a valid source
+interpolation node beside missing data. Nearby oblique angles retain their actual
+trigonometric values; there is no tolerance-based snapping of measured geometry.
+
 The worker renders the exact requested dimensions within 1..2048 per side and
 the device limit. It submits at most 131,072 face instances before a cancellable
 fence; only the first batch clears attachments. Cancellation or failure never
@@ -300,7 +315,31 @@ axes, is bounded by the sum of source dimensions plus three and refuses unresolv
 arithmetic rather than publishing a partial image. Fully valid sources retain the
 ordinary material integrator. The existing closed-mask and source-only material
 paths retain their original stepped validity sampling. Native surfaces, multiple
-regions/transparency, authoritative picking and export/sharing remain separate.
+regions/transparency and export/sharing remain separate.
+
+`GpuSurfacePicker` is an optional local worker pipeline for one pixel of a complete
+`OpaqueSurfaceImage`. It reuses the same optical pixel function at the original
+full viewport coordinates, storing unquantized radiance and foreground
+transmittance in a one-pixel float32 target. A 56-byte readback includes cell/ID/
+side/grid, depth, validation status and the completed float16 pixel. Explicit
+aligned row pitch preserves packed offsets on the tested Metal path. No full-frame
+readback or additional per-frame visibility target is required. The probe checks
+GPU status and displayed color, then compares the first known f64 membership
+interface and source-centre depth. Ambiguous or mismatching raster contacts yield
+no usable hit. Foreground transmittance below five percent yields an obscured
+result; this is a local display rule. Supplied masks remain read-only.
+
+A `PickFrame` captures the originating job's admitted opaque `PickScope`, rather
+than relabelling an old front with a newer scope. The caller must renew that scope
+across selected source/acquisition, session or tool boundaries and revoke it on
+close. Revocation invalidates both in-flight probes and retained results. Desired
+`PickState` can describe a new CPU map/revision or view before its GPU image exists;
+it must come from live state when preparation is pending. Source pointer, map key/
+revision/ID, complete camera/navigation/clip/material/lighting state and size must
+match. Every outcome retains its exact front and requires revalidation against
+the current state and current pixel before use. An old coherent frame shown under
+Updating cannot authorize a new-view hit. These internal APIs provide no editing,
+export or agent-sharing route; native brush/workbench integration remains separate.
 
 Manual GPU label uploads retain a separate immutable R8Uint texture bound to the
 exact admitted GPU source. A related revision admits a new target, submits a GPU

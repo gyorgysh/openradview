@@ -105,64 +105,7 @@ impl OpaqueSurfaceRenderer {
         let scratch = allocation::reserve_bytes(65536, device, source.queue())?;
         let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let texture = |binding, sample_type, view_dimension| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Texture {
-                sample_type,
-                view_dimension,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let buffer = |binding, ty, bytes| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Buffer {
-                ty,
-                has_dynamic_offset: false,
-                min_binding_size: wgpu::BufferSize::new(bytes),
-            },
-            count: None,
-        };
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("source and opaque cell interface bindings"),
-            entries: &[
-                texture(
-                    0,
-                    wgpu::TextureSampleType::Float { filterable: false },
-                    wgpu::TextureViewDimension::D3,
-                ),
-                buffer(1, wgpu::BufferBindingType::Uniform, 1344),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                texture(
-                    3,
-                    wgpu::TextureSampleType::Uint,
-                    wgpu::TextureViewDimension::D3,
-                ),
-                texture(
-                    4,
-                    wgpu::TextureSampleType::Uint,
-                    wgpu::TextureViewDimension::D2,
-                ),
-                texture(
-                    5,
-                    wgpu::TextureSampleType::Float { filterable: false },
-                    wgpu::TextureViewDimension::D2,
-                ),
-                buffer(6, wgpu::BufferBindingType::Storage { read_only: false }, 4),
-                buffer(7, wgpu::BufferBindingType::Uniform, 16),
-            ],
-        });
+        let layout = composition_layout(device, wgpu::TextureFormat::Rgba16Float);
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("checked opaque material layout"),
             bind_group_layouts: &[Some(&layout)],
@@ -170,18 +113,7 @@ impl OpaqueSurfaceRenderer {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ordered source and opaque cell interface optics"),
-            source: wgpu::ShaderSource::Wgsl(
-                format!(
-                    "{}\n{}\n{}\n{}\n{}\n{}",
-                    include_str!("pixel_ray.wgsl"),
-                    include_str!("volume_sampling.wgsl"),
-                    include_str!("material_optics.wgsl"),
-                    include_str!("opaque_interval.wgsl"),
-                    include_str!("surface_optics.wgsl"),
-                    include_str!("opaque_surface.wgsl")
-                )
-                .into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(shader(include_str!("opaque_surface.wgsl")).into()),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("source before opaque cell interface"),
@@ -460,7 +392,83 @@ impl OpaqueSurfaceRenderer {
     }
 }
 
-fn parameters(
+pub(crate) fn composition_layout(
+    device: &wgpu::Device,
+    output_format: wgpu::TextureFormat,
+) -> wgpu::BindGroupLayout {
+    let texture = |binding, sample_type, view_dimension| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Texture {
+            sample_type,
+            view_dimension,
+            multisampled: false,
+        },
+        count: None,
+    };
+    let buffer = |binding, ty, bytes| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty,
+            has_dynamic_offset: false,
+            min_binding_size: wgpu::BufferSize::new(bytes),
+        },
+        count: None,
+    };
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("source and opaque cell interface bindings"),
+        entries: &[
+            texture(
+                0,
+                wgpu::TextureSampleType::Float { filterable: false },
+                wgpu::TextureViewDimension::D3,
+            ),
+            buffer(1, wgpu::BufferBindingType::Uniform, 1344),
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format: output_format,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            texture(
+                3,
+                wgpu::TextureSampleType::Uint,
+                wgpu::TextureViewDimension::D3,
+            ),
+            texture(
+                4,
+                wgpu::TextureSampleType::Uint,
+                wgpu::TextureViewDimension::D2,
+            ),
+            texture(
+                5,
+                wgpu::TextureSampleType::Float { filterable: false },
+                wgpu::TextureViewDimension::D2,
+            ),
+            buffer(6, wgpu::BufferBindingType::Storage { read_only: false }, 4),
+            buffer(7, wgpu::BufferBindingType::Uniform, 16),
+        ],
+    })
+}
+pub(crate) fn shader(entry: &str) -> String {
+    format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        include_str!("pixel_ray.wgsl"),
+        include_str!("volume_sampling.wgsl"),
+        include_str!("material_optics.wgsl"),
+        include_str!("opaque_interval.wgsl"),
+        include_str!("surface_optics.wgsl"),
+        include_str!("surface_sample.wgsl"),
+        entry
+    )
+}
+
+pub(crate) fn parameters(
     source: &GpuVolumeSource,
     scene: &OpaqueSurfaceScene,
     region: [[u32; 2]; 2],

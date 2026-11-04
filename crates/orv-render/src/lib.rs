@@ -12,6 +12,7 @@ pub mod reslice;
 pub mod segment_source;
 pub mod slice;
 pub mod snapshot;
+pub mod surface_pick;
 pub mod surface_projection;
 pub mod surface_source;
 mod voi;
