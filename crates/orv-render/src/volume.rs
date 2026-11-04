@@ -7,7 +7,7 @@ pub(crate) mod allocation;
 #[cfg(all(test, feature = "gpu-tests"))]
 #[path = "volume/display_tests.rs"]
 mod display_tests;
-mod validity;
+pub(crate) mod validity;
 
 pub fn check_limits(limits: &wgpu::Limits) -> Result<(), &'static str> {
     if limits.max_compute_workgroup_size_x < 8
@@ -39,10 +39,7 @@ pub struct VolumeTarget {
 }
 
 pub struct VolumeRenderer {
-    volume: Arc<Volume>,
-    source: wgpu::TextureView,
-    validity: wgpu::TextureView,
-    voi: wgpu::TextureView,
+    source: Arc<crate::volume_source::GpuVolumeSource>,
     compute: wgpu::ComputePipeline,
     compute_layout: wgpu::BindGroupLayout,
     display: wgpu::RenderPipeline,
@@ -81,95 +78,34 @@ impl VolumeRenderer {
         cancelled: impl Fn() -> bool,
     ) -> Result<Self, &'static str> {
         check_limits(&device.limits())?;
-        let dimensions = volume.dimensions();
-        let limit = device.limits().max_texture_dimension_3d as usize;
-        if dimensions.iter().any(|d| *d > limit) {
-            return Err("Volume dimensions exceed this GPU's 3D texture limit; use 2D/MPR");
-        }
-        let bytes_per_voxel = if volume.has_missing_scalar() { 5u64 } else { 4 };
-        let bytes = dimensions
-            .iter()
-            .try_fold(bytes_per_voxel, |n, d| n.checked_mul(*d as u64));
-        if bytes.is_none_or(|b| b > orv_core::index::MAX_VOLUME_BYTES) {
-            return Err("Volume and validity exceed the GPU source budget; use 2D/MPR");
-        }
+        let source = crate::volume_source::GpuVolumeSource::new(device, queue, volume, &cancelled)?;
+        Self::from_source_with_display_mode(source, format, manual_srgb, cancelled)
+    }
+
+    /// Build a projection renderer without uploading another source copy.
+    pub fn from_source(
+        source: Arc<crate::volume_source::GpuVolumeSource>,
+        format: wgpu::TextureFormat,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, &'static str> {
+        let manual_srgb = source.device().adapter_info().backend == wgpu::Backend::Gl;
+        Self::from_source_with_display_mode(source, format, manual_srgb, cancelled)
+    }
+
+    fn from_source_with_display_mode(
+        source: Arc<crate::volume_source::GpuVolumeSource>,
+        format: wgpu::TextureFormat,
+        manual_srgb: bool,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, &'static str> {
+        let device = source.device();
+        let queue = source.queue();
+        check_limits(&device.limits())?;
         if cancelled() {
             return Err("Cancelled");
         }
         let reservation =
-            allocation::reserve(dimensions, volume.has_missing_scalar(), device, queue)?;
-        let texture = allocation::texture(
-            device,
-            &wgpu::TextureDescriptor {
-                label: Some("affine scalar volume"),
-                size: wgpu::Extent3d {
-                    width: dimensions[0] as u32,
-                    height: dimensions[1] as u32,
-                    depth_or_array_layers: dimensions[2] as u32,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D3,
-                format: if volume.is_color() {
-                    wgpu::TextureFormat::Rgba8UnormSrgb
-                } else {
-                    wgpu::TextureFormat::R32Float
-                },
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-        )?;
-        let mut pending_bytes = 0usize;
-        for (z, frame) in volume.frames().iter().enumerate() {
-            if cancelled() {
-                return Err("Cancelled");
-            }
-            if frame.pixels.iter().any(|v| v.abs() > 1e20) {
-                return Err("Volume scalar values exceed GPU arithmetic limits");
-            }
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: z as u32,
-                    },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                frame
-                    .rgba
-                    .as_deref()
-                    .unwrap_or_else(|| bytemuck::cast_slice(&frame.pixels)),
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(frame.width * 4),
-                    rows_per_image: Some(frame.height),
-                },
-                wgpu::Extent3d {
-                    width: frame.width,
-                    height: frame.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            pending_bytes += frame.width as usize * frame.height as usize * 4;
-            if pending_bytes >= 16 * 1024 * 1024 {
-                flush_upload(device, queue, &cancelled)?;
-                pending_bytes = 0;
-            }
-        }
-        if pending_bytes > 0 {
-            flush_upload(device, queue, &cancelled)?;
-        }
-        let source = texture.create_view(&Default::default());
-        let validity = validity::upload(device, queue, &volume, &cancelled)?;
-        let voi = crate::voi::upload(
-            device,
-            queue,
-            volume.frames()[0].scalar.as_deref(),
-            &cancelled,
-        )?;
+            allocation::reserve_bytes(allocation::VOLUME_OUTPUT_BYTES, device, queue)?;
         let compute_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("volume compute bindings"),
             entries: &[
@@ -325,10 +261,7 @@ impl VolumeRenderer {
         }
         Ok(Self {
             _reservation: reservation,
-            volume,
             source,
-            validity,
-            voi,
             compute,
             compute_layout,
             display,
@@ -386,7 +319,8 @@ impl VolumeRenderer {
         if slot >= self.outputs.len() {
             return Err("Unsupported volume output slot");
         }
-        let params = crate::volume_uniform::parameters(&self.volume, display, state, size, region)?;
+        let params =
+            crate::volume_uniform::parameters(&self.source.volume, display, state, size, region)?;
         self.ensure_output(device, size, slot)?;
         let output = self.outputs[slot]
             .as_ref()
@@ -404,11 +338,11 @@ impl VolumeRenderer {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&self.validity),
+                    resource: wgpu::BindingResource::TextureView(&self.source.validity),
                 },
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.source),
+                    resource: wgpu::BindingResource::TextureView(&self.source.source),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -420,7 +354,7 @@ impl VolumeRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&self.voi),
+                    resource: wgpu::BindingResource::TextureView(&self.source.voi),
                 },
             ],
         });
@@ -528,7 +462,7 @@ impl VolumeRenderer {
     }
 }
 
-fn flush_upload(
+pub(crate) fn flush_upload(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     cancelled: &impl Fn() -> bool,

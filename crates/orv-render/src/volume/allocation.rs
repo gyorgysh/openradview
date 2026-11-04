@@ -28,7 +28,10 @@ impl Drop for GpuReservation {
     }
 }
 
-pub(super) fn reserve(
+// Two current outputs plus bounded retired allocations while commands finish.
+pub(crate) const VOLUME_OUTPUT_BYTES: u64 = 3 * 2 * 1024 * 1024 * 4;
+
+pub(crate) fn reserve(
     dimensions: [usize; 3],
     masked: bool,
     device: &wgpu::Device,
@@ -71,7 +74,7 @@ fn allocation_bytes(dimensions: [usize; 3], masked: bool) -> Result<u64, &'stati
             bytes.checked_mul(side as u64)
         })
         .ok_or("Volume allocation size overflow; use 2D/MPR")?;
-    // Include retired outputs, one upload chunk plus its last source plane, and
+    // Include one upload chunk plus its last source plane, and
     // table staging. Driver allocation overhead is outside this admission policy.
     let plane = (dimensions[0] as u64)
         .checked_mul(dimensions[1] as u64)
@@ -80,13 +83,7 @@ fn allocation_bytes(dimensions: [usize; 3], masked: bool) -> Result<u64, &'stati
     source
         .checked_add(plane)
         .and_then(|bytes| {
-            bytes.checked_add(
-                3 * 2 * 1024 * 1024 * 4
-                    + 16 * 1024 * 1024
-                    + 2 * crate::voi::ATLAS_BYTES
-                    + 65536
-                    + 1,
-            )
+            bytes.checked_add(16 * 1024 * 1024 + 2 * crate::voi::ATLAS_BYTES + 65536 + 1)
         })
         .ok_or("Volume allocation size overflow")
 }
@@ -158,8 +155,14 @@ mod tests {
     #[test]
     fn gpu_admission_counts_masks_outputs_and_constrained_devices() {
         assert!(allocation_bytes([usize::MAX, 2, 2], false).is_err());
-        assert!(allocation_bytes([512, 512, 505], false).unwrap() > 512 * 1024 * 1024);
-        assert!(allocation_bytes([512, 512, 410], true).unwrap() > 512 * 1024 * 1024);
+        assert!(
+            allocation_bytes([512, 512, 505], false).unwrap() + VOLUME_OUTPUT_BYTES
+                > 512 * 1024 * 1024
+        );
+        assert!(
+            allocation_bytes([512, 512, 410], true).unwrap() + VOLUME_OUTPUT_BYTES
+                > 512 * 1024 * 1024
+        );
         assert!(allocation_bytes([16; 3], false).unwrap() < 512 * 1024 * 1024);
     }
 }

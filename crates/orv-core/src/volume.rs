@@ -13,6 +13,26 @@ mod color;
 #[path = "volume_tests.rs"]
 mod tests;
 
+/// A bounded physical sampling grid prepared without allocating image pixels.
+/// Both CPU and GPU reslicing use these exact dimensions and metadata.
+#[derive(Clone, Debug)]
+pub struct ReformatGrid {
+    geometry: Geometry,
+    dimensions: [u32; 2],
+    slab: Option<crate::slab::Slab>,
+}
+impl ReformatGrid {
+    pub fn geometry(&self) -> &Geometry {
+        &self.geometry
+    }
+    pub fn dimensions(&self) -> [u32; 2] {
+        self.dimensions
+    }
+    pub fn slab(&self) -> Option<crate::slab::Slab> {
+        self.slab
+    }
+}
+
 #[derive(Debug)]
 pub struct Volume {
     frames: Vec<Arc<Frame>>,
@@ -327,6 +347,15 @@ impl Volume {
         max_side: u32,
         cancel: impl Fn() -> bool,
     ) -> Result<Arc<Frame>, GeometryError> {
+        let grid = self.reformat_grid(plane, point, max_side)?;
+        self.resample_grid(&grid, cancel)
+    }
+    pub fn reformat_grid(
+        &self,
+        plane: Plane,
+        point: V3,
+        max_side: u32,
+    ) -> Result<ReformatGrid, GeometryError> {
         if !(2..=2048).contains(&max_side) || !finite(point) {
             return Err(GeometryError::Limit);
         }
@@ -352,17 +381,16 @@ impl Volume {
             ),
             Plane::Acquired => return Err(GeometryError::Orientation),
         };
-        self.resample(position, u, v, extent, (max_side, None), cancel)
+        self.sampling_grid(position, u, v, extent, (max_side, None))
     }
-    pub(crate) fn resample(
+    pub(crate) fn sampling_grid(
         &self,
         position: V3,
         u: V3,
         v: V3,
         extent: [f64; 2],
         request: (u32, Option<crate::slab::Slab>),
-        cancel: impl Fn() -> bool,
-    ) -> Result<Arc<Frame>, GeometryError> {
+    ) -> Result<ReformatGrid, GeometryError> {
         let (max_side, slab) = request;
         if slab.is_some_and(|s| s.validate().is_err())
             || !(2..=2048).contains(&max_side)
@@ -392,6 +420,40 @@ impl Volume {
             spacing: [spacing[1], spacing[0]],
         };
         geometry.validate()?;
+        if self.is_color() && slab.is_some() {
+            return Err(GeometryError::Dimensions);
+        }
+        Ok(ReformatGrid {
+            geometry,
+            dimensions,
+            slab,
+        })
+    }
+    pub(crate) fn resample_grid(
+        &self,
+        grid: &ReformatGrid,
+        cancel: impl Fn() -> bool,
+    ) -> Result<Arc<Frame>, GeometryError> {
+        let ReformatGrid {
+            geometry,
+            dimensions,
+            slab,
+        } = grid;
+        let geometry = geometry.clone();
+        let dimensions = *dimensions;
+        let slab = *slab;
+        let position = geometry.position;
+        let u = [
+            geometry.orientation[0],
+            geometry.orientation[1],
+            geometry.orientation[2],
+        ];
+        let v = [
+            geometry.orientation[3],
+            geometry.orientation[4],
+            geometry.orientation[5],
+        ];
+        let spacing = [geometry.spacing[1], geometry.spacing[0]];
         if self.is_color() {
             if slab.is_some() {
                 return Err(GeometryError::Dimensions);

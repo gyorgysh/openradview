@@ -40,6 +40,9 @@ The JSON identifies MIP and Composite separately, fixed view parameters, complet
 refined frames, individual tiles and complete sequences of fenced tile submissions.
 It also records adapter/requested limits and shared GPU admission before/after
 renderer teardown. Reservations are not measured driver memory or free VRAM.
+Reslice cases compute three moving 512-side grids on that same uploaded source:
+thin, 65-sample maximum and 257-sample mean. Those timings exclude display mapping,
+readback and native presentation; the reslicer is a backend prototype.
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and

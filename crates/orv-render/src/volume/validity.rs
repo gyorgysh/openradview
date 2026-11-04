@@ -2,7 +2,7 @@
 //! Optional one-byte source mask. Dense volumes bind only a one-texel placeholder.
 use orv_core::volume::Volume;
 
-pub(super) fn upload(
+pub(crate) fn upload(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     volume: &Volume,

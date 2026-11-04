@@ -25,6 +25,19 @@ missing samples give no gradient, and constant fields give no surface normal.
 Normalizing by component scale avoids an intensity-unit cutoff. These definitions
 allow derived rendering to be checked independently of a GPU shader.
 
+`GpuVolumeSource` retains one admitted upload, optional validity texture and
+source VOI tables, with its creating device/queue. Projection renderers can share
+it without another source allocation. Source staging and per-renderer outputs
+have separate reservations, retired only after submitted work completes.
+Core `ReformatGrid` prepares physical geometry, dimensions and slab sampling
+without image allocation; CPU resampling uses that same grid. The scalar GPU
+reslicer prototype writes full-precision values and explicit validity, supports
+three outputs and bounded tiles, and keeps each dispatch's uniforms immutable.
+Its interpolation and slab accumulation use f32 arithmetic; CPU sampling remains
+the reference. Missing nonzero-weight contributors invalidate a thin sample;
+slabs omit missing samples and retain the declared interval count. These backend
+APIs are not yet connected to desktop MPR, masks, exports or shared snapshots.
+
 Metadata-first indexing avoids decoding every image at import. A bounded metadata
 prefix reader applies object-class admission before reading dataset values and
 stops at the pixel payload without allocating it. Image admission checks both file

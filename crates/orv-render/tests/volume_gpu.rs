@@ -10,6 +10,8 @@ mod limits;
 mod padding;
 #[path = "volume_gpu/presentation.rs"]
 mod presentation;
+#[path = "volume_gpu/reslice.rs"]
+mod reslice;
 #[path = "volume_gpu/snapshot.rs"]
 mod snapshot;
 use orv_core::{

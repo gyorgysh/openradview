@@ -101,6 +101,15 @@ impl Volume {
         request: (u32, Option<crate::slab::Slab>),
         cancel: impl Fn() -> bool,
     ) -> Result<Arc<Frame>, GeometryError> {
+        let grid = self.oblique_grid(plane, request.0, request.1)?;
+        self.resample_grid(&grid, cancel)
+    }
+    pub fn oblique_grid(
+        &self,
+        plane: &ObliquePlane,
+        max_side: u32,
+        slab: Option<crate::slab::Slab>,
+    ) -> Result<crate::volume::ReformatGrid, GeometryError> {
         plane.validate()?;
         let (u, v) = (plane.column_direction, plane.row_direction);
         let mut minimum = [f64::INFINITY; 2];
@@ -114,13 +123,12 @@ impl Volume {
             }
         }
         let position = add(plane.center_mm, add(mul(u, minimum[0]), mul(v, minimum[1])));
-        self.resample(
+        self.sampling_grid(
             position,
             u,
             v,
             std::array::from_fn(|i| maximum[i] - minimum[i]),
-            request,
-            cancel,
+            (max_side, slab),
         )
     }
 }

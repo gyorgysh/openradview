@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Explicit local synthetic benchmark. Fences GPU work; no patient input, file I/O or network.
 use orv_core::{
-    ViewState, WindowLevel,
+    Plane, ViewState, WindowLevel,
+    oblique::ObliquePlane,
+    slab::{Slab, SlabProjection},
     study::{Frame, Geometry},
     volume::Volume,
     volume_view::{Projection, Quality, VolumeView},
 };
-use orv_render::{slice::SliceRenderer, volume::VolumeRenderer};
+use orv_render::{
+    reslice::GpuReslicer, slice::SliceRenderer, volume::VolumeRenderer,
+    volume_source::GpuVolumeSource,
+};
 use serde_json::{Value, json};
 use std::{
     error::Error,
@@ -165,7 +170,8 @@ fn main() -> Result<()> {
     )?;
     let before_volume = orv_core::resources::MemoryBudget::gpu().used();
     let upload = Instant::now();
-    let mut engine = VolumeRenderer::new(&device, &queue, volume.clone(), format, || false)?;
+    let source = GpuVolumeSource::new(&device, &queue, volume.clone(), || false)?;
+    let mut engine = VolumeRenderer::from_source(source.clone(), format, || false)?;
     let upload_ms = upload.elapsed().as_secs_f64() * 1000.;
     // Freeze display/camera state so each projection is measured on the same rays.
     display.window = WindowLevel::BONE;
@@ -257,10 +263,64 @@ fn main() -> Result<()> {
             "tile_scope":"96 sequential submissions with completion fences; no native event/frame pacing"
         }));
     }
+    let mut reslicer = GpuReslicer::new(source.clone())?;
+    let mut reslice_cases = Vec::new();
+    for (name, slab, count) in [
+        ("thin", None, 120),
+        (
+            "maximum_65_samples",
+            Some(Slab {
+                projection: SlabProjection::Maximum,
+                thickness_mm: 20.,
+                intervals: 64,
+            }),
+            30,
+        ),
+        (
+            "mean_257_samples",
+            Some(Slab {
+                projection: SlabProjection::Mean,
+                thickness_mm: 60.,
+                intervals: 256,
+            }),
+            12,
+        ),
+    ] {
+        let planes = [Plane::Axial, Plane::Coronal, Plane::Sagittal];
+        let grids = planes.map(|plane| {
+            let plane = ObliquePlane::anatomical(plane, volume.center())?;
+            volume.oblique_grid(&plane, 512, slab)
+        });
+        let dimensions = grids
+            .into_iter()
+            .map(|grid| grid.map(|g| g.dimensions()))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let timing = measure(
+            |index| {
+                let mut center = volume.center();
+                // Move all planes; each submission computes the complete requested
+                // grids. Reusing unchanged panes is deliberately outside this case.
+                for coordinate in &mut center {
+                    *coordinate += ((index % 20) as f64 - 10.) * 0.1;
+                }
+                let mut encoder = device.create_command_encoder(&Default::default());
+                for (slot, plane) in planes.into_iter().enumerate() {
+                    let plane = ObliquePlane::anatomical(plane, center)?;
+                    let grid = volume.oblique_grid(&plane, 512, slab)?;
+                    reslicer.render(&mut encoder, &grid, slot)?;
+                }
+                submit(&device, &queue, encoder)
+            },
+            count,
+        )?;
+        reslice_cases.push(json!({"kind":name,"requested_side":512,"grid_dimensions":dimensions,"slab":slab,"three_complete_planes":timing}));
+    }
     let adapter_limits = adapter.limits();
     let device_limits = device.limits();
     let reserved = orv_core::resources::MemoryBudget::gpu().used();
     drop(engine);
+    drop(reslicer);
+    drop(source);
     submit(
         &device,
         &queue,
@@ -270,7 +330,7 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "schema_version":2,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),
+            "schema_version":3,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),
             "adapter":info.name,"backend":format!("{:?}",info.backend),
             "adapter_limits":{"texture_2d":adapter_limits.max_texture_dimension_2d,"texture_3d":adapter_limits.max_texture_dimension_3d},
             "requested_device_limits":{"texture_2d":device_limits.max_texture_dimension_2d,"texture_3d":device_limits.max_texture_dimension_3d},
@@ -283,7 +343,8 @@ fn main() -> Result<()> {
             "gpu_reserved_after_refinement_bytes":reserved,"gpu_reserved_after_renderer_drop_bytes":after_drop,
             "paint_target_bytes":1600*1000*4,
             "synthetic_generation_ms":generation_ms,"volume_upload_and_pipeline_ms":upload_ms,
-            "scalar_scroll":scalar,"cases":cases
+            "scalar_scroll":scalar,"cases":cases,"reslice_cases":reslice_cases,
+            "reslice_scope":"Three moving full-detail scalar grids on the shared uploaded source; no readback, contrast mapping, native presentation or input timing"
         }))?
     );
     Ok(())
