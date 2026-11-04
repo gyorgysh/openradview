@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::super::Labels;
 use super::*;
+use crate::mask_identity::Identity;
 use crate::{study::Frame, volume::Volume};
 use std::cell::Cell;
 

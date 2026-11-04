@@ -20,6 +20,8 @@ pub mod inspection;
 pub mod labels;
 pub mod linked_display;
 pub mod load;
+pub mod mask;
+mod mask_identity;
 pub mod measurements;
 pub mod navigation;
 pub mod nifti_view;

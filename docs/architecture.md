@@ -160,6 +160,24 @@ pixel before allocation, caps planes at four million pixels and cancels without
 publishing partial buffers. Matching geometry alone does not bind a completed
 image to the source: the caller must preserve exact source/view identity.
 
+The core read-only mask view selects one nonzero manual ID or one declared supplied
+segment without copying payloads. Object keys and immutable revision keys are
+opaque RAM-only values; supplied segments and manual revisions use the same key
+contract. Membership, known coverage and source validity are distinct conditions.
+Unknown planes remain distinguishable from known zero masks, and overlapping IDs
+are queried independently.
+
+An allocation-free CPU ray reference traverses positive-length nearest-cell
+intervals in physical millimetres through the full inverse source affine. Its
+categorical domain is [-0.5, dimension-0.5), separate from the scalar renderer's
+voxel-centre interpolation domain. Parallel upper faces are outside; internal
+half ties choose the larger cell, and tied edge/corner crossings advance all axes
+without inventing zero-length cells. Physical clips preserve partial cell lengths.
+The first eligible hit ignores unknown coverage and missing source samples.
+A caller must retain and revalidate the exact source, visible mask key/revision
+and completed scene before using a hit for an edit. This reference is not yet
+connected to GPU mask rendering or native picking.
+
 The native labels panel selects either manual labels or read-only supplied masks.
 Each keeps its own source association and state; manual undo/dirty guards never
 flatten supplied masks into uint8 IDs. A generic overlay cache retains weak map/

@@ -26,6 +26,8 @@ struct Mask {
 }
 pub struct Segments {
     source: Arc<Volume>,
+    object: crate::mask_identity::MaskObjectId,
+    revision: crate::mask_identity::MaskRevision,
     masks: Vec<Mask>,
     overlap_cells: usize,
     _reservation: Reservation,
@@ -255,8 +257,11 @@ impl Segments {
         if cancelled() {
             return Err("Cancelled");
         }
+        let (object, revision) = crate::mask_identity::MaskObjectId::new(budget)?;
         Ok(Self {
             source,
+            object,
+            revision,
             masks,
             overlap_cells,
             _reservation: reservation,
@@ -284,12 +289,47 @@ impl Segments {
     /// None means outside the grid, an unknown segment, or an omitted plane.
     /// Some retains the supplied bit even if the corresponding source sample is missing.
     pub fn value(&self, number: u16, voxel: [usize; 3]) -> Option<bool> {
-        let [w, h, d] = self.source.dimensions();
+        self.mask(number)?.value(voxel)
+    }
+    pub fn mask(&self, number: u16) -> Option<SegmentMask<'_>> {
+        self.masks
+            .iter()
+            .position(|mask| mask.info.number == number)
+            .map(|index| SegmentMask { owner: self, index })
+    }
+    pub fn object_id(&self) -> &crate::mask_identity::MaskObjectId {
+        &self.object
+    }
+    pub fn revision(&self) -> &crate::mask_identity::MaskRevision {
+        &self.revision
+    }
+}
+/// One immutable supplied segment, retaining sparse coverage independently of bits.
+#[derive(Clone, Copy)]
+pub struct SegmentMask<'a> {
+    owner: &'a Segments,
+    index: usize,
+}
+impl<'a> SegmentMask<'a> {
+    pub fn source(&self) -> &'a Volume {
+        &self.owner.source
+    }
+    pub fn number(&self) -> u16 {
+        self.owner.masks[self.index].info.number
+    }
+    pub fn object_id(&self) -> &'a crate::mask_identity::MaskObjectId {
+        &self.owner.object
+    }
+    pub fn revision(&self) -> &'a crate::mask_identity::MaskRevision {
+        &self.owner.revision
+    }
+    pub fn value(&self, voxel: [usize; 3]) -> Option<bool> {
+        let [w, h, d] = self.owner.source.dimensions();
         let [x, y, z] = voxel;
         if x >= w || y >= h || z >= d {
             return None;
         }
-        let mask = self.masks.iter().find(|m| m.info.number == number)?;
+        let mask = &self.owner.masks[self.index];
         bit(&mask.covered, z).then(|| bit(&mask.bits, (z * h + y) * w + x))
     }
 }
