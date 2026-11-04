@@ -233,8 +233,40 @@ upload staging is bounded by 16 MiB plus the largest changed chunk and fences
 between batches. Cancelled/failed targets retire after submitted work completes;
 prior buffers remain valid. Buffer-limit or allocation refusals do not publish a
 partial model. Integer readback and vertex-input probes check the descriptor
-contract. These inputs have no 3D rasterizer, ordered source composition,
-smoothing, physical picking, desktop display or disclosure/export path yet.
+contract. These inputs remain distinct from ordered source composition,
+smoothing, physical picking, desktop display and disclosure/export paths.
+
+`GpuSurfaceProjector` produces a separate immutable `SurfaceImage` for one exact
+GPU source, mask revision, numeric ID, camera/display state, clip and requested
+size. It renders known cell interfaces two-sided, leaving unknown boundaries
+open. Physical clipping discards fragments and creates no cut caps. This differs
+from the first eligible cell of a closed-volume mask ray; the two image types
+cannot substitute for each other. Outputs contain integer cell/ID/side/grid flags,
+signed physical depth and outward float16 normals. They include no source opacity
+and do not establish current scene visibility or authorize picks, edits or sharing.
+
+Projection works around the source centre in voxel displacement coordinates,
+preserving reflected/sheared bases without subtracting large world offsets in
+f32. The camera remains physical and orthographic. A guarded screen rectangle
+covers each quad; its fragment shader intersects and bounds the actual cell face.
+This avoids fixed-point triangle edge omissions and interpolated depth drift.
+Physical and hardware depth come from that ray-plane intersection. Signed depth
+is measured from the plane through the source centre along the retained viewing
+direction, rather than from the camera's target plane. Coincident edge contacts
+remain raster/f32 choices, not an authoritative f64 pick. A conservative ratio
+of full depth range to smallest source cell-plane spacing must be at most 2^20;
+non-finite, collapsed projection/clip parameters and unsupported limits refuse
+the request instead of reducing detail.
+
+The worker renders the exact requested dimensions within 1..2048 per side and
+the device limit. It submits at most 131,072 face instances before a cancellable
+fence; only the first batch clears attachments. Cancellation or failure never
+returns a partial image or changes an older one. Three retained attachments admit
+28 bytes per pixel plus an allowance; temporary depth admits four more. Shared
+CPU metadata and GPU retirement keep old generations charged while referenced or
+submitted. This raster path needs three render targets and a uniform buffer,
+without compute or storage buffers. Source composition, smooth interpolation,
+authoritative picking and native presentation remain separate work.
 
 Manual GPU label uploads retain a separate immutable R8Uint texture bound to the
 exact admitted GPU source. A related revision admits a new target, submits a GPU

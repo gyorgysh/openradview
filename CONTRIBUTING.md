@@ -111,8 +111,19 @@ It uses the same generated grid/cases, reports 12 fresh uploads and 120 complete
 checkpoint/brush/CPU-geometry/GPU-upload updates, and records changed/reused
 chunks, packed bytes and admission separately. Fresh upload excludes extraction;
 edit timings include it. Untimed readback checks every initial/final descriptor
-and an extra changed state against current CPU geometry. These inputs have no
-3D rasterization or native presentation yet. Admission is not driver memory/RSS.
+and an extra changed state against current CPU geometry. This example excludes
+3D rasterization and native presentation. Admission is not driver memory/RSS.
+
+For complete known-interface projections, run
+`cargo run --locked --release -p orv-render --example surface_projection_latency`.
+It uses the same generated grid with a fixed oblique camera, requesting exactly
+512 or 2048 pixels per side. Timings include fresh output allocation, analytic
+ray-plane fragments, every fenced draw batch, output drop and retirement fence.
+Source/geometry preparation and upload, source optics, readback and native
+presentation are excluded. The 512 cases have 30 samples; 2048 has only four.
+Untimed readback checks every owner/side/grid flag, finite depth and normal, plus
+256 independent f64 box rays per case. Output is an open known-interface surface,
+not the existing closed-mask image. Inspect the per-case scope/sample counts.
 
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and

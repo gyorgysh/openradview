@@ -54,6 +54,39 @@ fn close(a: f64, b: f64) {
 }
 
 #[test]
+fn displacement_transform_preserves_small_vectors_at_large_origins() {
+    let mut frames = stack();
+    for (z, frame) in frames.iter_mut().enumerate() {
+        let mut f = (**frame).clone();
+        let g = f.geometry.as_mut().unwrap();
+        g.position = [
+            1000000. + z as f64 * 0.75,
+            -1000000. + z as f64 * 3.,
+            1000000.,
+        ];
+        g.orientation = [-1., 0., 0., 0., 0., 1.];
+        *frame = Arc::new(f);
+    }
+    let volume = Volume::new(frames).unwrap();
+    for vector in [
+        [1., 0., 0.],
+        [0., 1., 0.],
+        [0., 0., 1.],
+        [1e-15, -2e-15, 3e-15],
+    ] {
+        let physical = volume.voxel_vector_to_world(vector);
+        let returned = volume.world_vector_to_voxel(physical);
+        for a in 0..3 {
+            assert!((vector[a] - returned[a]).abs() < 1e-16);
+        }
+        assert!(physical.iter().any(|v| *v != 0.));
+    }
+    assert_eq!(volume.voxel_vector_to_world([1., 0., 0.]), [-0.5, 0., 0.]);
+    assert_eq!(volume.voxel_vector_to_world([0., 1., 0.]), [0., 0., 2.]);
+    assert_eq!(volume.voxel_vector_to_world([0., 0., 1.]), [0.75, 3., 0.]);
+}
+
+#[test]
 fn rotated_anisotropic_volume_uses_lps_and_trilinear_modality_values() {
     let mut frames = stack();
     frames.reverse();

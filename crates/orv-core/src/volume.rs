@@ -242,6 +242,13 @@ impl Volume {
     pub fn world_vector_to_voxel(&self, vector: V3) -> V3 {
         self.inverse.map(|row| dot(row, vector))
     }
+    /// Transform a displacement without adding/subtracting the world origin.
+    pub fn voxel_vector_to_world(&self, vector: V3) -> V3 {
+        add(
+            mul(self.basis[0], vector[0]),
+            add(mul(self.basis[1], vector[1]), mul(self.basis[2], vector[2])),
+        )
+    }
     pub fn corners(&self) -> [V3; 8] {
         std::array::from_fn(|i| {
             self.voxel_to_world(std::array::from_fn(|axis| {
