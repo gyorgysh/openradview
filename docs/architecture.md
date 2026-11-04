@@ -470,6 +470,13 @@ unchanged. The source-to-viewport map is shared by probes, measurements, label
 meshes/brush footprints and overlays; the slice shader applies its inverse.
 Transforms participate in scene serialization/hashes and exact-view consent.
 Volume projections use their camera orientation and reject 2D transforms.
+The linked MPR worker retains one immutable thin image per anatomical plane,
+keyed by that plane's physical coordinate and requested sampling side. Moving
+another axis changes the crosshair without resampling or uploading that image.
+Interactive thin updates retain the requested spatial sampling; they remain
+provisional for exact-view sharing until input is quiet. A coherent set completes
+despite newer pointer input, preventing starvation, while study closure cancels
+the worker. Slabs retain their separate preview policy.
 Scalar slabs sample bounded discrete extrema or a mean along an explicit physical
 plane normal, excluding missing samples before display mapping. The mean sums at
 most 257 finite samples in f64 and divides by the valid count. Slab hashes keep

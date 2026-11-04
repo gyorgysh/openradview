@@ -108,6 +108,10 @@ fn continuous_input_publishes_previews_then_refines_the_latest_point() {
                 "full refinement must wait for quiet input"
             );
             previews += 1;
+            assert_eq!(
+                snapshot.reformat_side, 512,
+                "Moving thin planes must not drop resolution"
+            );
             for (plane, axis) in [2, 1, 0].into_iter().enumerate() {
                 assert_eq!(
                     snapshot.images[plane].geometry.as_ref().unwrap().position[axis],
@@ -126,6 +130,75 @@ fn continuous_input_publishes_previews_then_refines_the_latest_point() {
             break;
         }
         assert!(Instant::now() < deadline, "latest view never refined");
+    }
+}
+
+#[test]
+fn moving_one_slider_preserves_full_detail_and_reuses_unchanged_planes() {
+    let source = frames()
+        .into_iter()
+        .enumerate()
+        .map(|(z, frame)| {
+            let mut frame = (*frame).clone();
+            frame.width = 257;
+            frame.height = 129;
+            frame.geometry.as_mut().unwrap().spacing = [1., 1.];
+            frame.pixels = (0..129)
+                .flat_map(|_| (0..257).map(move |x| (2000 * z + 100 * (x % 2)) as f32))
+                .collect::<Vec<_>>()
+                .into();
+            Arc::new(frame)
+        })
+        .collect::<Vec<_>>();
+    let worker = MprWorker::start(source, egui::Context::default());
+    let first = wait(&worker).unwrap();
+    worker.request_interactive([128., 64., 6.], 512);
+    let moving = wait(&worker).unwrap();
+    assert!(moving.preview);
+    assert_eq!(moving.reformat_side, 512);
+    assert_eq!(
+        [moving.images[0].width, moving.images[0].height],
+        [257, 129]
+    );
+    for (index, value) in moving.images[0].pixels.iter().enumerate() {
+        assert_eq!(*value, 4000. + 100. * ((index % 257) % 2) as f32);
+    }
+    assert!(!Arc::ptr_eq(&first.images[0], &moving.images[0]));
+    for index in [1, 2] {
+        assert!(
+            Arc::ptr_eq(&first.images[index], &moving.images[index]),
+            "An unchanged plane must retain its image and GPU upload identity"
+        );
+    }
+    let settled = wait(&worker).unwrap();
+    assert!(!settled.preview);
+    assert_eq!(settled.point, [128., 64., 6.]);
+    for index in 0..3 {
+        assert!(
+            Arc::ptr_eq(&moving.images[index], &settled.images[index]),
+            "Settling a thin view must not replace its pixels with a different resolution"
+        );
+    }
+}
+
+#[test]
+fn thin_plane_cache_obeys_requested_sampling_changes() {
+    let worker = MprWorker::start(frames(), egui::Context::default());
+    let first = wait(&worker).unwrap();
+    worker.request(first.point, 128);
+    let reduced = wait(&worker).unwrap();
+    assert_eq!(reduced.reformat_side, 128);
+    for index in 0..3 {
+        assert!(!Arc::ptr_eq(&first.images[index], &reduced.images[index]));
+    }
+    worker.request(first.point, 512);
+    let restored = wait(&worker).unwrap();
+    assert_eq!(restored.reformat_side, 512);
+    for index in 0..3 {
+        assert!(!Arc::ptr_eq(
+            &reduced.images[index],
+            &restored.images[index]
+        ));
     }
 }
 

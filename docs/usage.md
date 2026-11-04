@@ -53,6 +53,8 @@ original color presentation instead of scalar window/level.
 
 **2D image** shows one source image. **Linked MPR** shows axial, coronal and
 sagittal planes through one linked point; choose Crosshair to move that point.
+Thin planes keep their requested sampling during navigation, and planes whose
+position did not change reuse their images.
 **Oblique** adds explicit plane rotation and normal offset. **3D / MIP** projects
 the loaded volume; drag to orbit, and use the named transfer presets/controls.
 MPR and projections require consistent geometry and a volume within the budget.

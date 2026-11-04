@@ -27,6 +27,9 @@ struct Request {
     interactive: bool,
     slab: Option<orv_core::slab::Slab>,
 }
+// One worker owns one immutable source. Retain only the most recent requested
+// thin image per plane; moving another axis changes its crosshair, not its pixels.
+type ThinCache = [Option<(f64, u32, Arc<Frame>)>; 3];
 #[derive(Default)]
 struct Work {
     request: Option<Request>,
@@ -70,14 +73,22 @@ impl MprWorker {
                     interactive: false,
                     slab: None,
                 };
+                let mut thin_cache: ThinCache = Default::default();
                 'requests: loop {
                     if worker.cancelled.load(Ordering::Relaxed) {
                         return;
                     }
                     if request.interactive && request.reformat_side > 128 {
-                        // Finish a small coherent set even if a newer pointer request arrives.
+                        // Finish a coherent set even if a newer pointer request arrives.
                         // Cancelling every input generation can starve the display during a drag.
-                        let result = render(&volume, &request, 128, true, || {
+                        // Thin planes keep their requested resolution. Only slab integration
+                        // uses a reduced preview while its more expensive samples are pending.
+                        let side = if request.slab.is_some() {
+                            128
+                        } else {
+                            request.reformat_side
+                        };
+                        let result = render(&volume, &request, side, true, &mut thin_cache, || {
                             worker.cancelled.load(Ordering::Relaxed)
                         });
                         if worker.cancelled.load(Ordering::Relaxed) {
@@ -110,7 +121,14 @@ impl MprWorker {
                         worker.cancelled.load(Ordering::Relaxed)
                             || worker.generation.load(Ordering::Relaxed) != request.generation
                     };
-                    let result = render(&volume, &request, request.reformat_side, false, cancel);
+                    let result = render(
+                        &volume,
+                        &request,
+                        request.reformat_side,
+                        false,
+                        &mut thin_cache,
+                        cancel,
+                    );
                     if !cancel() && !matches!(result, Err(GeometryError::Cancelled)) {
                         lock(&worker.work).result = Some(result.map_err(|e| e.to_string()));
                         ctx.request_repaint();
@@ -199,11 +217,19 @@ fn render(
     request: &Request,
     side: u32,
     preview: bool,
+    cache: &mut ThinCache,
     cancel: impl Fn() -> bool,
 ) -> Result<MprSnapshot, GeometryError> {
+    if request.slab.is_some() {
+        cache.fill(None);
+    }
     let images = PLANES
         .into_iter()
-        .map(|plane| {
+        .enumerate()
+        .map(|(index, plane)| {
+            if cancel() {
+                return Err(GeometryError::Cancelled);
+            }
             if let Some(slab) = request.slab {
                 let plane = orv_core::oblique::ObliquePlane::anatomical(plane, request.point)?;
                 volume.reformat_slab(
@@ -213,7 +239,17 @@ fn render(
                     &cancel,
                 )
             } else {
-                volume.reformat(plane, request.point, side, &cancel)
+                let axis = [2, 1, 0][index];
+                let coordinate = request.point[axis];
+                if let Some((old, old_side, image)) = &cache[index]
+                    && *old == coordinate
+                    && *old_side == side
+                {
+                    return Ok(image.clone());
+                }
+                let image = volume.reformat(plane, request.point, side, &cancel)?;
+                cache[index] = Some((coordinate, side, image.clone()));
+                Ok(image)
             }
         })
         .collect::<Result<Vec<_>, _>>()?;

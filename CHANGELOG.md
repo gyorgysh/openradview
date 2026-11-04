@@ -3,6 +3,14 @@
 All notable changes to OpenRadView are listed here, newest first.
 Versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Fixed
+
+- Thin-plane linked MPR keeps its requested image detail while moving the
+  crosshair or a plane slider. Planes whose position did not change reuse their
+  images instead of being resampled and uploaded again.
+
 ## 1.3.0 - 2026-11-03
 
 Labels and supplied masks on every plane, more DICOM image types including
