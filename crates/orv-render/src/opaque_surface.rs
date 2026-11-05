@@ -3,6 +3,7 @@
 use crate::{
     linear_display::LinearDisplay,
     mask_projection::MAX_ROW_DISPATCHES,
+    material_ranges::GpuMaterialRanges,
     material_volume::Lighting,
     surface_projection::SurfaceImage,
     volume::{allocation, flush_upload},
@@ -49,6 +50,7 @@ pub struct OpaqueSurfaceImage {
     texture: wgpu::Texture,
     bindings: wgpu::BindGroup,
     display: Arc<LinearDisplay>,
+    ranges: Option<Arc<GpuMaterialRanges>>,
     _reservation: allocation::GpuReservation,
     _metadata: Reservation,
 }
@@ -58,6 +60,11 @@ impl OpaqueSurfaceImage {
     }
     pub fn texture(&self) -> &wgpu::Texture {
         &self.texture
+    }
+    /// Classification actually used by this immutable image. A local probe must
+    /// retain this same owner; zero-flag fallback images use the ordinary path.
+    pub fn material_ranges(&self) -> Option<&Arc<GpuMaterialRanges>> {
+        self.ranges.as_ref()
     }
     pub fn paint(&self, pass: &mut wgpu::RenderPass<'_>) {
         self.display.paint(&self.bindings, pass);
@@ -78,6 +85,8 @@ pub struct OpaqueSurfaceRenderer {
     layout: wgpu::BindGroupLayout,
     display: Arc<LinearDisplay>,
     pending: [Option<Pending>; 2],
+    ranges: Option<Arc<GpuMaterialRanges>>,
+    use_ranges: bool,
     _scratch: allocation::GpuReservation,
 }
 impl OpaqueSurfaceRenderer {
@@ -85,8 +94,24 @@ impl OpaqueSurfaceRenderer {
         source: Arc<GpuVolumeSource>,
         format: wgpu::TextureFormat,
     ) -> Result<Self, &'static str> {
+        Self::prepare(source, format, None)
+    }
+    /// Worker-only preparation. The source/material classification is immutable
+    /// for this renderer, and every completed accelerated image retains it.
+    pub fn new_accelerated(
+        ranges: Arc<GpuMaterialRanges>,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, &'static str> {
+        Self::prepare(ranges.source().clone(), format, Some(ranges))
+    }
+    fn prepare(
+        source: Arc<GpuVolumeSource>,
+        format: wgpu::TextureFormat,
+        ranges: Option<Arc<GpuMaterialRanges>>,
+    ) -> Result<Self, &'static str> {
         let device = source.device();
         let limits = device.limits();
+        let use_ranges = ranges.as_ref().is_some_and(|r| r.transparent_tiles() > 0);
         crate::volume::check_limits(&limits)?;
         if source.volume().is_color() {
             return Err("Opaque material composition requires a scalar source");
@@ -102,18 +127,31 @@ impl OpaqueSurfaceRenderer {
         {
             return Err("This GPU cannot bind the checked opaque material resources");
         }
+        if use_ranges
+            && (limits.max_bind_groups < 2
+                || limits.max_sampled_textures_per_shader_stage < 5
+                || limits.max_uniform_buffers_per_shader_stage < 3)
+        {
+            return Err("This GPU cannot bind opaque material acceleration resources");
+        }
         let scratch = allocation::reserve_bytes(65536, device, source.queue())?;
         let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let layout = composition_layout(device, wgpu::TextureFormat::Rgba16Float);
+        let mut layouts = vec![Some(&layout)];
+        if use_ranges && let Some(ranges) = &ranges {
+            layouts.push(Some(ranges.layout()));
+        }
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("checked opaque material layout"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &layouts,
             immediate_size: 0,
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ordered source and opaque cell interface optics"),
-            source: wgpu::ShaderSource::Wgsl(shader(include_str!("opaque_surface.wgsl")).into()),
+            source: wgpu::ShaderSource::Wgsl(
+                shader(include_str!("opaque_surface.wgsl"), use_ranges).into(),
+            ),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("source before opaque cell interface"),
@@ -135,6 +173,8 @@ impl OpaqueSurfaceRenderer {
             layout,
             display,
             pending: Default::default(),
+            ranges,
+            use_ranges,
             _scratch: scratch,
         })
     }
@@ -163,6 +203,15 @@ impl OpaqueSurfaceRenderer {
             || request.clip != scene.volume.clip
         {
             return Err("Source and surface views no longer match");
+        }
+        if self
+            .ranges
+            .as_ref()
+            .is_some_and(|ranges| ranges.material().as_ref() != scene.material.as_ref())
+        {
+            return Err(
+                "Opaque material range classification no longer matches the requested material",
+            );
         }
         if !scene.surface_luminance.is_finite() || !(0. ..=1.).contains(&scene.surface_luminance) {
             return Err("Opaque surface luminance must be finite and between zero and one");
@@ -263,6 +312,11 @@ impl OpaqueSurfaceRenderer {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &bindings, &[]);
+            if self.use_ranges
+                && let Some(ranges) = &self.ranges
+            {
+                pass.set_bind_group(1, ranges.bindings(), &[]);
+            }
             pass.dispatch_workgroups(size[0].div_ceil(8), (rows.end - rows.start).div_ceil(8), 1);
         }
         self.source.queue().submit([encoder.finish()]);
@@ -323,6 +377,7 @@ impl OpaqueSurfaceRenderer {
                 texture,
                 bindings,
                 display: self.display.clone(),
+                ranges: self.ranges.as_ref().filter(|_| self.use_ranges).cloned(),
                 _reservation: reservation,
                 _metadata: metadata,
             },
@@ -455,12 +510,12 @@ pub(crate) fn composition_layout(
         ],
     })
 }
-pub(crate) fn shader(entry: &str) -> String {
+pub(crate) fn shader(entry: &str, ranges: bool) -> String {
     format!(
         "{}\n{}\n{}\n{}\n{}\n{}\n{}",
         include_str!("pixel_ray.wgsl"),
         include_str!("volume_sampling.wgsl"),
-        crate::material_volume::optics_shader(false, false),
+        crate::material_volume::optics_shader(ranges, ranges),
         include_str!("opaque_interval.wgsl"),
         include_str!("surface_optics.wgsl"),
         include_str!("surface_sample.wgsl"),

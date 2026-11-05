@@ -428,7 +428,14 @@ fn compose(
     }
     Err("Incomplete generated composition".into())
 }
+#[path = "surface_projection_latency/acceleration.rs"]
+mod acceleration;
 fn main() -> Result<()> {
+    match std::env::args().nth(1).as_deref() {
+        Some("--accelerated") => return acceleration::run(),
+        None => (),
+        _ => return Err("Use no argument or --accelerated".into()),
+    }
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: orv_render::configured_backends()?,
         ..wgpu::InstanceDescriptor::new_without_display_handle()

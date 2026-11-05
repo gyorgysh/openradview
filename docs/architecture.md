@@ -317,6 +317,16 @@ ordinary material integrator. The existing closed-mask and source-only material
 paths retain their original stepped validity sampling. Native surfaces, multiple
 regions/transparency and export/sharing remain separate.
 
+The optional accelerated compositor uses the same source-bound material tile
+classification as the scalar renderer. It checks the exact GPU source and
+material values before allocating a pending frame. Completed accelerated images
+retain the classification they actually used, so dropping a renderer cannot
+retire data needed by a later probe. Classification is independent of the mask
+revision and camera; those remain bound by the complete scene. Zero transparent
+tiles select the existing pipeline and retain no acceleration owner in the image.
+The missing-source interpolation-cell splitter remains unchanged; only certified
+zero optical steps within its intervals may be skipped.
+
 `GpuSurfacePicker` is an optional local worker pipeline for one pixel of a complete
 `OpaqueSurfaceImage`. It reuses the same optical pixel function at the original
 full viewport coordinates, storing unquantized radiance and foreground
@@ -328,6 +338,14 @@ GPU status and displayed color, then compares the first known f64 membership
 interface and source-centre depth. Ambiguous or mismatching raster contacts yield
 no usable hit. Foreground transmittance below five percent yields an obscured
 result; this is a local display rule. Supplied masks remain read-only.
+
+An accelerated picker must use the exact classification Arc retained by its
+completed image. A legacy/accelerated mismatch or a separately prepared
+classification is refused before readback, even if its numeric inputs are equal.
+The paired frame/probe shader builders share the optical functions and resources.
+An unused zero-flag classification falls back to the legacy frame/probe pair.
+This adds no per-frame target or readback and does not replace scope, current-view,
+membership or visibility checks.
 
 A `PickFrame` captures the originating job's admitted opaque `PickScope`, rather
 than relabelling an old front with a newer scope. The caller must renew that scope
@@ -846,8 +864,8 @@ index only; the original affine expression validates it, with bounded backoff.
 Large cancellation, narrow edge tiles or failed tests retain individual-sample
 evaluation. No transparent tile means no extra range binding.
 
-The native material renderer, opaque surfaces, picks and exports retain their
-existing integration path. The dense-reference and accelerated constructors are
+The native material renderer and exports retain their existing integration path.
+The dense-reference and accelerated material, surface and picker constructors are
 backend interfaces; they do not yet enable desktop acceleration or provide
 source-brick residency. Native integration requires interaction acceptance.
 

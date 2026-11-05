@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded local probes, tied to a completed scene and independent mask membership.
 use crate::{
+    material_ranges::GpuMaterialRanges,
     material_volume::Lighting,
     opaque_surface::{self, OpaqueSurfaceImage},
     volume::{allocation, flush_upload},
@@ -160,12 +161,25 @@ pub struct GpuSurfacePicker {
     source: Arc<GpuVolumeSource>,
     pipeline: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
+    ranges: Option<Arc<GpuMaterialRanges>>,
     _scratch: allocation::GpuReservation,
 }
 impl GpuSurfacePicker {
     /// Worker-only. A separate picker leaves surface display available on a
     /// device that cannot allocate/bind this optional probe pipeline.
     pub fn new(source: Arc<GpuVolumeSource>) -> Result<Self, &'static str> {
+        Self::prepare(source, None)
+    }
+    /// Match the classification retained by the completed accelerated image.
+    /// Scope/current-view checks still apply; acceleration grants no authority.
+    pub fn new_accelerated(ranges: Arc<GpuMaterialRanges>) -> Result<Self, &'static str> {
+        Self::prepare(ranges.source().clone(), Some(ranges))
+    }
+    fn prepare(
+        source: Arc<GpuVolumeSource>,
+        ranges: Option<Arc<GpuMaterialRanges>>,
+    ) -> Result<Self, &'static str> {
+        let ranges = ranges.filter(|r| r.transparent_tiles() > 0);
         let device = source.device();
         let limits = device.limits();
         crate::volume::check_limits(&limits)?;
@@ -181,19 +195,30 @@ impl GpuSurfacePicker {
         {
             return Err("This GPU cannot bind the local surface probe");
         }
+        if ranges.is_some()
+            && (limits.max_bind_groups < 2
+                || limits.max_sampled_textures_per_shader_stage < 5
+                || limits.max_uniform_buffers_per_shader_stage < 3)
+        {
+            return Err("This GPU cannot bind accelerated local probe resources");
+        }
         let scratch = allocation::reserve_bytes(65536, device, source.queue())?;
         let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let layout = opaque_surface::composition_layout(device, wgpu::TextureFormat::Rgba32Float);
+        let mut layouts = vec![Some(&layout)];
+        if let Some(ranges) = &ranges {
+            layouts.push(Some(ranges.layout()));
+        }
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("local surface probe layout"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &layouts,
             immediate_size: 0,
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("local surface probe"),
             source: wgpu::ShaderSource::Wgsl(
-                opaque_surface::shader(include_str!("surface_pick.wgsl")).into(),
+                opaque_surface::shader(include_str!("surface_pick.wgsl"), ranges.is_some()).into(),
             ),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -213,6 +238,7 @@ impl GpuSurfacePicker {
             source,
             pipeline,
             layout,
+            ranges,
             _scratch: scratch,
         })
     }
@@ -236,6 +262,13 @@ impl GpuSurfacePicker {
         let request = scene.surface.request();
         if !Arc::ptr_eq(request.surface.source(), &self.source) {
             return Err("The local probe and GPU source differ");
+        }
+        if !match (&self.ranges, frame.image.material_ranges()) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        } {
+            return Err("The local probe and completed image acceleration differ");
         }
         if (0..2).any(|a| pixel[a] >= request.size[a]) {
             return Err("The local probe pixel is outside the completed image");
@@ -434,6 +467,9 @@ impl GpuSurfacePicker {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &bindings, &[]);
+            if let Some(ranges) = &self.ranges {
+                pass.set_bind_group(1, ranges.bindings(), &[]);
+            }
             pass.dispatch_workgroups(1, 1, 1);
         }
         for (texture, origin, offset) in [

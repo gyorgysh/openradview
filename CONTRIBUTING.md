@@ -144,6 +144,23 @@ creation is excluded; the fixed centre pixel has 120 samples at 512 and 30 at
 independent box/optical reference. This measures a worker operation, not native
 cursor or edit latency, and creates no study-sharing or editing interface.
 
+Use `cargo run --locked --release -p orv-render --example
+surface_projection_latency -- --accelerated` for schema 4. It uses the same unique
+512×512×128 sparse fixture as the scalar material benchmark, an unlit source and
+two-sided surface headlight. Cached checked composition and local probes compare
+dense and accelerated paths in rotating interleaved order. Complete images include
+fresh output allocation, uniforms, status readback, drop and retirement fences.
+The 512 composition cases have 12 samples after three warmups; 2048 has four after
+one. The complete 16-row sequences fence every batch. Probe cases have 60/20
+samples at 512/2048 after three warmups, using the original centre pixel.
+
+Every composed pixel must match, including tiled and combined projection-plus-
+composition paths. Independent f64 optical rays and box/face membership check
+radiance and probe attenuation. Completed images and probe results retain their
+exact classification owner. Source/geometry/classification/pipeline preparation,
+verification readback and native input/display are excluded from timings. No
+missing-stencil throughput, native latency or source-residency claim follows.
+
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and
