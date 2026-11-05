@@ -510,6 +510,32 @@ complete body-diagonal connectivity test. No extractor, singularity regularizati
 manifold guarantee, physical-normal conversion or native smooth geometry follows
 from this field layer. The existing exact cell-face view remains independent.
 
+Projection-critical analysis solves the section determinant's bounded integer
+quadratic, retaining irrational roots as a defining polynomial and ordered branch.
+Signs of linear forms at those roots use integer comparisons, including closed-cell
+bounds, exact boundary contacts and the remaining derivative. Within that cell's
+trilinear extension, a nonzero derivative identifies a regular projected saddle;
+zero identifies a singular point. Boundary points still need the incident cells'
+connections checked. Denominator-zero roots are checked separately: a complete
+zero section is explicit, and extraneous roots produce no isolated point. An
+identically zero determinant remains a distinct degenerate result, which can
+represent a singular family, a regular plane or no zero set. No epsilon resolves
+these cases. Storage stays fixed at two candidates per axis, without a case table.
+Approximate coordinates cannot choose connectivity; exact rational coordinates
+remain available where possible. Irrational coordinate forms use their exact
+conjugate numerator when direct subtraction would cancel. Contour connections and
+procedural triangulation
+are still required before this analysis can supply a mesh.
+
+`face_interior_limit` computes the contour connections immediately inside one
+cell as parallel sections approach its boundary. Exact leading integer coefficients
+of the corner values and section determinant select this one-sided limit, without
+sampling at a displaced plane. Adjacent cells can have different connection
+pairings at the same shared face cross. These pairings leave the original face
+geometry intact; persistent zero edges and saddle families remain explicit
+critical outcomes. They do not independently establish the joined surface's
+topology or manifoldness.
+
 `InterfaceRay` is a separate f64 membership reference for known cell interfaces.
 It walks bounded source-cell intervals without allocating or scanning derived
 faces. Only eligible positive cells against known valid negatives or marked grid

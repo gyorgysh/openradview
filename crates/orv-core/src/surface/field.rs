@@ -2,9 +2,13 @@
 //! Exact mask-field inputs and local interpolation tests for derived geometry.
 //! These primitives neither extract a mesh nor establish 3D connectivity or edit
 //! authority. Critical faces remain explicit until a shared regularization exists.
+mod critical;
 use crate::{
     mask::{MaskKey, MaskOwner, MaskRevision},
     volume::Volume,
+};
+pub use critical::{
+    AlgebraicRoot, FaceInteriorLimit, LimitContours, ProjectionAnalysis, ProjectionPoint,
 };
 use std::sync::Arc;
 
