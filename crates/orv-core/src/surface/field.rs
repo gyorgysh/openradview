@@ -3,6 +3,7 @@
 //! These primitives neither extract a mesh nor establish 3D connectivity or edit
 //! authority. Critical faces remain explicit until a shared regularization exists.
 mod critical;
+mod neighborhood;
 use crate::{
     mask::{MaskKey, MaskOwner, MaskRevision},
     volume::Volume,
@@ -12,6 +13,7 @@ pub use critical::{
     FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode, LimitContours, ProjectionAnalysis,
     ProjectionPoint, WholeSection,
 };
+pub use neighborhood::{CellNeighborhood, EdgePartition, EdgePoint, NeighborhoodCell, SourceFace};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +50,7 @@ pub struct FieldSample {
 }
 
 /// An immutable source-bound field with no dense copy or additional sample cache.
+#[derive(Clone)]
 pub struct MaskField {
     owner: MaskOwner,
     source: Arc<Volume>,

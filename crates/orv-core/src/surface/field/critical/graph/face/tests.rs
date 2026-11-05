@@ -162,15 +162,15 @@ fn verify_rational(face: &FaceArrangement) {
 #[test]
 fn maximum_insertion_union_fits_fixed_storage_and_preserves_all_cross_branches() {
     let mut insertions = Vec::new();
-    for k in 1..=32 {
-        insertions.push([rational(k, 65), rational(1, 2)]);
-        insertions.push([rational(1, 2), rational(k, 65)]);
+    for k in 1..=40 {
+        insertions.push([rational(k, 81), rational(1, 2)]);
+        insertions.push([rational(1, 2), rational(k, 81)]);
     }
     assert_eq!(insertions.len(), FaceArrangement::MAX_INSERTIONS);
     let field = Bilinear::new([1, -1, 1, -1]).unwrap();
     let face = field.arrangement(&insertions, || false).unwrap();
-    assert_eq!(face.nodes().count(), 69);
-    assert_eq!(face.segments().count(), 68);
+    assert_eq!(face.nodes().count(), 85);
+    assert_eq!(face.segments().count(), 84);
     verify_rational(&face);
     insertions.reverse();
     same(&face, &field.arrangement(&insertions, || false).unwrap());
@@ -405,9 +405,9 @@ fn face_limits_mismatches_and_every_cancellation_leave_prior_results_intact() {
             false
         })
         .unwrap();
-    assert!(std::mem::size_of::<FaceArrangement>() <= 8192);
+    assert!(std::mem::size_of::<FaceArrangement>() <= 16384);
     assert!(matches!(
-        field.arrangement(&[point; 65], || false),
+        field.arrangement(&[point; FaceArrangement::MAX_INSERTIONS + 1], || false),
         Err(FieldError::Capacity)
     ));
     assert!(matches!(

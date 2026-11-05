@@ -577,8 +577,8 @@ was visited first. Representation ordering never decides numerical equality.
 
 Every insertion must satisfy the exact bilinear equation. Its sign evaluation
 handles products of coordinates from unrelated quadratic fields using fixed
-checked arithmetic; the final comparison fits 592 bits. Storage bounds 64 raw
-insertions, 69 nodes and 69 segments, without per-face heap allocation. Whole
+checked arithmetic; the final comparison fits 592 bits. Storage bounds 80 raw
+insertions, 85 nodes and 85 segments, without per-face heap allocation. Whole
 zero faces remain two-dimensional, with retained points and no invented contour.
 Cancellation or a capacity/input failure returns no partial arrangement.
 `CriticalGraph::face_arrangement` validates matching opposite face samples and
@@ -586,6 +586,28 @@ collects both incident graphs' points. The owning extractor must still prove
 source adjacency and supply all insertions from the four cells around entire
 zero lattice edges. This local face construction does not settle cell-interior
 families, finite-grid closure, chunk ownership, triangulation or mesh admission.
+
+`MaskField::edge_partition` reads a global source-lattice edge, its four incident
+cells and four normal half-face stencils. For an entire zero edge, a known cell
+has the inward expansion `F(s,r,t)=B(s)r+C(s)t+D(s)rt`. The four normal and four
+mixed-normal linear coefficients supply at most eight finite roots; endpoints
+give at most ten partition points. Normal half-faces are read independently, so
+their roots survive unavailable diagonal samples at interior or boundary edges.
+Identically zero coefficients remain known zero forms, separate from unavailable
+stencils. Source invalidity, unknown mask coverage and outside cells remain
+distinct. This finite coefficient partition does not classify 3D singular families.
+
+`MaskField::source_face` reads both incident cells and all four edge partitions
+from the same immutable owner and global face key. Two graphs of at most18nodes
+and four partitions of at most10points bound the raw union at76insertions. The
+face retains the exact source/map/ID/revision, samples, cell states, graphs and
+edge partitions; unresolved eliminations and whole sections stay attached. Known
+face samples can yield contours even when off-face samples prevent complete
+cell graphs. Unknown face samples leave its contour unavailable, and finite
+source boundaries add no exterior samples or caps. Results use fixed storage
+and bounded cancellation, with no dense source copy or per-neighborhood heap
+allocation. Whole-grid chunk admission, triangulation, interior-family resolution
+and GPU/native mesh publication still require separate ownership and validation.
 
 `InterfaceRay` is a separate f64 membership reference for known cell interfaces.
 It walks bounded source-cell intervals without allocating or scanning derived

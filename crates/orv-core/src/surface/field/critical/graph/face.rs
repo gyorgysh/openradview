@@ -3,7 +3,9 @@
 use super::*;
 use compare::bilinear_sign;
 
-const INSERTIONS: usize = 64;
+// A source face unions two <=18-node graphs and four <=10-point edge
+// partitions: at most76 raw insertions, before numerical deduplication.
+const INSERTIONS: usize = 80;
 // At most four distinct boundary zeros, one singular centre, and all insertions.
 const NODES: usize = INSERTIONS + 5;
 

@@ -23,6 +23,10 @@ pub struct ExactCoordinate {
     denominator: Linear,
 }
 impl ExactCoordinate {
+    /// Construct a rational coordinate, retaining the closed unit-cell bound.
+    pub fn from_rational(value: Rational) -> Result<Option<Self>, FieldError> {
+        Self::parameter(AlgebraicRoot(Root::Rational(value)))
+    }
     fn unit(
         parameter: AlgebraicRoot,
         numerator: Linear,
