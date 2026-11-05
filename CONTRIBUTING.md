@@ -203,6 +203,24 @@ are excluded. Recorded replacement admission is sampled after preparation and
 excludes transient staging peaks; it is neither process RSS nor measured VRAM.
 This example validates GPU source inputs, without a bricked ray marcher.
 
+For complete source-section images, run
+`cargo run --locked --release -p orv-render --example section_volume_latency`.
+It uses unique 512×512×128 scalar planes with full or missing coverage and three
+completed 512-side thin reformats. Source upload, completed-plane preparation and
+pipeline creation are reported separately. Resident refined composition has twelve
+512-side samples after three warmups, and three 2048-side samples after one.
+Complete individually fenced 16-row sequences have four/two samples after one
+warmup. Timings include immutable output/uniform allocation, status readback,
+retaining the previous front during replacement, old-front drop and retirement.
+The complete-dispatch result also stays resident during the row-sequence case.
+Untimed readback checks every pixel for finite monochrome radiance in [0,1] and
+opaque alpha, and requires full/row results to match bit for bit. Independent f64
+ray/plane and homogeneous optical references run in the GPU tests. Verification,
+native input/display and mask composition are outside the benchmark. Recorded
+admission includes both retained verification readbacks and comparison images;
+it is neither peak driver memory nor RSS. Inspect sample counts and workload
+before comparing times. This measures the backend, without native plane controls.
+
 For complete paged optical images, run
 `cargo run --locked --release -p orv-render --example paged_material_latency`.
 Add `-- --classified` to compare original and certified-zero paging on identical

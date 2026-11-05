@@ -101,6 +101,21 @@ linked cuts preserves manual bounds; neither operation changes MPR sampling,
 source/label data, counts or the physical brush extent. These are clipping
 halfspaces, without textured source-plane geometry or independent plane poses.
 
+The separate `section_volume` backend composes up to three opaque, two-sided thin
+`GpuReformatImage` planes with source optics. Each plane retains its corrected
+scalar/validity texture and exact GPU source owner. Physical camera rays are
+projected into pixel/normal coordinates in f64 before upload, avoiding f32
+subtraction of large LPS positions. Display pan, zoom and flips do not move plane
+geometry. Scalar bilinear validity, VOI functions/tables, MONOCHROME1 and inversion
+follow slice presentation; mapped grayscale is converted to linear luminance.
+The nearest valid plane stops source integration, while missing plane stencils
+can expose farther planes. Equal-depth hits use stable slot order. Manual clips
+apply to both source rays and plane hits. Complete contiguous row sequences retain
+exact plane/view/material identity and check a GPU arithmetic flag before
+publishing immutable radiance. Old completed images keep their owners/admission
+through cancellation or renderer teardown. This backend is not yet connected to
+the native workbench, mask composition, region picking or sharing contracts.
+
 The workbench's physical label tool proposes a sphere or thick disk at the
 completed thin MPR point, or a continuous sweep drawn on one thin plane. The
 disk normal follows the active anatomical plane;
