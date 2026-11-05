@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! UI-independent GPU rendering. Surface ownership belongs to the application.
 mod backend;
+pub mod brick_source;
 pub mod label_source;
 mod linear_display;
 pub mod mask_input;

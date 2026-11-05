@@ -894,15 +894,39 @@ The dense-reference and accelerated material, surface and picker constructors ar
 backend interfaces; they do not yet enable desktop acceleration or provide
 source-brick residency. Native integration requires interaction acceptance.
 
-A brick-layout prototype addresses one measured GPU-residency failure: a
-generated 4096×512×256 f32 volume is admitted on the CPU but exceeds Metal's
-2048-voxel 3D texture side. Bricks own cells along each axis and store one halo
-voxel, so brick-local trilinear sampling matches the dense sampler, missing
-samples included. Extraction is admitted against the GPU budget one brick at a
-time. The dense CPU source stays resident; there is no disk spill. The volume
-renderer does not yet ray-march across bricks, so 3D still refuses such volumes.
-On the test Mac the dense path's binding limit for ordinary shapes was CPU
-admission, not GPU memory.
+Source-page inputs address one measured GPU-residency failure: a generated
+4096×512×256 f32 volume is admitted on the CPU but exceeds a 2048-voxel 3D
+texture side. The legacy layout/extraction prototype remains available for CPU
+comparisons. `GpuBrickSource` separately validates fixed 32/64/128-cell layouts
+against actual device limits without allocating or reading a dense GPU source.
+`GpuBrickResidency` prepares an immutable, source/device/layout-bound generation
+of requested page Arcs. It reuses exact prior pages and rejects foreign owners,
+duplicate indices and excess admission before uploading. A generation references
+at most 256 MiB of pages; the global GPU allowance also counts retained old pages
+and pending work. An empty directory means nonresident data, never transparency.
+
+Pages hold original R32Float values, optional R8Uint validity and integer bounds.
+A trilinear page needs one positive node beyond its owned cells. Clipped central
+secants need one negative and three positive nodes: f32 addition just below a
+power-of-two boundary can round a positive secant onto the next integer, whose
+zero-weight upper corner is still read by the original eight-value calculation.
+A full interior 64-cell secant page therefore stores 68 nodes per axis. Stencils
+compute global integer corners and fractions before subtracting the integer page
+origin. Ownership, missing samples, outside-source queries and unavailable
+stencils have separate statuses. Index gradients require the source inverse
+transpose for physical lighting; trilinear-only pages refuse gradient queries.
+
+Worker upload uses one admitted CPU plane and bounded aligned staging, fencing
+at 16 MiB and at page completion. Values outside the supported finite GPU range
+are refused per page. Cancellation or allocation failure leaves the old complete
+generation untouched, and pending GPU commands retain their admission. Actual
+GPU tests compare page scalars/secants with independent dense global stencils,
+including rounded block boundaries, source ends, missing/extreme values and a
+source wider than a constrained device's 3D side. The dense CPU source stays
+resident; there is no disk spill. These are resource/sampling inputs: the volume
+renderer does not yet ray-march across pages, so desktop 3D retains its dense
+source limits. Continuous ray accumulation, global midpoint phase, complete-frame
+publication and native interaction remain requirements for that integration.
 
 Optional physical LPS clipping intersects the original affine source ray domain
 before sampling. It changes neither source data nor opacity distance units; its

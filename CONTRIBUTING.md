@@ -172,6 +172,21 @@ exact classification owner. Source/geometry/classification/pipeline preparation,
 verification readback and native input/display are excluded from timings. No
 missing-stencil throughput, native latency or source-residency claim follows.
 
+For generated source-page upload/reuse timings, run
+`cargo run --locked --release -p orv-render --example brick_residency_latency`.
+It retains unique 512×512×128 scalar planes, with and without missing samples,
+and uploads four requested 64/128-cell pages without a dense GPU texture. Fresh
+four-page upload has three samples after one warmup; unchanged reuse and
+one-of-four replacement have 40/12 samples after three warmups for 64/128 cells.
+Replacement keeps the old generation until the new one completes and verifies
+that the other three page Arcs are shared. Timings include preparation, old
+resource drop and retirement fences. Untimed readback checks every retained
+scalar bit and validity byte, halos included, before and after replacement.
+Source/pipeline construction, verification, image rendering and native display
+are excluded. Recorded replacement admission is sampled after preparation and
+excludes transient staging peaks; it is neither process RSS nor measured VRAM.
+This example validates GPU source inputs, without a bricked ray marcher.
+
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and
