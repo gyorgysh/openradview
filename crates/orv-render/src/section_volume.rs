@@ -549,7 +549,7 @@ fn surface_parameters(
 fn plane_parameters(
     source: &GpuVolumeSource,
     scene: &SectionScene,
-) -> Result<[f32; 72], &'static str> {
+) -> Result<[f32; 144], &'static str> {
     let reference = source.volume().center();
     let camera = crate::physical_camera::centred_frame(
         &scene.volume.camera,
@@ -557,7 +557,7 @@ fn plane_parameters(
         scene.size,
         reference,
     )?;
-    let mut result = [0.; 72];
+    let mut result = [0.; 144];
     for (slot, plane) in scene.planes.iter().enumerate() {
         let Some(plane) = plane else {
             continue;
@@ -601,7 +601,7 @@ fn plane_parameters(
         let normal = n.map(|v| v / length);
         let delta =
             std::array::from_fn(|a| (reference[a] - geometry.position[a]) + camera.origin_mm[a]);
-        let output = &mut result[slot * 24..(slot + 1) * 24];
+        let output = &mut result[slot * 48..(slot + 1) * 48];
         // Project relative f64 rays before conversion. Large LPS origins and
         // tiny spacings never subtract as f32 world positions in the shader.
         for (i, vector) in [
@@ -635,6 +635,43 @@ fn plane_parameters(
             0.,
         ]);
         output[20..24].copy_from_slice(&crate::voi::parameters(frame, plane.window)?);
+        if let Some(clip) = &scene.volume.clip {
+            for axis in 0..3 {
+                // Evaluate clip half-spaces in the plane's own coordinates.
+                // Reconstructing world positions from rounded camera rays can
+                // put alternating pixels outside an exactly coincident cut.
+                // No physical epsilon is needed, including for parallel cuts.
+                for (side, coefficients) in [
+                    [
+                        u[axis],
+                        v[axis],
+                        geometry.position[axis] - clip.minimum_mm[axis],
+                    ],
+                    [
+                        -u[axis],
+                        -v[axis],
+                        clip.maximum_mm[axis] - geometry.position[axis],
+                    ],
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let scale = coefficients.into_iter().map(f64::abs).fold(0., f64::max);
+                    if !scale.is_finite() {
+                        return Err("Source section clip exceeds GPU coordinate limits");
+                    }
+                    let start = 24 + (axis * 2 + side) * 4;
+                    for (i, value) in coefficients.into_iter().enumerate() {
+                        let value = if scale > 0. { value / scale } else { 0. };
+                        let narrowed = value as f32;
+                        if value != 0. && (narrowed == 0. || narrowed.is_subnormal()) {
+                            return Err("Source section clip is below GPU arithmetic limits");
+                        }
+                        output[start + i] = narrowed;
+                    }
+                }
+            }
+        }
     }
     if result.iter().any(|v| !v.is_finite() || v.abs() > 1e20) {
         return Err("Source section exceeds GPU coordinate limits");
@@ -713,7 +750,7 @@ fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 },
                 count: None,
             },
-            uniform(9, 288),
+            uniform(9, 576),
             texture(
                 10,
                 wgpu::TextureSampleType::Uint,

@@ -7,6 +7,13 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 
+- **Source planes in 3D.** Show the completed thin axial, coronal and sagittal
+  images inside the linked 3D material view, with individual visibility controls
+  and the same MPR contrast and inversion. Source planes and one region's cell
+  faces share depth ordering and clipping. This view retains its requested
+  resolution and selected quality during movement, showing complete images as
+  they become ready. Slab projections show an unavailable reason. Hide the
+  source planes to use region picking; Volume or MIP also hides them.
 - **Linked 3D cuts.** In MPR + 3D, keep either side of each completed MPR plane
   through **3D settings → Cut at linked MPR planes**. Cuts follow the point and
   intersect the separate manual clipping bounds. Resetting linked cuts preserves
@@ -22,7 +29,8 @@ Versions follow [Semantic Versioning](https://semver.org).
   optional lighting. With **Pick surface** enabled, click a visible face to
   inspect its source cell; in MPR + 3D, the three planes follow that cell's centre.
   Picking waits for the current completed view and refuses obscured or ambiguous
-  hits. Missing and unknown boundaries stay open. Labels are unchanged.
+  hits. Source planes in 3D must be hidden before picking. Missing and unknown
+  boundaries stay open. Labels are unchanged.
 - **MPR + 3D.** View the three linked planes beside a local 3D projection of the
   same volume. The projected cursor follows their physical position; 3D keeps
   separate camera and appearance controls. Manual and supplied region selection

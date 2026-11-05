@@ -526,7 +526,17 @@ impl MprSession {
         }
         let link_epoch = self.worker.generation();
         let picked = self.workbench.as_mut().and_then(|workbench| {
-            workbench.embedded_ui(ui, labels, selected, snapshot.point, link_epoch)
+            workbench.embedded_ui(
+                ui,
+                labels,
+                selected,
+                snapshot.point,
+                link_epoch,
+                Some(crate::volume_ui::LinkedPlanes {
+                    images: &snapshot.gpu_images,
+                    views: &self.views,
+                }),
+            )
         });
         if let Some(point) = picked {
             self.request(&snapshot.volume, point);

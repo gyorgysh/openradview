@@ -2,7 +2,7 @@
 //! Local coherent region frames, prepared on one coalescing worker.
 mod controls;
 mod picking;
-mod surface;
+pub(super) mod surface;
 #[cfg(test)]
 mod tests;
 mod worker;
@@ -327,6 +327,20 @@ pub(super) struct Regions {
     link_epoch: Option<u64>,
 }
 impl Regions {
+    pub fn gpu_context(&self) -> Option<(Arc<GpuVolumeSource>, wgpu::TextureFormat)> {
+        self.source.clone()
+    }
+    pub fn section_style(&self) -> (f32, bool) {
+        (self.settings.luminance, self.settings.surface_lighting)
+    }
+    pub fn set_section_mode(&mut self, active: bool) {
+        if active {
+            self.picked_point = None;
+            self.view = None;
+            self.settings.pick = false;
+        }
+        self.settings.source_planes = active;
+    }
     pub fn suspend(&mut self) {
         self.picked_point = None;
         if let Some(view) = &mut self.view {

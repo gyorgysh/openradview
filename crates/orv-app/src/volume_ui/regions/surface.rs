@@ -10,39 +10,40 @@ use orv_render::{
 };
 
 pub(super) struct Engine {
-    source: Arc<GpuVolumeSource>,
-    projector: GpuSurfaceProjector,
+    faces: Faces,
     renderer: OpaqueSurfaceRenderer,
-    uploaded: Option<Arc<GpuCellSurface>>,
-    projected: Option<Arc<SurfaceImage>>,
     material: Option<Arc<orv_core::volume_material::VolumeMaterial>>,
 }
-impl Engine {
-    pub fn new(source: Arc<GpuVolumeSource>, format: wgpu::TextureFormat) -> Result<Self, String> {
+pub(in crate::volume_ui) struct Faces {
+    source: Arc<GpuVolumeSource>,
+    projector: GpuSurfaceProjector,
+    uploaded: Option<Arc<GpuCellSurface>>,
+    projected: Option<Arc<SurfaceImage>>,
+}
+impl Faces {
+    pub fn new(source: Arc<GpuVolumeSource>) -> Result<Self, String> {
         Ok(Self {
             projector: GpuSurfaceProjector::new(source.clone()).map_err(str::to_owned)?,
-            renderer: OpaqueSurfaceRenderer::new(source.clone(), format).map_err(str::to_owned)?,
             source,
             uploaded: None,
             projected: None,
-            material: None,
         })
     }
-    pub fn cancel(&mut self) {
-        let _ = self.renderer.cancel(0);
-    }
-    pub fn render(
+    pub fn project(
         &mut self,
-        input: &Request,
+        selection: &RegionSelection,
+        display: &ViewState,
+        state: &VolumeView,
+        size: [u32; 2],
+        data_cancel: &dyn Fn() -> bool,
         cancel: &dyn Fn() -> bool,
-    ) -> Result<Arc<OpaqueSurfaceImage>, String> {
-        if !Arc::ptr_eq(&input.key.selection.map.source(), self.source.volume()) {
+    ) -> Result<Arc<SurfaceImage>, String> {
+        if !Arc::ptr_eq(&selection.map.source(), self.source.volume()) {
             return Err("Region and volume sources differ".into());
         }
-        let data_cancel = || input.data_cancel.load(Ordering::Acquire);
         let (surface, _) = CellSurface::build(
-            input.key.selection.map.clone(),
-            input.key.selection.number,
+            selection.map.clone(),
+            selection.number,
             self.uploaded.as_ref().map(|gpu| gpu.surface()),
             SurfaceLimits::default(),
             data_cancel,
@@ -61,10 +62,10 @@ impl Engine {
         }
         let request = SurfaceProjection {
             surface: uploaded,
-            camera: input.key.state.camera.clone(),
-            display: input.key.display.clone(),
-            clip: input.key.state.clip.clone(),
-            size: input.size,
+            camera: state.camera.clone(),
+            display: display.clone(),
+            clip: state.clip.clone(),
+            size,
         };
         let reusable = self.projected.as_ref().is_some_and(|image| {
             let old = image.request();
@@ -82,6 +83,36 @@ impl Engine {
                     .map_err(str::to_owned)?,
             );
         }
+        self.projected
+            .clone()
+            .ok_or_else(|| "Cell-face projection did not complete".into())
+    }
+}
+impl Engine {
+    pub fn new(source: Arc<GpuVolumeSource>, format: wgpu::TextureFormat) -> Result<Self, String> {
+        Ok(Self {
+            faces: Faces::new(source.clone())?,
+            renderer: OpaqueSurfaceRenderer::new(source, format).map_err(str::to_owned)?,
+            material: None,
+        })
+    }
+    pub fn cancel(&mut self) {
+        let _ = self.renderer.cancel(0);
+    }
+    pub fn render(
+        &mut self,
+        input: &Request,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<Arc<OpaqueSurfaceImage>, String> {
+        let data_cancel = || input.data_cancel.load(Ordering::Acquire);
+        let surface = self.faces.project(
+            &input.key.selection,
+            &input.key.display,
+            &input.key.state,
+            input.size,
+            &data_cancel,
+            cancel,
+        )?;
         if self
             .material
             .as_ref()
@@ -96,10 +127,7 @@ impl Engine {
             Quality::Interactive
         };
         let scene = OpaqueSurfaceScene {
-            surface: self
-                .projected
-                .clone()
-                .ok_or("Cell-face projection did not complete")?,
+            surface,
             navigation: input.key.display.clone(),
             volume: state,
             material: self
@@ -122,7 +150,10 @@ impl Engine {
                 .render_rows(&scene, 0, y..(y + step).min(input.size[1]), cancel)
                 .map_err(str::to_owned)?;
             if input.refined && complete.is_none() {
-                self.source.wait_submitted(cancel).map_err(str::to_owned)?;
+                self.faces
+                    .source
+                    .wait_submitted(cancel)
+                    .map_err(str::to_owned)?;
             }
         }
         complete.ok_or_else(|| "Cell-face composition did not complete".into())

@@ -7,6 +7,8 @@ mod material;
 mod regions;
 mod sections;
 mod sharing;
+mod source_planes;
+pub(crate) use source_planes::LinkedPlanes;
 #[cfg(all(test, feature = "gpu-tests"))]
 mod tests;
 mod workbench;
@@ -45,6 +47,8 @@ pub struct VolumeSession {
     settings_open: bool,
     cursor_visible: bool,
     cuts: sections::Cuts,
+    plane_settings: source_planes::Settings,
+    plane_view: Option<source_planes::View>,
 }
 impl VolumeSession {
     pub(crate) fn controls_open(&self) -> bool {
@@ -89,6 +93,8 @@ impl VolumeSession {
             settings_open: false,
             cursor_visible: true,
             cuts: Default::default(),
+            plane_settings: Default::default(),
+            plane_view: None,
             volume: None,
             gpu: None,
             state: None,
@@ -230,7 +236,7 @@ impl VolumeSession {
             ),
             egui::Sense::click_and_drag(),
         );
-        self.paint_viewport(ui, rect, &response, region_selection, None);
+        self.paint_viewport(ui, rect, &response, region_selection, None, None);
         if !compact {
             ui.label(RichText::new("Drag: orbit · Space / right / middle drag: move · Scroll/pinch: zoom · LPS coordinates · Experimental research projection").small().color(crate::theme::SILVER));
         }
@@ -242,6 +248,7 @@ impl VolumeSession {
         response: &egui::Response,
         region_selection: Option<crate::labels::RegionSelection>,
         linked_point: Option<[f64; 3]>,
+        linked_planes: Option<LinkedPlanes<'_>>,
     ) -> Option<(ViewState, VolumeView, [u32; 2])> {
         let (Some(volume), Some(state), Some(gpu)) = (&self.volume, &mut self.state, &self.gpu)
         else {
@@ -265,6 +272,9 @@ impl VolumeSession {
                 Ok(clip) => rendered_state.clip = clip,
                 Err(error) => {
                     self.regions.suspend();
+                    if let Some(view) = &mut self.plane_view {
+                        view.suspend();
+                    }
                     let painter = ui.painter_at(rect);
                     painter.rect_filled(rect, 0., egui::Color32::BLACK);
                     let text = painter.layout(
@@ -289,6 +299,65 @@ impl VolumeSession {
             .material_enabled
             .then(|| self.material_editor.as_ref().map(|editor| editor.style()))
             .flatten();
+        if self.plane_settings.active() {
+            let planes = match self.plane_settings.planes(linked_planes) {
+                Ok(planes) => planes,
+                Err(error) => {
+                    if let Some(view) = &mut self.plane_view {
+                        view.suspend();
+                    }
+                    source_planes::message(ui, rect, error);
+                    ui.small("Planes · unavailable");
+                    return None;
+                }
+            };
+            if self.regions.enabled() && region_selection.is_none() {
+                if let Some(view) = &mut self.plane_view {
+                    view.suspend();
+                }
+                source_planes::message(
+                    ui,
+                    rect,
+                    "Choose an available region or turn off Region in 3D",
+                );
+                ui.small("Planes · waiting for region");
+                return None;
+            }
+            let Some(style) = material else {
+                source_planes::message(ui, rect, "Source planes require Material appearance");
+                ui.small("Planes · unavailable");
+                return None;
+            };
+            if self.plane_view.is_none()
+                && let Some((source, format)) = self.regions.gpu_context()
+            {
+                match source_planes::View::new(source, format, ui.ctx().clone()) {
+                    Ok(view) => self.plane_view = Some(view),
+                    Err(error) => {
+                        source_planes::message(ui, rect, &error);
+                        ui.small("Planes · unavailable");
+                        return None;
+                    }
+                }
+            }
+            let mut display = self.display.clone();
+            display.invert = false;
+            let (luminance, surface_lighting) = self.regions.section_style();
+            let scene = source_planes::Scene {
+                planes,
+                selection: region_selection,
+                display,
+                state: state.clone(),
+                style,
+                luminance,
+                surface_lighting,
+                size: callback::resolution(pixels, 2048.),
+            };
+            return self
+                .plane_view
+                .as_mut()
+                .and_then(|view| view.show(ui, rect, scene));
+        }
         let region_mode = self.regions.enabled();
         let painted = if let (Some(selection), Some(style)) = (region_selection, material.as_ref())
         {

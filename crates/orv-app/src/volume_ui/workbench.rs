@@ -44,6 +44,7 @@ impl VolumeSession {
         selected: usize,
         point: [f64; 3],
         link_epoch: u64,
+        planes: Option<LinkedPlanes<'_>>,
     ) -> Option<[f64; 3]> {
         self.regions.set_link_epoch(link_epoch);
         self.poll();
@@ -93,7 +94,11 @@ impl VolumeSession {
                     edit_requested = true;
                 }
                 ui.weak("3D camera and appearance are independent of the MPR display.");
+                if ui.add_enabled_ui(self.material_editor.is_some(),|ui|self.plane_settings.ui(ui)).inner {self.material_enabled=true;}
+                if self.material_editor.is_none() {ui.small("Source planes are unavailable for this volume.");}
+                self.regions.set_section_mode(self.plane_settings.active());
                 self.show_controls(ui, labels, selected, false);
+                if !self.material_enabled {self.plane_settings.enabled=false;}
                 self.cuts.ui(ui, point);
                 ui.checkbox(&mut self.cursor_visible, "Projected MPR cursor");
                 ui.weak("The cursor and its three source axes are projected through the volume. These guides have no depth test and cannot select or edit a region.");
@@ -101,6 +106,10 @@ impl VolumeSession {
                 crate::dialogs::reveal_focus(ui);
             });
         self.settings_open = open && !edit_requested;
+        self.regions.set_section_mode(self.plane_settings.active());
+        if !self.plane_settings.active() {
+            self.plane_view = None;
+        }
         if edit_requested {
             self.open_physical_editor(labels);
         }
@@ -115,7 +124,7 @@ impl VolumeSession {
             Vec2::new(ui.available_width(), (ui.available_height() - 28.).max(32.)),
             egui::Sense::click_and_drag(),
         );
-        let shown = self.paint_viewport(ui, rect, &response, selection, Some(point));
+        let shown = self.paint_viewport(ui, rect, &response, selection, Some(point), planes);
         if shown.is_some() && (labels.physical_preview_visible() || self.cuts.active()) {
             let painter = ui.painter_at(rect);
             let text = painter.layout_no_wrap(
@@ -215,7 +224,7 @@ mod tests {
                     ..Default::default()
                 },
                 |ui| {
-                    session.embedded_ui(ui, &mut labels, 0, [0.; 3], 1);
+                    session.embedded_ui(ui, &mut labels, 0, [0.; 3], 1, None);
                 },
             );
             output.textures_delta.clear();

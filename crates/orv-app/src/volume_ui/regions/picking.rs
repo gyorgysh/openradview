@@ -241,81 +241,93 @@ mod tests {
 
     #[cfg(feature = "gpu-tests")]
     #[test]
-    fn linked_navigation_keeps_the_scene_but_empty_scene_suspension_revokes_pending_probes() {
+    fn linked_navigation_keeps_the_scene_and_hiding_it_revokes_pending_probes() {
         use crate::volume_ui::regions::tests::gpu;
         use orv_core::labels::Labels;
         use std::time::{Duration, Instant};
-        let source = gpu::source();
-        let ctx = egui::Context::default();
-        let mut labels = Labels::empty(source.volume().clone()).unwrap();
-        labels.threshold(None, [0., 100.], 7, || false).unwrap();
-        let mut key = gpu::key(crate::labels::RegionMap::Manual(Arc::new(labels)), 7);
-        key.geometry = Geometry::Faces;
-        key.pick = true;
-        key.state.quality = Quality::Interactive;
-        let scope = PickScope::new().unwrap();
-        let mut request = gpu::request(&source, key.clone());
-        request.scope = Some(scope.clone());
-        let front = worker::run(request, &|| false).unwrap();
-        let retained = front.image.clone();
-        let (frame, current) = current(&front, &key).unwrap();
-        let mut probe = Probe::new(ctx.clone()).unwrap();
-        let engine = probe.engine.clone();
-        let weak = Arc::downgrade(&engine);
-        let blocked = engine.lock().unwrap();
-        let pixel = [24, 16];
-        let generation = probe.worker.submit(Job {
-            engine: engine.clone(),
-            source: source.clone(),
-            frame,
-            current,
-            pixel,
-        });
-        probe.pending = Some(Pending {
-            generation,
-            pixel,
-            rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(139., 123.)),
-        });
-        let mut view = View::new(source.clone(), wgpu::TextureFormat::Rgba8Unorm, ctx).unwrap();
-        view.front = Some(front);
-        view.scope = Some(scope.clone());
-        view.key = Some(key);
-        view.probe = Some(probe);
-        let mut regions = Regions {
-            view: Some(view),
-            link_epoch: Some(1),
-            ..Default::default()
-        };
-        regions.set_link_epoch(2);
-        let view = regions.view.as_ref().unwrap();
-        assert_eq!(
-            view.generation, 0,
-            "Moving MPR must not rerender unchanged 3D"
-        );
-        assert!(
-            scope.is_active(),
-            "The unchanged image still has the same valid scene"
-        );
-        assert!(Arc::ptr_eq(&retained, &view.front.as_ref().unwrap().image));
-        assert!(view.probe.as_ref().unwrap().pending.is_none());
-        regions.picked_point = Some([1., 2., 3.]);
-        regions.suspend();
-        assert!(
-            !scope.is_active(),
-            "A hidden empty scene must revoke its originating pick scope"
-        );
-        assert!(regions.take_point().is_none());
-        assert!(regions.view.as_ref().unwrap().front.is_none());
-        drop(blocked);
-        drop(regions);
-        drop(engine);
-        let until = Instant::now() + Duration::from_secs(10);
-        while weak.upgrade().is_some() {
-            assert!(Instant::now() < until, "Cancelled probe did not retire");
-            std::thread::sleep(Duration::from_millis(1));
+        for plane_mode in [false, true] {
+            let source = gpu::source();
+            let ctx = egui::Context::default();
+            let mut labels = Labels::empty(source.volume().clone()).unwrap();
+            labels.threshold(None, [0., 100.], 7, || false).unwrap();
+            let mut key = gpu::key(crate::labels::RegionMap::Manual(Arc::new(labels)), 7);
+            key.geometry = Geometry::Faces;
+            key.pick = true;
+            key.state.quality = Quality::Interactive;
+            let scope = PickScope::new().unwrap();
+            let mut request = gpu::request(&source, key.clone());
+            request.scope = Some(scope.clone());
+            let front = worker::run(request, &|| false).unwrap();
+            let retained = front.image.clone();
+            let (frame, current) = current(&front, &key).unwrap();
+            let mut probe = Probe::new(ctx.clone()).unwrap();
+            let engine = probe.engine.clone();
+            let weak = Arc::downgrade(&engine);
+            let blocked = engine.lock().unwrap();
+            let pixel = [24, 16];
+            let generation = probe.worker.submit(Job {
+                engine: engine.clone(),
+                source: source.clone(),
+                frame,
+                current,
+                pixel,
+            });
+            probe.pending = Some(Pending {
+                generation,
+                pixel,
+                rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(139., 123.)),
+            });
+            let mut view = View::new(source.clone(), wgpu::TextureFormat::Rgba8Unorm, ctx).unwrap();
+            view.front = Some(front);
+            view.scope = Some(scope.clone());
+            view.key = Some(key);
+            view.probe = Some(probe);
+            let mut regions = Regions {
+                view: Some(view),
+                link_epoch: Some(1),
+                ..Default::default()
+            };
+            regions.set_link_epoch(2);
+            let view = regions.view.as_ref().unwrap();
+            assert_eq!(
+                view.generation, 0,
+                "Moving MPR must not rerender unchanged 3D"
+            );
+            assert!(
+                scope.is_active(),
+                "The unchanged image still has the same valid scene"
+            );
+            assert!(Arc::ptr_eq(&retained, &view.front.as_ref().unwrap().image));
+            assert!(view.probe.as_ref().unwrap().pending.is_none());
+            regions.picked_point = Some([1., 2., 3.]);
+            regions.settings.pick = true;
+            if plane_mode {
+                regions.set_section_mode(true);
+                assert!(regions.view.is_none());
+                assert!(!regions.settings.pick);
+                assert!(regions.settings.source_planes);
+            } else {
+                regions.suspend();
+            }
+            assert!(
+                !scope.is_active(),
+                "A hidden empty scene must revoke its originating pick scope"
+            );
+            assert!(regions.take_point().is_none());
+            if !plane_mode {
+                assert!(regions.view.as_ref().unwrap().front.is_none());
+            }
+            drop(blocked);
+            drop(regions);
+            drop(engine);
+            let until = Instant::now() + Duration::from_secs(10);
+            while weak.upgrade().is_some() {
+                assert!(Instant::now() < until, "Cancelled probe did not retire");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert!(!scope.is_active());
+            source.wait_submitted(|| false).unwrap();
         }
-        assert!(!scope.is_active());
-        source.wait_submitted(|| false).unwrap();
     }
 
     #[cfg(feature = "gpu-tests")]

@@ -11,6 +11,7 @@ use orv_core::{
     volume_view::{PhysicalClip, Quality},
 };
 use std::{cell::Cell, time::Duration};
+mod clipping;
 mod surface;
 
 fn fence(d: &wgpu::Device) {

@@ -98,10 +98,10 @@ reflection. Empty ordered bounds and unsupported numerical ranges show an
 explicit empty/unavailable scene and suspend region work, revoking pending probe
 authority. They never substitute an uncut source or construct a cap. Resetting
 linked cuts preserves manual bounds; neither operation changes MPR sampling,
-source/label data, counts or the physical brush extent. These are clipping
-halfspaces, without textured source-plane geometry or independent plane poses.
+source/label data, counts or the physical brush extent. Cuts and source-plane
+visibility are separate controls; neither provides independent plane poses.
 
-The separate `section_volume` backend composes up to three opaque, two-sided thin
+The `section_volume` backend composes up to three opaque, two-sided thin
 `GpuReformatImage` planes and an optional known cell-face interface with source
 optics. Each plane retains its corrected
 scalar/validity texture and exact GPU source owner. Physical camera rays are
@@ -117,11 +117,36 @@ expose farther actors. Equal-depth planes use stable slot order, and a known
 interface wins a coincident plane tie. Its actual affine normal supplies surface
 lighting. The interface must match the exact source, camera, navigation, size,
 clip and depth reference; unknown and clipped interfaces stay open. Manual clips
-apply to source rays and actor hits. Complete contiguous row sequences retain
+apply to source rays and actor hits. Plane clipping evaluates six halfspaces in
+the plane's own pixel coordinates, with f64 differences and normalized
+coefficients prepared before upload. A coplanar cut therefore keeps the entire
+plane without a physical tolerance or reconstructed f32 world-position noise;
+parallel planes outside the bounds remain excluded. Unrepresentable nonzero
+coefficients refuse rendering. Complete contiguous row sequences retain
 exact actor/view/material identity and check a GPU arithmetic flag before
 publishing immutable radiance. Old completed images keep their owners/admission
-through cancellation or renderer teardown. This backend is not yet connected to
-the native workbench, mask-cell composition, region picking or sharing contracts.
+through cancellation or renderer teardown.
+
+The native workbench passes the completed GPU MPR images and each plane's display
+window/inversion to a separate coalescing worker. Its optional region uses the
+exact current manual or supplied map, including a physical edit proposal. Shared
+cell-face preparation caches geometry/upload/projection by their original owners;
+Apply can retain the prepared preview owner, while Undo returns to the original
+map. Requested viewport pixels, capped at 2048 per side, and the explicitly
+selected quality remain fixed during motion. One complete image finishes before
+the latest same-data camera/plane request starts. Compatible prior frames remain
+labelled updating, and current cursor guides wait for an exact completed match.
+Source/map/ID/revision changes clear the old front and cancel data preparation.
+Idle views submit no work. Slabs, absent corrected GPU planes, unavailable region
+selections and empty cuts show a reason instead of a substitute source image.
+
+Source-plane mode retires the previous region renderer and revokes its pick
+scope. Mask-cell mode and surface picking are disabled while planes are active:
+the older surface probe cannot account for foreground plane occlusion. Hiding
+the planes restores the stored geometry choice, with picking still off until
+explicitly enabled. Choosing Volume or MIP hides the planes; enabling planes
+selects Material. Independent plane poses, plane-aware picking and workbench
+sharing/export are not implemented.
 
 The workbench's physical label tool proposes a sphere or thick disk at the
 completed thin MPR point, or a continuous sweep drawn on one thin plane. The
