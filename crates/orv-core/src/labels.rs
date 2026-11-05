@@ -7,6 +7,7 @@ mod physical;
 mod regions;
 mod sampling;
 mod statistics;
+mod surface;
 mod tiles;
 pub use physical::{
     BrushAction, BrushShape, MAX_PHYSICAL_BRUSH_RADIUS_MM, MAX_STROKE_CANDIDATES,
@@ -17,6 +18,7 @@ pub use regions::{
 };
 pub use sampling::{LabelPlane, MAX_PLANE_PIXELS};
 pub use statistics::{LabelCount, LabelStatistics};
+pub use surface::{FaceErase, FaceEraseSelection, FaceEraseSummary, MAX_ERASE_FACES};
 pub use tiles::{
     LABEL_TILE_SIDE, LabelObjectId, LabelRevision, LabelStorageStatistics, LabelTile,
     ValueIter as LabelValueIter, Values as LabelValues,

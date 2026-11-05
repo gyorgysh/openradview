@@ -26,7 +26,7 @@ impl SectionProbeSample {
 /// ambiguous pixels. The batch carries no mutation or disclosure permission.
 /// Revalidate the owning batch before using any of its samples.
 pub struct SectionProbeBatch {
-    frame: SectionPickFrame,
+    pub(super) frame: SectionPickFrame,
     region: [[u32; 2]; 2],
     samples: Vec<SectionProbeSample>,
     _memory: Reservation,

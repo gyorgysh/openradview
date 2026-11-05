@@ -160,6 +160,20 @@ or revoked scope returns no partial batch. The retained batch must match the liv
 scene and requested rectangle before use. This is visibility proof infrastructure;
 it does not yet implement surface painting or grant mutation permission.
 
+`SectionFaceErase` is a separate worker proposal operation over explicit checked
+batches, with at most 65,536 original-raster samples in total, including duplicate
+regions. It requires one exact completed image and originating scope, a current
+manual mask, and an erase clip matching the completed scene. Only Hit outcomes
+contribute faces to the core `FaceErase` proposal. Covered, empty and ambiguous
+samples contribute no cells; outcome counts remain available for review. The
+private preview retains the original image witness, and Apply rechecks its whole
+scene/scope plus the exact manual base, path and brush settings. Scope revocation,
+cancellation or memory failure returns no partial edit. This operation converts
+an explicit sparse selection; it does not capture a native gesture, interpolate
+across covered input centres, edit supplied masks or authorize disclosure. Native
+integration must additionally retain/revalidate its live CPU request, edit session
+and ordered input epoch before publishing a revision.
+
 The native workbench passes the completed GPU MPR images and each plane's display
 window/inversion to a separate coalescing worker. Its optional region uses the
 exact current manual or supplied map, including a physical edit proposal. Shared
@@ -323,6 +337,23 @@ origin are limited to one billion millimetres. Inverse-derived pruning boxes use
 a full-cell margin and checked affine residual/arithmetic bounds; unsafe pruning
 retains a full bounded scan. These backend proposals are not native 3D tools or
 saved/sharable scenes and grant no pick, edit or disclosure authority.
+
+`FaceErase` prepares a separate, worker-only erase proposal from an explicit
+manual-mask face selection and physical sphere sweep. The selection carries the
+exact mask key and revision; every descriptor is checked against original valid
+selected membership and a known nonselected neighbour or true grid boundary.
+Missing neighbours leave open boundaries. Only selected source-cell centres
+inside the sweep and clip can change, and duplicate faces change a cell once.
+Erasing a front cell never discovers another layer within that proposal.
+The immutable preview retains its original faces, path, settings and base Arc;
+Apply rechecks the exact base/path/settings and consumes the prepared result.
+No-op proposals retain the original map identity. Up to 65,536 input faces and
+8192 path points are admitted, with at most 64 Mi face/segment tests, plus charged
+path/face metadata, temporary segment bounds and changed COW storage. Cancellation
+or failure discards all unpublished changes. This core geometry operation cannot
+prove optical visibility: a view tool must independently retain and revalidate
+the originating completed image, visibility proofs and live edit/input epoch.
+It does not enable a native surface brush or supplied-mask editing.
 
 RAM-only object/revision keys distinguish replacement maps and no-op operations.
 Tile differences bind an exact previous object/revision, including undo/redo;

@@ -4,7 +4,7 @@ use super::{LabelTile, Labels};
 use crate::{resources::Reservation, volume_view::PhysicalClip};
 use std::sync::Arc;
 
-mod geometry;
+pub(in crate::labels) mod geometry;
 use geometry::{Footprint, Segment};
 #[cfg(test)]
 mod tests;

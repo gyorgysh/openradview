@@ -12,6 +12,8 @@ use orv_core::{
 
 mod batch;
 pub use batch::{SectionProbeBatch, SectionProbeSample};
+mod erase;
+pub use erase::{SectionEraseVisibility, SectionFaceErase};
 mod geometry;
 mod gpu;
 pub(super) use gpu::Pipeline;

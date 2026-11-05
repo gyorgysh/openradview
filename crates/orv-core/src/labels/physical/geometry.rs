@@ -2,7 +2,7 @@
 use super::{BrushShape, MAX_PHYSICAL_BRUSH_RADIUS_MM, PhysicalBrush};
 use crate::{vector::*, volume::Volume};
 
-pub(super) struct Segment {
+pub(in crate::labels) struct Segment {
     a: V3,
     delta: V3,
     length_squared: f64,
@@ -13,7 +13,7 @@ struct Plane {
     normal: V3,
     half_thickness: f64,
 }
-pub(super) struct Footprint {
+pub(in crate::labels) struct Footprint {
     source_origin: V3,
     radius_squared: f64,
     bounding_radius: f64,
