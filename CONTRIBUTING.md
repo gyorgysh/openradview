@@ -244,6 +244,28 @@ retirement fence. Repeat-outcome comparison and native input/display are exclude
 Inspect the reported hit/empty/obscured/ambiguous counts; this measures read-only
 proofs and does not time a surface brush or label edit.
 
+For complete one-click visible-layer erase proposals, run
+`cargo run --locked --release -p orv-render --example erase_stamp_latency`.
+It uses the same unique 512×512×128 dense/missing sources, one opaque generated
+30 mm sphere, zero source extinction, no planes and a fixed oblique camera.
+Physical radii are 2, 5 and 10 mm at original 512/2048 image sizes. Worker cases
+have 60 samples after four warmups at 512 and twelve after three at 2048. They
+include the anchor probe, conservative footprint, all GPU/readback/color/f64
+proofs, private COW proposal, previous-preview drop and retirement fence. The
+reference and previous preview stay resident; each proposal starts from the same
+base, so repeated work never drills into another layer. Source/geometry/completed
+image preparation, verification and native input/presentation are excluded.
+The original centre pixel anchors at a source-cell centre, which can differ
+between image sizes. The first 2 mm call at 512 also includes lazy probe-pipeline
+preparation; warmed worker distributions exclude it.
+Untimed checks repeat every ROI outcome, compare each checked Hit with f64 source
+membership, and verify every source cell against an independent physical-sphere
+selection. Complete-raster crop coverage is exercised by the GPU unit fixtures.
+One final prepared Apply is timed separately and its whole result compared with
+the verified preview. That single sample includes clock overhead/quantization;
+it is not an Apply latency distribution. Reservations must return to their initial
+values after teardown and are neither process RSS nor measured driver memory.
+
 For complete paged optical images, run
 `cargo run --locked --release -p orv-render --example paged_material_latency`.
 Add `-- --classified` to compare original and certified-zero paging on identical
