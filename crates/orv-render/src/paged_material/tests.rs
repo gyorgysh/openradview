@@ -11,6 +11,7 @@ use orv_core::{
     volume_view::{PhysicalClip, Projection, Quality},
 };
 use std::{cell::Cell, time::Duration};
+mod acceleration;
 fn fence(d: &wgpu::Device) {
     d.poll(wgpu::PollType::Wait {
         submission_index: None,

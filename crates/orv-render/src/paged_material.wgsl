@@ -33,11 +33,16 @@ fn advance_ray(origin:vec3f,ray:vec2f,input:RayProgress,track:bool)->RayProgress
         let count=u32(clamp(ceil(length/p.sampling.x),1.,p.sampling.y));
         let step=length/f32(count);
         if !finite_scalar(step) || state.index>count {fail_ray();return state;}
-        for(var i=state.index;i<count;i++) {
+        var i=state.index;
+        while i<count {
             // Recreate the original whole-ray expression; pages never reset it.
             let point=material_point(origin,ray.x,step,i);
             if !all(point==point) || any(abs(point)>vec3f(3.402823e38)) {fail_ray();return state;}
             let query=clamp(point,vec3f(0.),vec3f(source_dimensions())-1.);
+            // A certified zero has the same optical contribution whether its
+            // scalar stencil is valid or missing. It needs no resident page.
+            let advance=transparent_advance(vec3u(floor(query)),point,origin,ray.x,step,i,count);
+            if advance!=0u {i+=advance;state.index=i;continue;}
             let value=atlas_scalar(query);
             if value.status==BRICK_NONRESIDENT {
                 if track && value.page<atlas.stored.w {
@@ -47,7 +52,7 @@ fn advance_ray(origin:vec3f,ray:vec2f,input:RayProgress,track:bool)->RayProgress
                 } else {fail_ray();}
                 return state;
             }
-            state.index=i+1u;
+            i++;state.index=i;
             if value.status==BRICK_MISSING {continue;}
             if value.status!=BRICK_KNOWN {fail_ray();return state;}
             let optics=material(value.value);
@@ -81,7 +86,7 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
     state=advance_ray(origin,clipped_interval(uv,interval(origin,p.direction.xyz)),state,true);
     rays[address]=state;finish_pixel(pixel,state);
 }
-// Every source page is resident in this immutable snapshot. No ray-state or
+// Every required source page is resident. Certified zeros need no page. No ray-state or
 // global progress counter is accessed on the normal complete-image path.
 @compute @workgroup_size(8,8,1)
 fn resident(@builtin(global_invocation_id) gid:vec3u) {

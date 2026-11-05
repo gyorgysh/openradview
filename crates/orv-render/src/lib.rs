@@ -11,6 +11,7 @@ pub mod material_volume;
 pub mod opaque_material;
 pub mod opaque_surface;
 pub mod paged_material;
+pub mod paged_material_ranges;
 pub mod reslice;
 pub mod segment_source;
 pub mod slice;

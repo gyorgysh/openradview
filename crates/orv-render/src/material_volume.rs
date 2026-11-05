@@ -334,7 +334,11 @@ pub(crate) fn optics_shader(shared_stencil: bool, ranges: bool) -> String {
         include_str!("material_mapping.wgsl"),
         include_str!("material_sample.wgsl"),
         if ranges {
-            include_str!("material_ranges.wgsl")
+            concat!(
+                include_str!("material_ranges_dense.wgsl"),
+                "\n",
+                include_str!("material_ranges.wgsl")
+            )
         } else {
             "fn transparent_advance(lower:vec3u,point:vec3f,origin:vec3f,near:f32,step:f32,index:u32,count:u32)->u32{return 0u;}"
         },

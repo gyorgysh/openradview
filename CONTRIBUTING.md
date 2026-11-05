@@ -189,6 +189,12 @@ This example validates GPU source inputs, without a bricked ray marcher.
 
 For complete paged optical images, run
 `cargo run --locked --release -p orv-render --example paged_material_latency`.
+Add `-- --classified` to compare original and certified-zero paging on identical
+generated inputs. Schema 2 reports CPU summary preparation and GPU classification
+upload separately from image timings. Every initial/final pixel still matches the
+dense reference. It includes a pool sized to the required pages when that is
+smaller than the whole source; a warmed such pool can use one dispatch without
+loading transparent pages. Missing or fully dense data can leave no useful skips.
 It uses unique 512×512×128 planes with a fixed oblique view, a nonmonotonic luminance curve,
 sparse unlit/headlight, missing headlight and dense headlight cases at 512, plus
 sparse headlight at 2048. Eight-slot and full-layout caches are measured separately.

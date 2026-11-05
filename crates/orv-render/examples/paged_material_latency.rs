@@ -9,6 +9,7 @@ use orv_core::{
     bricks::BrickStencil,
     resources::{MemoryBudget, Reservation},
     volume_material::{MaterialPoint, VolumeMaterial},
+    volume_ranges::VolumeRanges,
     volume_view::{Projection, Quality, VolumeView},
 };
 use orv_render::{
@@ -18,6 +19,7 @@ use orv_render::{
     paged_material::{
         PagedMaterialImage, PagedMaterialRenderer, PagedMaterialScene, PagedRenderStatistics,
     },
+    paged_material_ranges::GpuPagedMaterialRanges,
     volume::VolumeTarget,
     volume_source::GpuVolumeSource,
 };
@@ -115,6 +117,7 @@ fn complete(
 }
 fn main() -> Result<()> {
     let quick = std::env::args().skip(1).any(|v| v == "--quick");
+    let classify = std::env::args().skip(1).any(|v| v == "--classified");
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: orv_render::configured_backends()?,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -124,6 +127,11 @@ fn main() -> Result<()> {
     let (d, q) =
         pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))?;
     if std::env::args().skip(1).any(|v| v == "--wide") {
+        if classify {
+            return Err(
+                "Use --classified without --wide for the generated optical comparison".into(),
+            );
+        }
         println!(
             "{}",
             serde_json::to_string_pretty(
@@ -194,6 +202,23 @@ fn main() -> Result<()> {
             lighting,
             size: [side, side],
         };
+        let (classification, preparation) = if classify {
+            let start = Instant::now();
+            let ranges = VolumeRanges::build(cpu.clone(), 32, || false)?;
+            let ranges_ms = start.elapsed().as_secs_f64() * 1000.;
+            let start = Instant::now();
+            let flags = GpuPagedMaterialRanges::new(
+                source.clone(),
+                ranges.clone(),
+                scene.material.clone(),
+                || false,
+            )?;
+            let upload_ms = start.elapsed().as_secs_f64() * 1000.;
+            let report = json!({"range_cell_side":32,"range_tiles":ranges.summaries().len(),"transparent_tiles":flags.transparent_tiles(),"required_source_pages":flags.required_pages(),"cpu_summary_build_ms_one_sample":ranges_ms,"gpu_classification_upload_and_fence_ms_one_sample":upload_ms});
+            (Some(flags), report)
+        } else {
+            (None, Value::Null)
+        };
         let dense_source = GpuVolumeSource::new(&d, &q, cpu.clone(), || false)?;
         let mut dense = MaterialVolumeRenderer::new_dense_reference(
             dense_source,
@@ -232,17 +257,43 @@ fn main() -> Result<()> {
             dense.output_texture(0).ok_or("Dense output missing")?,
         )?;
         let mut paths = Vec::new();
-        let capacities = if side == 512 {
+        let mut capacities = if side == 512 {
             vec![8, source.layout().len()]
         } else {
             vec![source.layout().len()]
         };
-        for capacity in capacities {
-            eprintln!("Generated paged case {kind} side{side} slots{capacity}");
+        if side == 512
+            && let Some(flags) = &classification
+            && flags.required_pages() > 8
+            && flags.required_pages() < source.layout().len()
+        {
+            capacities.insert(1, flags.required_pages());
+        }
+        for (capacity, accelerated) in capacities.into_iter().flat_map(|c| {
+            if classify {
+                vec![(c, false), (c, true)]
+            } else {
+                vec![(c, false)]
+            }
+        }) {
+            eprintln!(
+                "Generated paged case {kind} side{side} slots{capacity} classified{accelerated}"
+            );
             let pool = GpuBrickAtlasPool::new(source.clone(), capacity, || false)?;
             let atlas_admission = pool.admission_bytes();
-            let mut renderer =
-                PagedMaterialRenderer::new(pool, wgpu::TextureFormat::Rgba8Unorm, || false)?;
+            let mut renderer = if accelerated {
+                PagedMaterialRenderer::new_accelerated(
+                    pool,
+                    classification
+                        .as_ref()
+                        .ok_or("Missing generated classification")?
+                        .clone(),
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    || false,
+                )?
+            } else {
+                PagedMaterialRenderer::new(pool, wgpu::TextureFormat::Rgba8Unorm, || false)?
+            };
             let start = Instant::now();
             let mut current = complete(&mut renderer, &scene)?;
             let cold_ms = start.elapsed().as_secs_f64() * 1000.;
@@ -263,14 +314,24 @@ fn main() -> Result<()> {
                 },
                 if quick {
                     2
-                } else if capacity < source.layout().len() {
+                } else if capacity < source.layout().len()
+                    && (!accelerated
+                        || classification
+                            .as_ref()
+                            .is_none_or(|r| r.required_pages() > capacity))
+                {
                     3
                 } else if side == 512 {
                     12
                 } else {
                     2
                 },
-                if capacity < source.layout().len() {
+                if capacity < source.layout().len()
+                    && (!accelerated
+                        || classification
+                            .as_ref()
+                            .is_none_or(|r| r.required_pages() > capacity))
+                {
                     1
                 } else {
                     3
@@ -281,13 +342,13 @@ fn main() -> Result<()> {
                 return Err("Warm paged image differs from dense reference".into());
             }
             let final_stats = stats(current.statistics());
-            paths.push(json!({"atlas_slots":capacity,"atlas_admission_bytes":atlas_admission,"cold_first_complete_image_ms":cold_ms,"cold_first_statistics":cold_stats,"warm_complete_images":warm,"last_warm_statistics":final_stats,"verified_pixels_each_initial_final":u64::from(side)*u64::from(side),"observed_after_complete_image_gpu_admission_bytes":observed_gpu,"observed_after_complete_image_cpu_admission_bytes":observed_cpu}));
+            paths.push(json!({"classified":accelerated,"atlas_slots":capacity,"atlas_admission_bytes":atlas_admission,"cold_first_complete_image_ms":cold_ms,"cold_first_statistics":cold_stats,"warm_complete_images":warm,"last_warm_statistics":final_stats,"verified_pixels_each_initial_final":u64::from(side)*u64::from(side),"observed_after_complete_image_gpu_admission_bytes":observed_gpu,"observed_after_complete_image_cpu_admission_bytes":observed_cpu}));
             drop(current);
             drop(renderer);
             fence(&d)?;
         }
-        cases.push(json!({"source_kind":kind,"source_dimensions":[512,512,128],"output_size":scene.size,"lighting":if lighting==Lighting::UNLIT{"unlit"}else{"headlight"},"core_cell_side":64,"source_layout_pages":source.layout().len(),"dense_cached_dispatch_and_fence":dense_timing,"paged_paths":paths}));
-        drop((dense, scene, source, cpu));
+        cases.push(json!({"source_kind":kind,"source_dimensions":[512,512,128],"output_size":scene.size,"lighting":if lighting==Lighting::UNLIT{"unlit"}else{"headlight"},"core_cell_side":64,"source_layout_pages":source.layout().len(),"classification_preparation":preparation,"dense_cached_dispatch_and_fence":dense_timing,"paged_paths":paths}));
+        drop((classification, dense, scene, source, cpu));
         fence(&d)?;
     }
     fence(&d)?;
@@ -297,7 +358,7 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"schema":1,"quick":quick,"adapter":{"name":info.name,"backend":format!("{:?}",info.backend)},"dense_scope":"cached pipeline, dense source and output; dispatch and fence only","paged_scope":"cached pipeline and page pool; new immutable output/state, one fully resident dispatch or constrained16-row waves, page uploads/cache replacement, status readback, prior-front drop and retirement fence; initial/final full pixel verification excluded","cold_scope":"first complete worker image after renderer/empty atlas construction; one sample","excludes":"source generation, dense upload, pipeline/pool construction, verification, native input/presentation; no native FPS claim","admission_scope":"app reservations sampled after complete images, excluding transient peaks, driver memory and RSS","before":{"gpu":before_gpu,"cpu":before_cpu},"after":{"gpu":gpu.used(),"cpu":ram.used()},"cases":cases})
+            &json!({"schema":if classify {2}else{1},"quick":quick,"classified_comparison":classify,"adapter":{"name":info.name,"backend":format!("{:?}",info.backend)},"dense_scope":"cached pipeline, dense source and output; dispatch and fence only","paged_scope":"cached pipeline and page pool; new immutable output/state, one required-resident dispatch or constrained16-row waves, page uploads/cache replacement, status readback, prior-front drop and retirement fence; initial/final full pixel verification excluded","cold_scope":"first complete worker image after renderer/empty atlas construction; one sample","excludes":"source generation, dense upload, range classification, pipeline/pool construction, verification, native input/presentation; no native FPS claim","admission_scope":"app reservations sampled after complete images, excluding transient peaks, driver memory and RSS","before":{"gpu":before_gpu,"cpu":before_cpu},"after":{"gpu":gpu.used(),"cpu":ram.used()},"cases":cases})
         )?
     );
     Ok(())

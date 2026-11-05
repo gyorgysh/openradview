@@ -4,6 +4,7 @@ use crate::{
     brick_source::{ATLAS_SAMPLING_SHADER, GpuBrickAtlasPool, GpuBrickAtlasStream, GpuBrickSource},
     linear_display::LinearDisplay,
     material_volume::Lighting,
+    paged_material_ranges::GpuPagedMaterialRanges,
     volume::{allocation, flush_upload},
 };
 use orv_core::{
@@ -50,6 +51,7 @@ pub struct PagedRenderStatistics {
 }
 pub struct PagedMaterialImage {
     scene: PagedMaterialScene,
+    ranges: Option<Arc<GpuPagedMaterialRanges>>,
     texture: wgpu::Texture,
     bindings: wgpu::BindGroup,
     display: Arc<LinearDisplay>,
@@ -66,6 +68,9 @@ impl PagedMaterialImage {
     }
     pub fn statistics(&self) -> PagedRenderStatistics {
         self.statistics
+    }
+    pub fn ranges(&self) -> Option<&Arc<GpuPagedMaterialRanges>> {
+        self.ranges.as_ref()
     }
     pub fn paint(&self, pass: &mut wgpu::RenderPass<'_>) {
         self.display.paint(&self.bindings, pass);
@@ -88,6 +93,7 @@ struct WaveStatus {
 }
 pub struct PagedMaterialRenderer {
     pool: Arc<GpuBrickAtlasPool>,
+    ranges: Option<Arc<GpuPagedMaterialRanges>>,
     atlas: GpuBrickAtlasStream,
     pipeline: wgpu::ComputePipeline,
     resident_pipeline: wgpu::ComputePipeline,
@@ -103,10 +109,34 @@ impl PagedMaterialRenderer {
         format: wgpu::TextureFormat,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self, &'static str> {
+        Self::prepare(pool, None, format, cancelled)
+    }
+    /// Worker-only. The exact source and material remain bound to this proof.
+    pub fn new_accelerated(
+        pool: Arc<GpuBrickAtlasPool>,
+        ranges: Arc<GpuPagedMaterialRanges>,
+        format: wgpu::TextureFormat,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, &'static str> {
+        Self::prepare(pool, Some(ranges), format, cancelled)
+    }
+    fn prepare(
+        pool: Arc<GpuBrickAtlasPool>,
+        ranges: Option<Arc<GpuPagedMaterialRanges>>,
+        format: wgpu::TextureFormat,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self, &'static str> {
         if cancelled() {
             return Err("Cancelled");
         }
         let source = pool.source();
+        if ranges
+            .as_ref()
+            .is_some_and(|r| !Arc::ptr_eq(r.source(), source))
+        {
+            return Err("Paged classification requires the exact GPU source");
+        }
+        let use_ranges = ranges.as_ref().filter(|r| r.transparent_tiles() != 0);
         let device = source.device();
         let queue = source.queue();
         let limits = device.limits();
@@ -121,6 +151,13 @@ impl PagedMaterialRenderer {
             || limits.max_compute_workgroups_per_dimension < 256
         {
             return Err("This GPU cannot bind bounded paged material rendering");
+        }
+        if use_ranges.is_some()
+            && (limits.max_bind_groups < 3
+                || limits.max_sampled_textures_per_shader_stage < 3
+                || limits.max_uniform_buffers_per_shader_stage < 3)
+        {
+            return Err("This GPU cannot bind paged material classification");
         }
         let metadata = MemoryBudget::volumes()
             .reserve(
@@ -161,19 +198,33 @@ impl PagedMaterialRenderer {
             ],
         });
         let text = format!(
-            "{ATLAS_SAMPLING_SHADER}\n{}\n{}\n{}\n{}",
+            "{ATLAS_SAMPLING_SHADER}\n{}\n{}\n{}\n{}\n{}",
             include_str!("volume_interval.wgsl"),
             include_str!("material_parameters.wgsl"),
             include_str!("material_mapping.wgsl"),
+            if use_ranges.is_some() {
+                concat!(
+                    include_str!("paged_material_ranges.wgsl"),
+                    "\n",
+                    include_str!("material_ranges.wgsl")
+                )
+            } else {
+                "fn transparent_advance(lower:vec3u,point:vec3f,origin:vec3f,near:f32,step:f32,index:u32,count:u32)->u32{return 0u;}"
+            },
             include_str!("paged_material.wgsl")
         );
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("continuous whole-ray optical integration across source pages"),
             source: wgpu::ShaderSource::Wgsl(text.into()),
         });
+        let layouts = [
+            Some(pool.binding_layout()),
+            Some(&layout),
+            use_ranges.map(|r| r.layout()),
+        ];
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[Some(pool.binding_layout()), Some(&layout)],
+            bind_group_layouts: &layouts[..if use_ranges.is_some() { 3 } else { 2 }],
             immediate_size: 0,
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -203,6 +254,7 @@ impl PagedMaterialRenderer {
         }
         Ok(Self {
             pool,
+            ranges,
             atlas,
             pipeline,
             resident_pipeline,
@@ -232,6 +284,7 @@ impl PagedMaterialRenderer {
         if !Arc::ptr_eq(&scene.source, self.pool.source()) {
             return Err("Paged material source no longer matches");
         }
+        self.check_material(scene)?;
         if rows.start >= rows.end
             || rows.end > scene.size[1]
             || rows.end - rows.start > MAX_BATCH_ROWS
@@ -294,6 +347,7 @@ impl PagedMaterialRenderer {
         if !Arc::ptr_eq(&scene.source, self.pool.source()) {
             return Err("Paged material source no longer matches");
         }
+        self.check_material(scene)?;
         if scene.lighting.diffuse > 0.
             && scene.source.layout().stencil() != BrickStencil::CentralSecants
         {
@@ -310,7 +364,11 @@ impl PagedMaterialRenderer {
         )?;
         self.pending[slot].take();
         let mut pending = self.allocate(scene)?;
-        if self.atlas.resident_indices().count() != self.pool.source().layout().len() {
+        let resident = self.ranges.as_ref().map_or_else(
+            || self.atlas.resident_indices().count() == self.pool.source().layout().len(),
+            |r| r.required_indices().all(|i| self.atlas.contains(i)),
+        );
+        if !resident {
             for y in (0..scene.size[1]).step_by(MAX_BATCH_ROWS as usize) {
                 let mut tile = parameters;
                 tile[28..32].copy_from_slice(&[
@@ -370,6 +428,9 @@ impl PagedMaterialRenderer {
             pass.set_pipeline(&self.resident_pipeline);
             pass.set_bind_group(0, self.atlas.bindings(), &[]);
             pass.set_bind_group(1, &bindings, &[]);
+            if let Some(ranges) = self.ranges.as_ref().filter(|r| r.transparent_tiles() != 0) {
+                pass.set_bind_group(2, ranges.bindings(), &[]);
+            }
             pass.dispatch_workgroups(scene.size[0].div_ceil(8), scene.size[1].div_ceil(8), 1);
         }
         encoder.copy_buffer_to_buffer(
@@ -473,6 +534,7 @@ impl PagedMaterialRenderer {
         Ok(Pending {
             image: PagedMaterialImage {
                 scene: scene.clone(),
+                ranges: self.ranges.clone(),
                 texture,
                 bindings,
                 display: self.display.clone(),
@@ -491,6 +553,16 @@ impl PagedMaterialRenderer {
     }
     fn status_bytes(&self) -> u64 {
         ((self.pool.source().layout().len().div_ceil(32) + 3) * 4) as u64
+    }
+    fn check_material(&self, scene: &PagedMaterialScene) -> Result<(), &'static str> {
+        if self
+            .ranges
+            .as_ref()
+            .is_some_and(|r| !Arc::ptr_eq(r.material(), &scene.material))
+        {
+            return Err("Paged classification requires its exact material");
+        }
+        Ok(())
     }
     fn batch(
         &mut self,
@@ -549,6 +621,9 @@ impl PagedMaterialRenderer {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, self.atlas.bindings(), &[]);
                 pass.set_bind_group(1, &bindings, &[]);
+                if let Some(ranges) = self.ranges.as_ref().filter(|r| r.transparent_tiles() != 0) {
+                    pass.set_bind_group(2, ranges.bindings(), &[]);
+                }
                 pass.dispatch_workgroups(
                     (parameters[30] as u32).div_ceil(8),
                     (parameters[31] as u32).div_ceil(8),

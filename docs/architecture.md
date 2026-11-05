@@ -946,8 +946,24 @@ source samples retain the dense material path's validity rule. Physical gradient
 use the source inverse transpose, including reflection and shear. Arithmetic or
 stencil failures refuse publication. Batches must be consecutive and retain the
 exact source, material and view. At most 4096 waves per batch and 16 GiB of source
-uploads per image are allowed. Fully resident sources use a separate one-dispatch
+uploads per image are allowed. Fully resident required pages use a separate one-dispatch
 entry with local ray state and one final status check.
+
+`GpuPagedMaterialRanges` binds the shared zero-extinction classification to the
+exact paged source and material, without constructing a dense GPU source. Before
+requesting a source page, the shader checks the same bounded, original-index tile
+advance used by dense rendering. A proven zero contributes nothing for either a
+valid or missing scalar stencil; validity and supplied coverage remain separate.
+Classification includes invalid raw vertices and the rounded-interpolation error
+bound. Stored-page numeric safety includes the entire gradient halo, so a skip
+cannot bypass the original unsupported-value refusal. A page is required if any
+of its owned cells lacks that proof. Once every required page is resident, the
+complete image needs one dispatch even if transparent pages have never been
+uploaded. With no transparent tiles the original bindings and shader are used.
+Classified renderers reject even numerically equal replacement material Arcs;
+completed images retain their exact classification independently of the cache.
+CPU admission includes retained tile flags, required-page flags and bounded safety
+scratch. Material changes require new classification and renderer preparation.
 
 The renderer's working cache is private and cannot escape into a completed image.
 It fences submitted readers before slot reuse and keeps no encoded, unsubmitted

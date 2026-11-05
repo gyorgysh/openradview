@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-@group(1) @binding(0) var transparent_tiles:texture_3d<u32>;
-@group(1) @binding(1) var<uniform> range_grid:vec4u;
 fn transparent_advance(stencil_lower:vec3u,point:vec3f,origin:vec3f,near:f32,step:f32,index:u32,count:u32)->u32 {
-    let dimensions=textureDimensions(source);
+    let dimensions=source_dimensions();
     // The final scalar node belongs to the last interpolation cell. The stored
     // positive halo covers all eight vertices read by stencil_scalar.
     let lower=min(stencil_lower,dimensions-2u);
