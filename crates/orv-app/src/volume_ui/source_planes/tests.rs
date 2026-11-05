@@ -11,7 +11,7 @@ use orv_core::{
 use orv_render::reslice::GpuReslicer;
 use std::time::{Duration, Instant};
 
-fn source() -> Arc<GpuVolumeSource> {
+pub(super) fn source() -> Arc<GpuVolumeSource> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: orv_render::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -49,7 +49,7 @@ fn source() -> Arc<GpuVolumeSource> {
     );
     GpuVolumeSource::new(&d, &q, volume, || false).unwrap()
 }
-fn scene(source: Arc<GpuVolumeSource>) -> Scene {
+pub(super) fn scene(source: Arc<GpuVolumeSource>) -> Scene {
     let cpu = source.volume();
     let grids = [Plane::Axial, Plane::Coronal, Plane::Sagittal]
         .map(|p| cpu.reformat_grid(p, cpu.center(), 32).unwrap());
@@ -58,6 +58,7 @@ fn scene(source: Arc<GpuVolumeSource>) -> Scene {
         .render_frames(grids.each_ref().map(Some), || false)
         .unwrap();
     Scene {
+        pick: false,
         planes: images.map(|image| {
             image.map(|image| SectionPlane {
                 image,
@@ -86,21 +87,18 @@ fn scene(source: Arc<GpuVolumeSource>) -> Scene {
         size: [65, 49],
     }
 }
-fn until(mut done: impl FnMut() -> bool) {
+pub(super) fn until(mut done: impl FnMut() -> bool) {
     let end = Instant::now() + Duration::from_secs(15);
     while !done() {
         assert!(Instant::now() < end, "Native source-plane worker timed out");
         std::thread::yield_now();
     }
 }
-fn finish(view: &mut View, scene: &Scene) {
+pub(super) fn finish(view: &mut View, scene: &Scene) {
     until(|| {
         view.update(scene);
         assert!(view.error.is_none(), "{:?}", view.error);
-        view.front
-            .as_ref()
-            .is_some_and(|front| front.scene.same(scene))
-            && view.pending.is_none()
+        view.current_front(scene) && view.pending.is_none()
     });
 }
 #[test]
@@ -181,7 +179,6 @@ fn coalesced_planes_keep_their_completed_identity_requested_detail_and_idle_gene
         .render_frames([Some(&grid), None, None], || false)
         .unwrap()[0]
         .take();
-    let views = std::array::from_fn(|_| ViewState::default());
     let settings = Settings {
         enabled: true,
         ..Default::default()
@@ -190,7 +187,9 @@ fn coalesced_planes_keep_their_completed_identity_requested_detail_and_idle_gene
         settings
             .planes(Some(LinkedPlanes {
                 images: &inputs,
-                views: &views
+                window: WindowLevel::SOFT_TISSUE,
+                invert: false,
+                current: true
             }))
             .is_err()
     );

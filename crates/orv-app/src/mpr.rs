@@ -525,6 +525,7 @@ impl MprSession {
             ));
         }
         let link_epoch = self.worker.generation();
+        let planes_current = self.is_settled();
         let picked = self.workbench.as_mut().and_then(|workbench| {
             workbench.embedded_ui(
                 ui,
@@ -534,7 +535,9 @@ impl MprSession {
                 link_epoch,
                 Some(crate::volume_ui::LinkedPlanes {
                     images: &snapshot.gpu_images,
-                    views: &self.views,
+                    window: self.window,
+                    invert: self.invert,
+                    current: planes_current,
                 }),
             )
         });

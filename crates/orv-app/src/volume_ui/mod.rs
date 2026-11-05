@@ -326,6 +326,9 @@ impl VolumeSession {
                 return None;
             }
             let Some(style) = material else {
+                if let Some(view) = &mut self.plane_view {
+                    view.suspend();
+                }
                 source_planes::message(ui, rect, "Source planes require Material appearance");
                 ui.small("Planes · unavailable");
                 return None;
@@ -346,6 +349,7 @@ impl VolumeSession {
             display.invert = false;
             let (luminance, surface_lighting) = self.regions.section_style();
             let scene = source_planes::Scene {
+                pick: self.regions.section_pick(),
                 planes,
                 selection: region_selection,
                 display,
@@ -355,10 +359,15 @@ impl VolumeSession {
                 surface_lighting,
                 size: callback::resolution(pixels, 2048.),
             };
-            return self
-                .plane_view
-                .as_mut()
-                .and_then(|view| view.show(ui, rect, scene));
+            return self.plane_view.as_mut().and_then(|view| {
+                view.show(
+                    ui,
+                    response,
+                    scene,
+                    interacting,
+                    linked_planes.is_some_and(|p| p.current),
+                )
+            });
         }
         let region_mode = self.regions.enabled();
         let painted = if let (Some(selection), Some(style)) = (region_selection, material.as_ref())

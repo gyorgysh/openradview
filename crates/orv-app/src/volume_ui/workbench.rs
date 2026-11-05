@@ -47,6 +47,9 @@ impl VolumeSession {
         planes: Option<LinkedPlanes<'_>>,
     ) -> Option<[f64; 3]> {
         self.regions.set_link_epoch(link_epoch);
+        if let Some(view) = &mut self.plane_view {
+            view.set_link_epoch(link_epoch);
+        }
         self.poll();
         let narrow = ui.available_width() < 250.;
         if narrow {
@@ -156,7 +159,10 @@ impl VolumeSession {
         {
             paint_cursor(ui, rect, volume, &camera, point);
         }
-        self.regions.take_point()
+        self.plane_view
+            .as_mut()
+            .and_then(source_planes::View::take_point)
+            .or_else(|| self.regions.take_point())
     }
 }
 

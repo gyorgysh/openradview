@@ -96,8 +96,8 @@ impl Settings {
                         });
                         if shown_geometry == Geometry::Faces {
                             ui.checkbox(&mut self.surface_lighting, "Surface lighting");
-                            ui.add_enabled(!self.source_planes,egui::Checkbox::new(&mut self.pick, "Pick surface")).on_hover_text("Click a visible, completed cell face to inspect its source coordinates. In the workbench the MPR crosshair follows the selected source-cell centre. No label is changed.");
-                            if self.source_planes {self.pick=false;ui.small("Hide the source planes to pick a region.");}
+                            ui.checkbox(&mut self.pick, "Pick surface").on_hover_text("Click a visible, completed cell face to inspect its source coordinates. In the workbench the MPR crosshair follows the selected source-cell centre. No label is changed.");
+                            if self.source_planes {ui.small("Visible source planes and foreground source can block a region pick.");}
                             ui.small("Cell faces follow the source grid. Unknown/missing interfaces stay open; clipping adds no cap. This is derived geometry, not inferred anatomy.");
                         } else { self.pick = false; }
                     });
@@ -203,7 +203,7 @@ mod tests {
     use orv_core::{labels::Labels, study::demo_study, volume_view::TransferPreset};
 
     #[test]
-    fn source_planes_keep_mask_cells_and_region_picking_unavailable() {
+    fn source_planes_keep_cell_faces_and_make_checked_region_picking_available() {
         let ctx = egui::Context::default();
         crate::theme::install(&ctx);
         let mut frames = demo_study().series.remove(0).frames;
@@ -253,10 +253,13 @@ mod tests {
             output = draw(vec![]);
         }
         assert!(settings.geometry == Geometry::Faces);
-        assert!(!settings.pick);
+        assert!(settings.pick);
         assert!(
-            crate::controls::tests::text_rect(&output, "Hide the source planes to pick a region.")
-                .is_positive()
+            crate::controls::tests::text_rect(
+                &output,
+                "Visible source planes and foreground source can block a region pick."
+            )
+            .is_positive()
         );
     }
 

@@ -162,12 +162,20 @@ Idle views submit no work. Slabs, absent corrected GPU planes, unavailable regio
 selections and empty cuts show a reason instead of a substitute source image.
 
 Source-plane mode retires the previous region renderer and revokes its pick
-scope. Mask-cell mode and surface picking are disabled while planes are active:
-the older surface probe cannot account for foreground plane occlusion. Hiding
-the planes restores the stored geometry choice, with picking still off until
-explicitly enabled. Choosing Volume or MIP hides the planes; enabling planes
-selects Material. Independent plane poses, native plane-aware picking and workbench
-sharing/export are not implemented.
+scope. Mask-cell mode is disabled while planes are active. **Pick surface** uses
+the separate section probe, with a job-originating scope renewed for every desired
+scene change. A camera round trip or viewport/id/layer/clip change cannot retag a
+retained front; a new completed image must carry the renewed scope. A separate
+bounded worker shares the renderer's engine mutex and rechecks the live CPU scene
+and exact prepared owners before returning a checked cell centre to MPR.
+Source planes receive the latest shared MPR window and inversion directly, even
+before sibling pane display states finish updating. Pending MPR input, navigation,
+double-click Fit, disabled controls, Escape, focus loss and popups clear pending
+probes. A newer MPR generation cancels a probe without rerendering an unchanged
+3D scene. Suspension and teardown revoke authority and release workers. Hiding
+the planes restores the stored geometry choice, with picking off until explicitly
+enabled. Choosing Volume or MIP hides the planes; enabling planes selects Material.
+Independent plane poses and workbench sharing/export are not implemented.
 
 The workbench's physical label tool proposes a sphere or thick disk at the
 completed thin MPR point, or a continuous sweep drawn on one thin plane. The

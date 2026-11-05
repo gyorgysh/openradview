@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Local coherent region frames, prepared on one coalescing worker.
 mod controls;
-mod picking;
+pub(super) mod picking;
 pub(super) mod surface;
 #[cfg(test)]
 mod tests;
@@ -330,11 +330,14 @@ impl Regions {
     pub fn gpu_context(&self) -> Option<(Arc<GpuVolumeSource>, wgpu::TextureFormat)> {
         self.source.clone()
     }
+    pub fn section_pick(&self) -> bool {
+        self.settings.enabled && self.settings.pick
+    }
     pub fn section_style(&self) -> (f32, bool) {
         (self.settings.luminance, self.settings.surface_lighting)
     }
     pub fn set_section_mode(&mut self, active: bool) {
-        if active {
+        if active != self.settings.source_planes {
             self.picked_point = None;
             self.view = None;
             self.settings.pick = false;

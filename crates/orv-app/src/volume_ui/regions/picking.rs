@@ -48,7 +48,7 @@ impl Probe {
         interacting: bool,
     ) -> Option<[f64; 3]> {
         let rect = response.rect;
-        if interacting {
+        if interacting || response.double_clicked() {
             self.clear();
             return None;
         }
@@ -185,7 +185,11 @@ fn current(front: &Completed, key: &Key) -> Option<(PickFrame, PickState)> {
     };
     current.matches(&frame).then_some((frame, current))
 }
-fn pixel_at(rect: egui::Rect, point: egui::Pos2, size: [u32; 2]) -> Option<[u32; 2]> {
+pub(in crate::volume_ui) fn pixel_at(
+    rect: egui::Rect,
+    point: egui::Pos2,
+    size: [u32; 2],
+) -> Option<[u32; 2]> {
     if !rect.is_positive()
         || !rect.min.is_finite()
         || !rect.max.is_finite()

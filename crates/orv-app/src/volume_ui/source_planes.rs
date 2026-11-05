@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Local completed-plane actors. Primary input remains camera navigation.
+//! Local completed-plane actors and checked read-only region probes.
+mod picking;
 use super::{material::OpticalStyle, regions::surface::Faces};
 use crate::{jobs::Worker, labels::RegionSelection};
 use eframe::{
@@ -7,13 +8,14 @@ use eframe::{
     egui_wgpu::{self, wgpu},
 };
 use orv_core::{
-    ViewState,
+    ViewState, WindowLevel,
     volume_view::{Quality, VolumeView},
 };
 use orv_render::{
     material_volume::Lighting,
     reslice::GpuReformatImage,
     section_volume::{SectionImage, SectionPlane, SectionRenderer, SectionScene, SectionSurface},
+    surface_pick::PickScope,
     volume_source::GpuVolumeSource,
 };
 use std::sync::{
@@ -24,7 +26,9 @@ use std::sync::{
 #[derive(Clone, Copy)]
 pub(crate) struct LinkedPlanes<'a> {
     pub images: &'a [Option<Arc<GpuReformatImage>>; 3],
-    pub views: &'a [ViewState; 3],
+    pub window: WindowLevel,
+    pub invert: bool,
+    pub current: bool,
 }
 pub(super) struct Settings {
     pub enabled: bool,
@@ -55,7 +59,7 @@ impl Settings {
                     ui.checkbox(visible, label);
                 }
             });
-            ui.small("Planes follow the completed MPR images and their contrast. Regions use cell faces. Hide the planes to pick a region. Choosing Volume or MIP hides the planes.");
+            ui.small("Planes follow the completed MPR images and their contrast. Regions use cell faces. Visible planes and foreground source can block region picks. Choosing Volume or MIP hides the planes.");
         }
         !was_active && self.active()
     }
@@ -77,8 +81,8 @@ impl Settings {
             }
             *plane = Some(SectionPlane {
                 image: image.clone(),
-                window: input.views[i].window,
-                invert: input.views[i].invert,
+                window: input.window,
+                invert: input.invert,
             });
         }
         Ok(planes)
@@ -86,6 +90,7 @@ impl Settings {
 }
 #[derive(Clone)]
 pub(super) struct Scene {
+    pub pick: bool,
     pub planes: [Option<SectionPlane>; 3],
     pub selection: Option<RegionSelection>,
     pub display: ViewState,
@@ -104,7 +109,8 @@ impl Scene {
         }
     }
     fn same(&self, other: &Self) -> bool {
-        self.same_data(other)
+        self.pick == other.pick
+            && self.same_data(other)
             && self
                 .planes
                 .iter()
@@ -217,8 +223,10 @@ struct Request {
     format: wgpu::TextureFormat,
     scene: Scene,
     data_cancel: Arc<AtomicBool>,
+    scope: Option<Arc<PickScope>>,
 }
 struct Complete {
+    scope: Option<Arc<PickScope>>,
     scene: Scene,
     image: Arc<SectionImage>,
 }
@@ -237,6 +245,7 @@ fn run(input: Request, cancel: &dyn Fn() -> bool) -> Result<Complete, String> {
     let data_cancel = || input.data_cancel.load(Ordering::Acquire);
     match engine.render(&input.scene, &data_cancel, cancel) {
         Ok(image) => Ok(Complete {
+            scope: input.scope,
             scene: input.scene,
             image,
         }),
@@ -247,6 +256,11 @@ fn run(input: Request, cancel: &dyn Fn() -> bool) -> Result<Complete, String> {
     }
 }
 pub(super) struct View {
+    scope: Option<Arc<PickScope>>,
+    probe: Option<picking::Probe>,
+    picked_point: Option<[f64; 3]>,
+    link_epoch: Option<u64>,
+    viewport: Option<(egui::Id, egui::LayerId, egui::Rect, egui::Rect)>,
     worker: Worker<Request, Complete>,
     engine: Arc<Mutex<Option<Engine>>>,
     source: Arc<GpuVolumeSource>,
@@ -260,6 +274,7 @@ pub(super) struct View {
 }
 impl Drop for View {
     fn drop(&mut self) {
+        self.clear_probe();
         self.data_cancel.store(true, Ordering::Release);
     }
 }
@@ -270,6 +285,11 @@ impl View {
         ctx: egui::Context,
     ) -> Result<Self, String> {
         Ok(Self {
+            scope: None,
+            probe: None,
+            picked_point: None,
+            link_epoch: None,
+            viewport: None,
             worker: Worker::start(ctx, "orv-source-planes", run)?,
             engine: Arc::new(Mutex::new(None)),
             source,
@@ -290,10 +310,55 @@ impl View {
             format: self.format,
             scene,
             data_cancel: self.data_cancel.clone(),
+            scope: self.scope.clone(),
         });
+    }
+    fn clear_probe(&mut self) {
+        if let Some(scope) = self.scope.take() {
+            scope.revoke();
+        }
+        if let Some(probe) = &mut self.probe {
+            probe.clear();
+        }
+        self.picked_point = None;
+    }
+    pub fn set_link_epoch(&mut self, epoch: u64) {
+        if self.link_epoch != Some(epoch) {
+            self.link_epoch = Some(epoch);
+            if let Some(probe) = &mut self.probe {
+                probe.clear();
+            }
+            self.picked_point = None;
+        }
+    }
+    pub fn take_point(&mut self) -> Option<[f64; 3]> {
+        self.picked_point.take()
+    }
+    fn current_front(&self, scene: &Scene) -> bool {
+        self.front.as_ref().is_some_and(|front| {
+            front.scene.same(scene)
+                && (!scene.pick
+                    || matches!((&self.scope,&front.scope),
+                (Some(a),Some(b)) if a.is_active() && Arc::ptr_eq(a,b)))
+        })
     }
     fn update(&mut self, scene: &Scene) {
         if self.desired.as_ref().is_none_or(|old| !old.same(scene)) {
+            self.clear_probe();
+            if scene.pick {
+                match PickScope::new() {
+                    Ok(scope) => self.scope = Some(scope),
+                    Err(error) => {
+                        self.suspend();
+                        self.desired = Some(scene.clone());
+                        self.error = Some(error.into());
+                        return;
+                    }
+                }
+            } else {
+                self.probe = None;
+            }
+
             if self.data_cancel.load(Ordering::Acquire)
                 || self
                     .desired
@@ -322,17 +387,12 @@ impl View {
         }
         // Finish one coherent image before chasing new camera/plane inputs.
         // Input cannot starve completion, and old data never gains a new identity.
-        if self.pending.is_none()
-            && self.error.is_none()
-            && self
-                .front
-                .as_ref()
-                .is_none_or(|front| !front.scene.same(scene))
-        {
+        if self.pending.is_none() && self.error.is_none() && !self.current_front(scene) {
             self.submit(scene.clone());
         }
     }
     pub fn suspend(&mut self) {
+        self.clear_probe();
         self.data_cancel.store(true, Ordering::Release);
         self.worker.clear();
         self.desired = None;
@@ -343,12 +403,29 @@ impl View {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        rect: egui::Rect,
+        response: &egui::Response,
         scene: Scene,
+        interacting: bool,
+        source_current: bool,
     ) -> Option<(ViewState, VolumeView, [u32; 2])> {
+        let rect = response.rect;
+        let viewport = (response.id, response.layer_id, rect, ui.clip_rect());
+        if self.viewport != Some(viewport) {
+            self.clear_probe();
+            self.desired = None;
+            self.viewport = Some(viewport);
+        }
+        self.picked_point = None;
         self.update(&scene);
-        let current =
-            self.error.is_none() && self.front.as_ref().is_some_and(|f| f.scene.same(&scene));
+        if scene.pick && self.probe.is_none() {
+            match picking::Probe::new(ui.ctx().clone()) {
+                Ok(probe) => self.probe = Some(probe),
+                Err(error) => {
+                    self.error = Some(error);
+                }
+            }
+        }
+        let current = self.error.is_none() && self.current_front(&scene);
         if let Some(error) = &self.error {
             message(ui, rect, error);
         } else if let Some(front) = &self.front {
@@ -375,6 +452,22 @@ impl View {
             } else {
                 "Planes · preview"
             });
+        }
+        let live = if current && source_current {
+            self.front
+                .as_ref()
+                .and_then(|front| picking::current(front, &scene))
+        } else {
+            None
+        };
+        if let Some(probe) = &mut self.probe {
+            self.picked_point = probe.show(
+                ui,
+                response,
+                live,
+                self.engine.clone(),
+                interacting || !source_current,
+            );
         }
         if current {
             self.front.as_ref().map(|front| {
