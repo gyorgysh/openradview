@@ -60,6 +60,8 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
+- 3D camera drags retain movement delivered in the same frame as button release,
+  including short gestures. Pan keeps the originating button and Space state.
 - Volume-camera turns at exact multiples of 90° avoid tiny off-axis errors that
   could incorrectly hide valid samples beside missing data.
 - Manual label controls recognize acquired planes whose stored decimal positions

@@ -49,6 +49,7 @@ pub struct VolumeSession {
     cuts: sections::Cuts,
     plane_settings: source_planes::Settings,
     plane_view: Option<source_planes::View>,
+    input: input::Input,
 }
 impl VolumeSession {
     pub(crate) fn controls_open(&self) -> bool {
@@ -95,6 +96,7 @@ impl VolumeSession {
             cuts: Default::default(),
             plane_settings: Default::default(),
             plane_view: None,
+            input: Default::default(),
             volume: None,
             gpu: None,
             state: None,
@@ -254,7 +256,7 @@ impl VolumeSession {
         else {
             return None;
         };
-        let (interacting, fit) = input::interact(ui, response, state, &mut self.display);
+        let (interacting, fit) = self.input.interact(ui, response, state, &mut self.display);
         self.needs_fit |= fit;
         if self.needs_fit {
             if let Err(error) = state

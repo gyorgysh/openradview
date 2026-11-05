@@ -640,6 +640,15 @@ ready, the existing source material is shown and labelled as such. Refusals reta
 the source and offer an explicit retry. Worker completion and the one refinement
 deadline trigger repaints; a completed quiet view schedules no further work.
 
+Native 3D navigation consumes ordered pointer events once per application frame,
+including a release's final position. A gesture captures its originating button,
+viewport, clip and UI layer only after a finite press inside that interactive
+viewport. The click-distance threshold separates jitter from a drag; Space key
+transitions preserve pan order even when release arrives in the same frame.
+Focus loss, Escape, pointer loss, conflicting buttons, covering controls or changed
+viewport ownership cancel capture. Layout retries cannot apply movement twice.
+Stationary double clicks retain Fit, and idle frames do not change the camera.
+
 The 3D region selection and brightness are explicit, independent of 2D overlay
 visibility/opacity. Manual ID selection is shared with the label editor; supplied
 IDs remain u16. Fractional masks use the fixed half-maximum categorical view.
