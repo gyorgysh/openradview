@@ -6,7 +6,10 @@ use std::cmp::Ordering;
 mod compare;
 mod face;
 mod wide;
-pub use face::{ContourNode, ContourSegment, FaceArrangement};
+pub use face::{
+    ContourNode, ContourSegment, FaceArrangement, PatchHalfEdge, PatchRegion, PlaneSubdivision,
+    SubdivisionEdge,
+};
 use wide::radical_sign;
 const MAX_FORM: u32 = 2040;
 const MAX_LINES: usize = 6;

@@ -577,9 +577,11 @@ was visited first. Representation ordering never decides numerical equality.
 
 Every insertion must satisfy the exact bilinear equation. Its sign evaluation
 handles products of coordinates from unrelated quadratic fields using fixed
-checked arithmetic; the final comparison fits 592 bits. Storage bounds 80 raw
-insertions, 85 nodes and 85 segments, without per-face heap allocation. Whole
-zero faces remain two-dimensional, with retained points and no invented contour.
+checked arithmetic; the final comparison fits 592 bits. Zero contours admit 80
+raw insertions and produce at most 85 nodes and 85 segments, without per-face
+heap allocation. The common fixed arena also holds four extra domain corners
+for plane subdivision. Whole zero faces remain two-dimensional, with retained
+points and no invented contour.
 Cancellation or a capacity/input failure returns no partial arrangement.
 `CriticalGraph::face_arrangement` validates matching opposite face samples and
 collects both incident graphs' points. The owning extractor must still prove
@@ -609,6 +611,17 @@ and bounded cancellation, with no dense source copy or per-neighborhood heap
 allocation. Whole-grid chunk admission, triangulation, interior-family resolution
 and GPU/native mesh publication still require separate ownership and validation.
 
+`Bilinear::subdivision` retains the complete square boundary alongside one
+bilinear zero set. Nonzero boundary points are accepted; contour insertions still
+require exact zero membership. Coincident zero/boundary edges merge, singular
+crosses split at their centre and whole-zero interior constraints remain isolated
+points. Canonical numerical nodes and undirected edges supply directed half-edge
+loops with exact region signs and an explicit exterior boundary. Tangent signs
+give cyclic ordering for this bilinear square graph; zero-gradient crosses use
+their proved axis lines. No floating angle, chord or area selects connectivity.
+Bounds are 80 combined raw insertions, 89 nodes, 92 edges, 184 half-edges and four
+regions. Cancellation or inconsistent inputs return no partial subdivision.
+
 `Trilinear::phase` uses the inclusive F>=0 level, matching retained fractional
 half-maximum ties. Nonnegative corners select the complete closed cell; strictly
 negative corners select none. Nonpositive corners with zeros select only all-zero
@@ -631,6 +644,15 @@ fields have no identically vanishing section determinant. Source faces retain
 each known incident cell's factorization alongside its original critical graph.
 Fixed storage and cancellation keep this analysis separate from patch
 intersection/orientation, singular contacts, finite-grid closure and triangulation.
+
+`CellFactorization::plane_patch` builds an in-cell factor plane from its exact
+rational position and bilinear cofactor. The plane's nonzero cofactor boundary
+points remain domain constraints, while cofactor zero curves divide regions and
+their normal signs. Normals point out of F>=0 in lattice coordinates and require
+the source inverse transpose for physical conversion. Boundary planes stay
+candidates requiring both incident cell phases; detached patches grant no source
+or edit authority. Curved arcs still need shared refinement and triangulation,
+and general trilinear sheets remain separate patch-construction work.
 
 `InterfaceRay` is a separate f64 membership reference for known cell interfaces.
 It walks bounded source-cell intervals without allocating or scanning derived

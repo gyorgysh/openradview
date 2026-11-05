@@ -109,6 +109,43 @@ pub struct CellFactorization {
     factors: [Option<AxisFactor>; 3],
     residual: CellResidual,
 }
+/// One exact factor-plane candidate, split by its cofactor's zero curves.
+/// Boundary-plane publication still requires both incident cell phases. Curved
+/// region edges require shared refinement before this becomes a triangle mesh.
+pub struct FactorPatch {
+    factor: AxisFactor,
+    position: Rational,
+    subdivision: PlaneSubdivision,
+}
+impl FactorPatch {
+    pub fn axis(&self) -> usize {
+        self.factor.axis()
+    }
+    pub fn axes(&self) -> [usize; 2] {
+        transverse(self.axis())
+    }
+    pub fn position(&self) -> Rational {
+        self.position
+    }
+    pub fn on_cell_boundary(&self) -> bool {
+        self.position.numerator == 0
+            || i128::from(self.position.numerator) == i128::from(self.position.denominator)
+    }
+    pub fn subdivision(&self) -> &PlaneSubdivision {
+        &self.subdivision
+    }
+    /// Source-lattice normal sign pointing out of F>=0 on this region. Physical
+    /// conversion must use the source inverse transpose, not raw lattice axes.
+    pub fn normal_sign(&self, region: u8) -> Option<i8> {
+        let sign = self
+            .subdivision
+            .regions()
+            .find(|(id, _)| *id == region)?
+            .1
+            .sign;
+        Some(-sign * (self.factor.values[1] - self.factor.values[0]).signum() as i8)
+    }
+}
 impl CellFactorization {
     pub fn original(self) -> Trilinear {
         self.original
@@ -118,6 +155,41 @@ impl CellFactorization {
     }
     pub fn residual(self) -> CellResidual {
         self.residual
+    }
+    /// Construct a factor-plane candidate on one source-cell axis. Boundary
+    /// points may have nonzero cofactor value; contour insertions must lie on
+    /// that cofactor's zero set. This detached math object has no edit authority.
+    pub fn plane_patch(
+        &self,
+        axis: usize,
+        boundary: &[[ExactCoordinate; 2]],
+        contour: &[[ExactCoordinate; 2]],
+        cancel: impl Fn() -> bool,
+    ) -> Result<Option<FactorPatch>, FieldError> {
+        check_cancel(&cancel)?;
+        let factor = self.factors.get(axis).ok_or(FieldError::Bounds)?;
+        let Some(factor) = factor else {
+            check_cancel(&cancel)?;
+            return Ok(None);
+        };
+        let Some(position) = factor.zero()? else {
+            check_cancel(&cancel)?;
+            return Ok(None);
+        };
+        let Some(division) = axis_factor(self.original, axis)? else {
+            return Err(FieldError::Arithmetic);
+        };
+        if division.factor != factor.values {
+            return Err(FieldError::Arithmetic);
+        }
+        let subdivision =
+            Bilinear::new(division.quotient)?.subdivision(boundary, contour, &cancel)?;
+        check_cancel(&cancel)?;
+        Ok(Some(FactorPatch {
+            factor: *factor,
+            position,
+            subdivision,
+        }))
     }
     /// Exact corner reconstruction certifies the complete multi-affine identity.
     pub fn reconstruct_values(self) -> Result<[i16; 8], FieldError> {

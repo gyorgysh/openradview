@@ -2,12 +2,15 @@
 //! Complete bilinear zero contours with exact, bounded insertion unions.
 use super::*;
 use compare::bilinear_sign;
+mod subdivision;
+pub use subdivision::{PatchHalfEdge, PatchRegion, PlaneSubdivision, SubdivisionEdge};
 
 // A source face unions two <=18-node graphs and four <=10-point edge
 // partitions: at most76 raw insertions, before numerical deduplication.
 const INSERTIONS: usize = 80;
-// At most four distinct boundary zeros, one singular centre, and all insertions.
-const NODES: usize = INSERTIONS + 5;
+// Zero contours need <=four boundary zeros+one centre+all insertions. A plane
+// subdivision also retains the four domain corners even when they are nonzero.
+const NODES: usize = INSERTIONS + 9;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ContourNode {

@@ -448,3 +448,125 @@ fn factorization_has_fixed_storage_and_every_cancellation_preserves_prior_result
         assert_eq!(field.factorization(|| true), Err(FieldError::Cancelled));
     }
 }
+
+#[test]
+fn factor_plane_patches_keep_nonzero_cofactor_boundaries_and_flip_normals_by_region() {
+    let field = Trilinear::new([1, -1, -1, 1, -1, 1, 1, -1]).unwrap();
+    let factors = field.factorization(|| false).unwrap();
+    let quarter = ExactCoordinate::from_rational(Rational::new(1, 4).unwrap())
+        .unwrap()
+        .unwrap();
+    let zero = ExactCoordinate::from_rational(Rational::new(0, 1).unwrap())
+        .unwrap()
+        .unwrap();
+    for axis in 0..3 {
+        let patch = factors
+            .plane_patch(axis, &[[zero, quarter]], &[], || false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(patch.axis(), axis);
+        assert!(!patch.on_cell_boundary());
+        assert_eq!(patch.position(), Rational::new(1, 2).unwrap());
+        assert_eq!(patch.subdivision().regions().count(), 4);
+        let [u, v] = patch.axes();
+        for (_, node) in patch.subdivision().nodes() {
+            let mut point = [Rational::new(0, 1).unwrap(); 3];
+            point[axis] = patch.position();
+            point[u] = node.coordinates()[0].rational_value().unwrap();
+            point[v] = node.coordinates()[1].rational_value().unwrap();
+            let numerator: i128 = field
+                .values()
+                .into_iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    i128::from(f)
+                        * (0..3)
+                            .map(|a| {
+                                if i & (1 << a) == 0 {
+                                    i128::from(point[a].denominator)
+                                        - i128::from(point[a].numerator)
+                                } else {
+                                    i128::from(point[a].numerator)
+                                }
+                            })
+                            .product::<i128>()
+                })
+                .sum();
+            assert_eq!(numerator, 0);
+        }
+        assert!(
+            patch
+                .subdivision()
+                .nodes()
+                .any(
+                    |(id, n)| n.coordinates()[0].compare(zero) == Ok(std::cmp::Ordering::Equal)
+                        && n.coordinates()[1].compare(quarter) == Ok(std::cmp::Ordering::Equal)
+                        && patch.subdivision().node_sign(id) == Ok(1)
+                )
+        );
+        for (id, region) in patch.subdivision().regions() {
+            assert_eq!(patch.normal_sign(id), Some(region.sign));
+        }
+        assert_eq!(patch.normal_sign(u8::MAX), None);
+    }
+    let boundary = Trilinear::new([0, 1, 0, -1, 0, 1, 0, -1])
+        .unwrap()
+        .factorization(|| false)
+        .unwrap();
+    let patch = boundary
+        .plane_patch(0, &[], &[], || false)
+        .unwrap()
+        .unwrap();
+    assert!(patch.on_cell_boundary());
+    assert_eq!(patch.subdivision().regions().count(), 2);
+    for (id, region) in patch.subdivision().regions() {
+        assert_eq!(patch.normal_sign(id), Some(-region.sign));
+    }
+    for field in [
+        Trilinear::new([1; 8]).unwrap(),
+        Trilinear::new([1, 2, 1, 2, 1, 2, 1, 2]).unwrap(),
+    ] {
+        assert!(
+            field
+                .factorization(|| false)
+                .unwrap()
+                .plane_patch(0, &[], &[], || false)
+                .unwrap()
+                .is_none()
+        );
+    }
+    assert!(matches!(
+        factors.plane_patch(3, &[], &[], || false),
+        Err(FieldError::Bounds)
+    ));
+}
+
+#[test]
+fn every_factor_patch_cancellation_keeps_the_prior_candidate_unchanged() {
+    let factors = Trilinear::new([1, -1, -1, 1, -1, 1, 1, -1])
+        .unwrap()
+        .factorization(|| false)
+        .unwrap();
+    let calls = Cell::new(0);
+    let prior = factors
+        .plane_patch(0, &[], &[], || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .unwrap()
+        .unwrap();
+    for at in 0..calls.get() {
+        let n = Cell::new(0);
+        assert!(matches!(
+            factors.plane_patch(0, &[], &[], || {
+                let call = n.get();
+                n.set(call + 1);
+                call == at
+            }),
+            Err(FieldError::Cancelled)
+        ));
+        assert_eq!(prior.subdivision().regions().count(), 4);
+        assert_eq!(prior.position(), Rational::new(1, 2).unwrap());
+    }
+    assert!(std::mem::size_of::<FactorPatch>() <= 16384);
+}
