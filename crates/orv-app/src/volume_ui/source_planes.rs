@@ -185,6 +185,17 @@ impl Engine {
             self.faces = None;
             None
         };
+        self.compose(scene, surface, cancel)
+    }
+    fn compose(
+        &mut self,
+        scene: &Scene,
+        surface: Option<SectionSurface>,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<Arc<SectionImage>, String> {
+        if cancel() {
+            return Err("Cancelled".into());
+        }
         if self
             .material
             .as_ref()

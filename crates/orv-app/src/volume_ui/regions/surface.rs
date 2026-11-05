@@ -14,16 +14,19 @@ pub(super) struct Engine {
     renderer: OpaqueSurfaceRenderer,
     material: Option<Arc<orv_core::volume_material::VolumeMaterial>>,
 }
+#[derive(Clone)]
 pub(in crate::volume_ui) struct Faces {
     source: Arc<GpuVolumeSource>,
-    projector: GpuSurfaceProjector,
+    // Projection resources are immutable; each render allocates its own targets.
+    // Cloning a cache shares the base revision without replacing its owners.
+    projector: Arc<GpuSurfaceProjector>,
     uploaded: Option<Arc<GpuCellSurface>>,
     projected: Option<Arc<SurfaceImage>>,
 }
 impl Faces {
     pub fn new(source: Arc<GpuVolumeSource>) -> Result<Self, String> {
         Ok(Self {
-            projector: GpuSurfaceProjector::new(source.clone()).map_err(str::to_owned)?,
+            projector: Arc::new(GpuSurfaceProjector::new(source.clone()).map_err(str::to_owned)?),
             source,
             uploaded: None,
             projected: None,

@@ -201,6 +201,14 @@ Source/map/ID/revision changes clear the old front and cancel data preparation.
 Idle views submit no work. Slabs, absent corrected GPU planes, unavailable region
 selections and empty cuts show a reason instead of a substitute source image.
 
+Native cell-face preparation caches can be cloned for private correction work.
+The immutable projector pipeline and initial uploaded/projected owners are shared;
+subsequent geometry, upload and projection changes replace only the fork's cache.
+Section composition accepts that private projection without replacing the main
+face cache or completed front. Original visibility witnesses remain bound to the
+base image, and dropping/cancelling a fork releases unpublished map owners. This
+preparation path does not itself enable a native surface-editing control.
+
 Source-plane mode retires the previous region renderer and revokes its pick
 scope. Mask-cell mode is disabled while planes are active. **Pick surface** uses
 the separate section probe, with a job-originating scope renewed for every desired

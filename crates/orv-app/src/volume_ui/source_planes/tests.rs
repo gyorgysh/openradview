@@ -331,3 +331,171 @@ fn physical_preview_apply_and_undo_keep_exact_region_owners_in_source_plane_imag
         [MemoryBudget::gpu().used(), MemoryBudget::volumes().used()]
     );
 }
+
+#[test]
+fn private_correction_projection_reuses_base_cache_without_replacing_its_visibility_witness() {
+    use crate::labels::{RegionMap, RegionSelection};
+    use orv_core::labels::{BrushAction, BrushShape, Labels, PhysicalBrush};
+    use orv_render::section_volume::pick::{SectionPickFrame, SectionPickState};
+    let before = [MemoryBudget::gpu().used(), MemoryBudget::volumes().used()];
+    let gpu = source();
+    let device = gpu.device().clone();
+    {
+        let cpu = gpu.volume();
+        let brush = PhysicalBrush {
+            label: 7,
+            action: BrushAction::Add,
+            radius_mm: 4.,
+            shape: BrushShape::Sphere,
+            clip: None,
+            protected_ids: [false; 256],
+        };
+        let empty = Arc::new(Labels::empty(cpu.clone()).unwrap());
+        let initial = empty
+            .propose_physical_stroke(&brush, &[cpu.center()], || false)
+            .unwrap();
+        let base = initial.preview().clone();
+        drop(initial);
+        drop(empty);
+        let mut desired = scene(gpu.clone());
+        desired.pick = true;
+        desired.planes = [None, None, None];
+        desired.style.material = VolumeMaterial::new(&[-1000., 1000.].map(|value| MaterialPoint {
+            value,
+            luminance: 0.3,
+            extinction_per_mm: 0.,
+        }))
+        .unwrap();
+        desired.selection = Some(RegionSelection::new(RegionMap::Manual(base.clone()), 7).unwrap());
+        let mut engine = Engine::new(gpu.clone(), wgpu::TextureFormat::Rgba8UnormSrgb).unwrap();
+        let image = engine.render(&desired, &|| false, &|| false).unwrap();
+        let frame = SectionPickFrame::new(image.clone(), PickScope::new().unwrap());
+        let current = SectionPickState::from_frame(&frame).unwrap();
+        let original_projection = image.scene().surface.as_ref().unwrap().image.clone();
+        let mut erase = brush;
+        erase.action = BrushAction::Erase;
+        erase.radius_mm = 1.5;
+        let weak_preview = {
+            let (proposal, _) = engine
+                .renderer
+                .propose_erase_stamp(&frame, &current, [32, 24], &erase, || false)
+                .unwrap();
+            assert!(proposal.summary().changed_voxels > 0);
+            let weak = Arc::downgrade(proposal.proposal().preview());
+            let mut preview_scene = desired.clone();
+            preview_scene.selection = Some(
+                RegionSelection::new(RegionMap::Manual(proposal.proposal().preview().clone()), 7)
+                    .unwrap(),
+            );
+            let mut preview_faces = engine.faces.as_ref().unwrap().clone();
+            let projection = preview_faces
+                .project(
+                    preview_scene.selection.as_ref().unwrap(),
+                    &desired.display,
+                    &desired.state,
+                    desired.size,
+                    &|| false,
+                    &|| false,
+                )
+                .unwrap();
+            assert!(!Arc::ptr_eq(&projection, &original_projection));
+            assert_eq!(
+                projection.revision(),
+                proposal.proposal().preview().revision()
+            );
+            let preview_image = engine
+                .compose(
+                    &preview_scene,
+                    Some(SectionSurface {
+                        image: projection,
+                        luminance: desired.luminance,
+                        lighting: Lighting::HEADLIGHT,
+                    }),
+                    &|| false,
+                )
+                .unwrap();
+            assert_eq!(
+                preview_image
+                    .scene()
+                    .surface
+                    .as_ref()
+                    .unwrap()
+                    .image
+                    .revision(),
+                proposal.proposal().preview().revision()
+            );
+            assert!(proposal.is_current(&current, &erase, proposal.proposal().points_mm()));
+            let retained = engine
+                .faces
+                .as_mut()
+                .unwrap()
+                .project(
+                    desired.selection.as_ref().unwrap(),
+                    &desired.display,
+                    &desired.state,
+                    desired.size,
+                    &|| false,
+                    &|| false,
+                )
+                .unwrap();
+            assert!(Arc::ptr_eq(&retained, &original_projection));
+            let mut cancelled_faces = engine.faces.as_ref().unwrap().clone();
+            assert!(
+                cancelled_faces
+                    .project(
+                        preview_scene.selection.as_ref().unwrap(),
+                        &desired.display,
+                        &desired.state,
+                        desired.size,
+                        &|| false,
+                        &|| true
+                    )
+                    .is_err()
+            );
+            let retained = engine
+                .faces
+                .as_mut()
+                .unwrap()
+                .project(
+                    desired.selection.as_ref().unwrap(),
+                    &desired.display,
+                    &desired.state,
+                    desired.size,
+                    &|| false,
+                    &|| false,
+                )
+                .unwrap();
+            assert!(Arc::ptr_eq(&retained, &original_projection));
+            let hit = engine
+                .renderer
+                .probe(&frame, &current, [32, 24], || false)
+                .unwrap();
+            assert_eq!(hit.kind(), orv_render::surface_pick::SurfaceProbeKind::Hit);
+            assert_eq!(hit.hit().unwrap().revision, *base.revision());
+            assert!(current.matches(&frame));
+            assert!(frame.scope().is_active());
+            weak
+        };
+        gpu.wait_submitted(|| false).unwrap();
+        assert!(
+            weak_preview.upgrade().is_none(),
+            "Closing an unpublished preview must release its manual COW map"
+        );
+        assert!(current.matches(&frame));
+        assert_eq!(
+            image.scene().surface.as_ref().unwrap().image.revision(),
+            base.revision()
+        );
+    }
+    drop(gpu);
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(30)),
+        })
+        .unwrap();
+    assert_eq!(
+        before,
+        [MemoryBudget::gpu().used(), MemoryBudget::volumes().used()]
+    );
+}
