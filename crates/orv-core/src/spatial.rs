@@ -15,6 +15,7 @@ pub enum GeometryError {
     TooFew,
     Pixels,
     Limit,
+    Memory,
     Cancelled,
 }
 impl std::fmt::Display for GeometryError {
@@ -35,6 +36,7 @@ impl std::fmt::Display for GeometryError {
             Self::TooFew => "MPR needs at least two spatially distinct images.",
             Self::Pixels => "MPR and 3D need valid samples, consistent intensity units/precision and matching scalar tables or RGB context.",
             Self::Limit => "The requested volume or reformat exceeds the supported size limit.",
+            Self::Memory => "Not enough memory for the requested reformat. Close another view and try again.",
             Self::Cancelled => "View update cancelled.",
         })
     }

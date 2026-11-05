@@ -127,6 +127,7 @@ async fn color_series_keeps_consent_scope_and_refuses_scalar_operations() {
         center: 128.,
     };
     series.frames = vec![Arc::new(Frame {
+        memory: None,
         presentation: None,
         calibration: None,
         projection: None,

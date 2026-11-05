@@ -23,6 +23,7 @@ fn map(missing: &[usize]) -> Labels {
                 }
             }
             Arc::new(Frame {
+                memory: None,
                 presentation: None,
                 calibration: None,
                 projection: None,

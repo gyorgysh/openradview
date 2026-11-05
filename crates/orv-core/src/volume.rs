@@ -8,6 +8,8 @@ use crate::{
 };
 use std::sync::Arc;
 mod color;
+mod reformat;
+pub use reformat::ScalarReformatBuffer;
 
 #[cfg(test)]
 #[path = "volume_tests.rs"]
@@ -17,11 +19,15 @@ mod tests;
 /// Both CPU and GPU reslicing use these exact dimensions and metadata.
 #[derive(Clone, Debug)]
 pub struct ReformatGrid {
+    source: Arc<()>,
     geometry: Geometry,
     dimensions: [u32; 2],
     slab: Option<crate::slab::Slab>,
 }
 impl ReformatGrid {
+    pub fn belongs_to(&self, volume: &Volume) -> bool {
+        Arc::ptr_eq(&self.source, &volume.identity)
+    }
     pub fn geometry(&self) -> &Geometry {
         &self.geometry
     }
@@ -35,6 +41,7 @@ impl ReformatGrid {
 
 #[derive(Debug)]
 pub struct Volume {
+    identity: Arc<()>,
     frames: Vec<Arc<Frame>>,
     source_frames: Vec<Arc<Frame>>,
     dimensions: [usize; 3],
@@ -195,6 +202,7 @@ impl Volume {
         } = geometry;
         let has_missing_scalar = frames.iter().any(|f| f.validity.is_some());
         let mut volume = Self {
+            identity: Arc::new(()),
             frames,
             source_frames,
             dimensions,
@@ -431,20 +439,27 @@ impl Volume {
             return Err(GeometryError::Dimensions);
         }
         Ok(ReformatGrid {
+            source: self.identity.clone(),
             geometry,
             dimensions,
             slab,
         })
     }
-    pub(crate) fn resample_grid(
+    /// Sample a prepared grid on a worker. Grids belong to one exact volume;
+    /// matching geometry alone does not authorize sampling another source.
+    pub fn resample_grid(
         &self,
         grid: &ReformatGrid,
         cancel: impl Fn() -> bool,
     ) -> Result<Arc<Frame>, GeometryError> {
+        if !grid.belongs_to(self) {
+            return Err(GeometryError::Reference);
+        }
         let ReformatGrid {
             geometry,
             dimensions,
             slab,
+            ..
         } = grid;
         let geometry = geometry.clone();
         let dimensions = *dimensions;
@@ -467,7 +482,8 @@ impl Volume {
             }
             return self.resample_color(geometry, dimensions, cancel);
         }
-        let mut pixels = Vec::with_capacity(dimensions[0] as usize * dimensions[1] as usize);
+        let mut output = self.scalar_reformat_buffer(grid)?;
+        let pixels = output.pixels_mut();
         let origin = self.world_to_voxel(position);
         let du = self.world_vector_to_voxel(mul(u, spacing[0]));
         let dv = self.world_vector_to_voxel(mul(v, spacing[1]));
@@ -510,28 +526,10 @@ impl Volume {
                 } else {
                     self.sample_voxel(center)
                 };
-                pixels.push(value.unwrap_or(f32::NAN));
+                pixels[y as usize * dimensions[0] as usize + x as usize] =
+                    value.unwrap_or(f32::NAN);
             }
         }
-        Ok(Arc::new(Frame {
-            presentation: None,
-            calibration: None,
-            projection: None,
-            sop: None,
-            slab,
-            scalar: self.frames[0].scalar.as_ref().map(|data| data.resampled()),
-            validity: None,
-            color: None,
-            nifti: self.frames.first().and_then(|frame| frame.nifti.clone()),
-            rgba: None,
-            width: dimensions[0],
-            height: dimensions[1],
-            pixels: pixels.into(),
-            geometry: Some(geometry),
-            instance: 0,
-            frame_index: 0,
-            monochrome1: self.frames[0].monochrome1,
-            default_window: self.frames[0].default_window,
-        }))
+        Ok(output.finish())
     }
 }

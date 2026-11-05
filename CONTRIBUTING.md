@@ -47,6 +47,21 @@ renderer teardown. Reservations are not measured driver memory or free VRAM.
 Reslice cases compute three moving 512-side grids on that same uploaded source:
 thin, 65-sample maximum and 257-sample mean. Those timings exclude display mapping,
 readback and native presentation; the reslicer is a backend prototype.
+For completed scalar frames, run
+`cargo run --locked --release -p orv-render --example reformat_frames_latency`.
+It uses unique generated 512×512×128 planes, with and without missing samples,
+and alternates CPU/GPU measurements of the same moving 512-side grids. Thin
+three-plane and one-changed-plane cases have 12 samples; 65-sample maximum and
+257-sample mean have only three. Each has one warmup. Timings include grid setup,
+new frames with previous fronts retained, GPU readback, validation, required CPU
+corrections, correction uploads, fences and replacement. Source upload and first
+pipeline/frame preparation are reported separately. Every measured result is
+checked against the CPU for exact validity/geometry and relative scalar error
+at most 0.0002, including exact zeros. Comparison and display/native presentation
+are excluded; the one-plane case also excludes unchanged-plane retention/display.
+Inspect correction counts and sample counts before comparing timings. Reported
+application admission is neither peak driver memory nor RSS. Desktop MPR still
+uses its existing CPU worker.
 Material cases use an explicit four-knot optical mapping and headlight, with
 512-side interactive and 1024/2048-side refined complete compute. They retain
 linear float16 output and exclude final presentation. The 2048 case has only

@@ -31,6 +31,7 @@ fn four_gpu_viewports_keep_independent_images_settings_and_release_closed_slots(
                 slot: 8 + i,
                 repaint: egui::Context::default(),
                 image: Arc::new(Frame {
+                    memory: None,
                     presentation: None,
                     calibration: None,
                     projection: None,

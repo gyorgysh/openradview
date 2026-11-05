@@ -49,6 +49,9 @@ impl Geometry {
 
 #[derive(Clone, Debug)]
 pub struct Frame {
+    /// Ownership-only admission for derived pixel storage. Clones retain the
+    /// charge until the last reader releases the frame; this grants no access.
+    pub memory: Option<Arc<crate::resources::Reservation>>,
     pub slab: Option<crate::slab::Slab>,
     pub scalar: Option<Arc<crate::scalar::ScalarData>>,
     /// Optional scalar source mask: 0 is DICOM padding, 1 is a sample. Derived
@@ -384,6 +387,7 @@ pub fn demo_study() -> Study {
             }
         }
         frames.push(Arc::new(Frame {
+            memory: None,
             presentation: None,
             calibration: None,
             projection: None,

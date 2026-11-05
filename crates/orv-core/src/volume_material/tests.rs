@@ -167,6 +167,7 @@ fn field(flipped: bool, missing: Option<[usize; 3]>, constant: bool) -> Volume {
                 }
             }
             Arc::new(Frame {
+                memory: None,
                 width: 5,
                 height: 5,
                 pixels: pixels.into(),

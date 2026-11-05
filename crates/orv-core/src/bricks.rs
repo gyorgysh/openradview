@@ -327,6 +327,7 @@ mod tests {
                         .into()
                 });
                 Arc::new(Frame {
+                    memory: None,
                     presentation: None,
                     calibration: None,
                     projection: None,

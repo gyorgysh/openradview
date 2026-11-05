@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use orv_core::{ViewState, study::Frame};
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
+mod reslice;
 
 pub struct SliceRenderer {
+    reslice_source: Option<Arc<crate::volume_source::GpuVolumeSource>>,
+    external: Option<Arc<crate::reslice::GpuReformatImage>>,
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     uniform: wgpu::Buffer,
@@ -102,6 +106,8 @@ impl SliceRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         Self {
+            reslice_source: None,
+            external: None,
             pipeline,
             layout,
             uniform,
@@ -134,7 +140,8 @@ impl SliceRenderer {
         }
         let color = frame.rgba.is_some();
         let signature = crate::voi::signature(frame.scalar.as_deref());
-        if self.size != [frame.width, frame.height]
+        if self.external.is_some()
+            || self.size != [frame.width, frame.height]
             || self.color != color
             || self.voi_signature != signature
         {
@@ -214,6 +221,8 @@ impl SliceRenderer {
             self.voi = Some(voi);
             self.voi_signature = signature;
             self._reservation = Some(reservation);
+            self.external = None;
+            self.reslice_source = None;
         }
         if let Some(texture) = &self.texture {
             queue.write_texture(
@@ -291,6 +300,13 @@ impl SliceRenderer {
         viewport_aspect: f32,
     ) -> Result<(), &'static str> {
         view.validate()?;
+        if self
+            .external
+            .as_ref()
+            .is_some_and(|v| !std::ptr::eq(&**v.frame(), frame))
+        {
+            return Err("Reslice display requires its exact completed frame");
+        }
         if crate::voi::signature(frame.scalar.as_deref()) != self.voi_signature {
             return Err("Source presentation changed; upload the image before drawing");
         }
@@ -315,7 +331,7 @@ impl SliceRenderer {
             viewport_aspect,
             u8::from(self.srgb) as f32,
             u8::from(frame.rgba.is_some()) as f32,
-            0.0,
+            u8::from(self.external.is_some()) as f32,
             0.0,
             voi[0],
             voi[1],

@@ -156,6 +156,7 @@ mod range_tests {
             let frames = (0..2)
                 .map(|z| {
                     Arc::new(Frame {
+                        memory: None,
                         presentation: None,
                         calibration: None,
                         projection: None,

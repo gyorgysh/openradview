@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Scalar plane/slab sampling on an admitted GPU source. No UI or readback.
+//! Scalar plane/slab sampling and complete immutable images on an admitted GPU source.
 use crate::{volume::allocation, volume_source::GpuVolumeSource};
 use orv_core::{slab::SlabProjection, volume::ReformatGrid};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+mod fixed;
+mod frames;
+use frames::{FramePipeline, Readback};
+pub use frames::{FrameReadbackStatistics, GpuReformatImage};
 
 struct Output {
     texture: wgpu::Texture,
@@ -11,14 +15,19 @@ struct Output {
     _reservation: allocation::GpuReservation,
 }
 
-/// Three independent outputs retain full requested grids during navigation.
-/// Each texel is (scalar value, validity 0/1, 0, 1), before any display mapping.
-/// Callers must keep output textures within this renderer's admitted lifetime.
+/// Three independent outputs retain full requested grids. Compute-only outputs
+/// are scratch (scalar, validity, 0, 1); completed images have their own lifetime.
+/// Both precede display mapping. Only render_frames/read_frames perform precision
+/// repairs and readback; raw output textures belong to this renderer's lifetime.
 pub struct GpuReslicer {
     source: Arc<GpuVolumeSource>,
     pipeline: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
     outputs: [Option<Output>; 3],
+    readback: Option<Readback>,
+    frame_pipeline: Option<FramePipeline>,
+    frame_statistics: FrameReadbackStatistics,
+    _metadata: orv_core::resources::Reservation,
     _scratch: allocation::GpuReservation,
 }
 impl GpuReslicer {
@@ -29,7 +38,20 @@ impl GpuReslicer {
         if source.volume.is_color() {
             return Err("GPU scalar reslicing does not accept color sources");
         }
+        let limits = device.limits();
+        if limits.max_bind_groups < 1
+            || limits.max_sampled_textures_per_shader_stage < 2
+            || limits.max_uniform_buffers_per_shader_stage < 1
+            || limits.max_uniform_buffer_binding_size < 96
+        {
+            return Err("This GPU cannot bind scalar reslicing");
+        }
+        let metadata = orv_core::resources::MemoryBudget::volumes()
+            .reserve((std::mem::size_of::<Self>() + 16) as u64)
+            .ok_or("Not enough memory for scalar reslicing")?;
         let scratch = allocation::reserve_bytes(65536, device, queue)?;
+        let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let texture = |binding, sample_type| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
@@ -84,11 +106,20 @@ impl GpuReslicer {
             compilation_options: Default::default(),
             cache: None,
         });
+        let invalid = pollster::block_on(validation.pop()).is_some();
+        let exhausted = pollster::block_on(memory.pop()).is_some();
+        if invalid || exhausted {
+            return Err("The GPU could not prepare scalar reslicing");
+        }
         Ok(Self {
             source,
             pipeline,
             layout,
             outputs: Default::default(),
+            readback: None,
+            frame_pipeline: None,
+            frame_statistics: Default::default(),
+            _metadata: metadata,
             _scratch: scratch,
         })
     }
@@ -114,53 +145,13 @@ impl GpuReslicer {
         slot: usize,
         region: [[u32; 2]; 2],
     ) -> Result<(), &'static str> {
-        let device = self.source.device();
         if slot >= self.outputs.len() {
             return Err("Unsupported reslice output slot");
         }
         let parameters = parameters(&self.source, grid, region)?;
         let size = grid.dimensions();
-        if size
-            .iter()
-            .any(|n| *n > device.limits().max_texture_dimension_2d)
-        {
-            return Err("Reslice grid exceeds this GPU's texture limit");
-        }
-        if self.outputs[slot]
-            .as_ref()
-            .is_none_or(|o| [o.texture.width(), o.texture.height()] != size)
-        {
-            let reservation = allocation::reserve_bytes(
-                u64::from(size[0]) * u64::from(size[1]) * 16,
-                device,
-                self.source.queue(),
-            )?;
-            let texture = allocation::texture(
-                device,
-                &wgpu::TextureDescriptor {
-                    label: Some("scalar reslice values and validity"),
-                    size: wgpu::Extent3d {
-                        width: size[0],
-                        height: size[1],
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba32Float,
-                    usage: wgpu::TextureUsages::STORAGE_BINDING
-                        | wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
-                },
-            )?;
-            let view = texture.create_view(&Default::default());
-            self.outputs[slot] = Some(Output {
-                texture,
-                view,
-                _reservation: reservation,
-            });
-        }
+        self.ensure_output(size, slot)?;
+        let device = self.source.device();
         let output = self.outputs[slot]
             .as_ref()
             .ok_or("Reslice output unavailable")?;
@@ -200,6 +191,52 @@ impl GpuReslicer {
         pass.dispatch_workgroups(region[1][0].div_ceil(8), region[1][1].div_ceil(8), 1);
         Ok(())
     }
+    fn ensure_output(&mut self, size: [u32; 2], slot: usize) -> Result<(), &'static str> {
+        let device = self.source.device();
+        if size
+            .iter()
+            .any(|n| *n > device.limits().max_texture_dimension_2d)
+        {
+            return Err("Reslice grid exceeds this GPU's texture limit");
+        }
+        if self.outputs[slot]
+            .as_ref()
+            .is_none_or(|o| [o.texture.width(), o.texture.height()] != size)
+        {
+            let reservation = allocation::reserve_bytes(
+                u64::from(size[0]) * u64::from(size[1]) * 16,
+                device,
+                self.source.queue(),
+            )?;
+            let texture = allocation::texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some("scalar reslice values and validity"),
+                    size: wgpu::Extent3d {
+                        width: size[0],
+                        height: size[1],
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba32Float,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC
+                        | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                },
+            )?;
+            let view = texture.create_view(&Default::default());
+            self.outputs[slot] = Some(Output {
+                texture,
+                view,
+                _reservation: reservation,
+            });
+        }
+        Ok(())
+    }
     pub fn output_texture(&self, slot: usize) -> Option<&wgpu::Texture> {
         self.outputs.get(slot)?.as_ref().map(|o| &o.texture)
     }
@@ -211,6 +248,9 @@ fn parameters(
     region: [[u32; 2]; 2],
 ) -> Result<[f32; 24], &'static str> {
     let volume = &source.volume;
+    if !grid.belongs_to(volume) {
+        return Err("Reslice grid requires the exact source volume");
+    }
     let geometry = grid.geometry();
     let reference = volume.frames()[0]
         .geometry

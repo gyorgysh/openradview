@@ -2,6 +2,7 @@
 use super::*;
 fn image(size: [u32; 2], position: V3, orientation: [f64; 6], spacing: [f64; 2]) -> Frame {
     Frame {
+        memory: None,
         presentation: None,
         calibration: None,
         projection: None,

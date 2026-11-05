@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frames = (0..depth)
         .map(|z| {
             Arc::new(Frame {
+                memory: None,
                 presentation: None,
                 calibration: None,
                 projection: None,

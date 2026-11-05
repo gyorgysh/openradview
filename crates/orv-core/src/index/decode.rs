@@ -88,6 +88,7 @@ pub(super) fn decode(
         let presentation =
             crate::dicom_color::present(&object, decoded.as_ref(), color, 0, padding, cancelled)?;
         return Ok(Arc::new(Frame {
+            memory: None,
             presentation: header.presentation.clone(),
             calibration: header.calibration.clone(),
             projection: header.projection.clone(),
@@ -138,6 +139,7 @@ pub(super) fn decode(
         .original()
         .unwrap_or_else(|| crate::dicom_padding::automatic_window(&pixels, validity.as_deref()));
     Ok(Arc::new(Frame {
+        memory: None,
         presentation: header.presentation.clone(),
         calibration: header.calibration.clone(),
         projection: header.projection.clone(),
@@ -194,6 +196,7 @@ fn float(
         .original()
         .unwrap_or_else(|| crate::dicom_padding::automatic_window(&pixels, validity.as_deref()));
     Ok(Arc::new(Frame {
+        memory: None,
         presentation: header.presentation.clone(),
         calibration: header.calibration.clone(),
         projection: header.projection.clone(),

@@ -35,6 +35,7 @@ fn phantom(missing: bool) -> Volume {
                     })
                     .collect::<Vec<_>>();
                 Arc::new(Frame {
+                    memory: None,
                     presentation: None,
                     calibration: None,
                     projection: None,

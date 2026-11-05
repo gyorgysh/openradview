@@ -25,6 +25,7 @@ fn source(
                 }
             }
             Arc::new(Frame {
+                memory: None,
                 width: width as u32,
                 height: height as u32,
                 pixels: pixels.into(),

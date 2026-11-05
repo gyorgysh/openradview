@@ -7,6 +7,7 @@ pub(super) fn source() -> Arc<Volume> {
             (0..3)
                 .map(|z| {
                     Arc::new(Frame {
+                        memory: None,
                         presentation: None,
                         calibration: None,
                         projection: None,

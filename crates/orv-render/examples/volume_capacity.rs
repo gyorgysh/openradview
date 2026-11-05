@@ -66,6 +66,7 @@ fn run(
         values.try_reserve_exact(width * height)?;
         values.extend((0..width * height).map(|index| z as f32 + (index % width) as f32 * 0.001));
         frames.push(Arc::new(Frame {
+            memory: None,
             presentation: None,
             calibration: None,
             projection: None,

@@ -30,13 +30,32 @@ source VOI tables, with its creating device/queue. Projection renderers can shar
 it without another source allocation. Source staging and per-renderer outputs
 have separate reservations, retired only after submitted work completes.
 Core `ReformatGrid` prepares physical geometry, dimensions and slab sampling
-without image allocation; CPU resampling uses that same grid. The scalar GPU
-reslicer prototype writes full-precision values and explicit validity, supports
-three outputs and bounded tiles, and keeps each dispatch's uniforms immutable.
-Its interpolation and slab accumulation use f32 arithmetic; CPU sampling remains
-the reference. Missing nonzero-weight contributors invalidate a thin sample;
-slabs omit missing samples and retain the declared interval count. These backend
-APIs are not yet connected to desktop MPR, masks, exports or shared snapshots.
+without image allocation; CPU resampling uses that same grid. An opaque RAM-only
+owner binds each grid to the exact source volume. Equal geometry does not make
+grids interchangeable. Derived scalar and color reformats retain CPU admission
+through their immutable `Frame`, including clones held by tools or exports.
+
+The scalar GPU reslicer has separate compute-only tiled outputs and worker-only
+completed frames. The latter accumulates source coordinates as signed 24.40
+integers using u32 carry arithmetic. Preflight bounds partial sums and coordinate
+uncertainty against the CPU's f64 evaluation. Interpolation and slab accumulation
+remain f32, with conservative error and possible-contributor checks. Uncertain
+validity or arithmetic requests exact CPU sampling for that pixel, including all
+declared slab samples. Subnormal source values and unsupported coordinate/device
+limits refuse this path. Missing nonzero-weight contributors invalidate a thin
+sample; slabs omit missing samples and retain the declared interval count.
+
+Up to three requested planes share one bounded readback and cancellable fence.
+Only complete results escape: required CPU corrections are uploaded before an
+immutable GPU image and its matching CPU `Frame` are published. Requested sizes
+are preserved; absent slots do no work. Completed images retain source, metadata
+and pixel admission independently of renderer reuse or teardown. The slice
+presenter can bind their scalar/validity texture directly while tools retain the
+matching CPU pixels. Its constructor uses the image's own GPU context, and later
+uploads require the same exact source owner; raw native device IDs can repeat
+across instances. The existing display mapping, VOI and transforms are shared.
+These backend APIs are not yet connected to desktop MPR, masks, exports or shared
+snapshots. They do not change the canonical CPU scene reconstruction contract.
 
 The separate material volume backend integrates piecewise optical materials into
 linear RGBA16F targets up to 2048 pixels per side. Its optional two-sided headlight

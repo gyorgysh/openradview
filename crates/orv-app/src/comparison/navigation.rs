@@ -35,6 +35,7 @@ impl Task {
                         GeometryError::Limit => "Physical-navigation metadata exceeds the current shared memory allowance",
                         GeometryError::Cancelled => "Geometry checking cancelled",
                         GeometryError::Pixels => "Unsupported image representation",
+                        GeometryError::Memory => "Not enough memory for this view",
                     }.to_owned()
                 });
                 if !worker.load(Ordering::Acquire) {

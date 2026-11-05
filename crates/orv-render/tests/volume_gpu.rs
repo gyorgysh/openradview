@@ -34,6 +34,7 @@ fn volume(constant: Option<f32>, monochrome1: bool) -> Arc<Volume> {
             (0..4)
                 .map(|z| {
                     Arc::new(Frame {
+                        memory: None,
                         presentation: None,
                         calibration: None,
                         projection: None,
@@ -444,6 +445,7 @@ fn refined_steps_follow_voxel_speed_in_a_strongly_sheared_volume() {
     let frames = (0..4)
         .map(|z| {
             Arc::new(Frame {
+                memory: None,
                 presentation: None,
                 calibration: None,
                 projection: None,

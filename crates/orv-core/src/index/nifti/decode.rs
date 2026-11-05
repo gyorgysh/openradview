@@ -87,6 +87,7 @@ impl Nifti {
         }
         let geometry = self.frame_geometry(header, frame);
         Ok(Arc::new(Frame {
+            memory: None,
             presentation: None,
             calibration: None,
             projection: None,

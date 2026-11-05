@@ -45,6 +45,7 @@ fn source(padding: bool) -> Result<Arc<Volume>> {
                 })
                 .collect::<Vec<_>>();
             Arc::new(Frame {
+                memory: None,
                 presentation: None,
                 calibration: None,
                 projection: None,

@@ -9,6 +9,7 @@ pub(super) fn labels() -> Arc<Labels> {
     let frames = (0..3)
         .map(|z| {
             Arc::new(Frame {
+                memory: None,
                 presentation: None,
                 calibration: None,
                 projection: None,
