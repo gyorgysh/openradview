@@ -4,8 +4,10 @@ mod canvas;
 mod counts;
 mod display;
 mod illustration;
+mod local_volume;
 use crate::jobs;
 pub(crate) use illustration::{CapturedMasks, MaskDescription};
+pub(crate) use local_volume::{RegionMap, RegionMaps, RegionSelection};
 mod overlay;
 mod regions;
 mod supplied;
@@ -255,7 +257,7 @@ impl LabelUi {
                 return;
             }
             ui.label("Draw or load your own labels. No model or anatomical inference is used.");
-            ui.label("Labels appear on source images and thin MPR/oblique planes. Painting stays on the source grid. Slabs, 3D and agent snapshots exclude labels. Keep a matching copy of the original images.");
+            ui.label("Labels appear on source images and thin MPR/oblique planes. In 3D, choose Region in 3D for one opaque ID over a scalar material view. Painting stays on the source grid. Slabs and agent snapshots exclude labels. Keep a matching copy of the original images.");
             if self.task.is_some() {ui.horizontal(|ui| {ui.spinner();ui.label("Working locally…");if ui.button("Cancel").clicked() && let Some(task)=&self.task{task.cancel();}});}
             ui.add_enabled_ui(self.task.is_none(),|ui| {
                 if self.current.is_none() {

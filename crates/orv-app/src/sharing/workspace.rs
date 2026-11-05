@@ -11,15 +11,15 @@ use orv_core::{
 use std::sync::Arc;
 
 impl Workspace {
-    fn local_material_view(&self) -> bool {
+    fn local_scene_view(&self) -> bool {
         self.mode == ViewMode::Volume
             && self
                 .volume
                 .as_ref()
-                .is_some_and(|volume| volume.local_material())
+                .is_some_and(|volume| volume.local_scene())
     }
     pub(crate) fn sharing_before_ui(&mut self, ctx: &egui::Context, external_dialog_open: bool) {
-        if self.local_material_view() {
+        if self.local_scene_view() {
             self.sharing.revoke();
             self.sharing.panel_open = false;
         }
@@ -31,7 +31,7 @@ impl Workspace {
             && let Some(request) = self.sharing.broker.as_ref().and_then(|b| b.take_request())
         {
             if self.mode == ViewMode::Compare
-                || self.local_material_view()
+                || self.local_scene_view()
                 || self.sharing.comparison.is_active()
                 || self.sharing.modal_open()
                 || self.loading.is_some()
@@ -64,7 +64,7 @@ impl Workspace {
         }
     }
     pub(crate) fn sharing_after_ui(&mut self, ctx: &egui::Context) {
-        if self.local_material_view() {
+        if self.local_scene_view() {
             self.sharing.revoke();
             self.sharing.panel_open = false;
         }
@@ -79,7 +79,7 @@ impl Workspace {
     pub(crate) fn agent_toolbar(&mut self, ui: &mut egui::Ui) {
         if ui
             .add_enabled(
-                self.mode != ViewMode::Compare && !self.local_material_view(),
+                self.mode != ViewMode::Compare && !self.local_scene_view(),
                 egui::Button::new(if self.sharing.is_active() {
                     "Agents · connected"
                 } else {
@@ -121,7 +121,7 @@ impl Workspace {
         }
     }
     pub(super) fn apply_shared_scene(&mut self, scene: &SceneState, ctx: &egui::Context) {
-        if self.mode == ViewMode::Compare || self.local_material_view() {
+        if self.mode == ViewMode::Compare || self.local_scene_view() {
             self.sharing.revoke();
             return;
         }

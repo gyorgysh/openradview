@@ -117,7 +117,7 @@ pub(super) struct Callback {
     pub material: Option<OpticalStyle>,
     pub ctx: egui::Context,
 }
-fn resolution(pixels: egui::Vec2, cap: f32) -> [u32; 2] {
+pub(super) fn resolution(pixels: egui::Vec2, cap: f32) -> [u32; 2] {
     let scale = (cap / pixels.x.max(pixels.y).max(1.)).min(1.);
     [
         (pixels.x * scale).round().clamp(1., 2048.) as u32,

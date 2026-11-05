@@ -397,7 +397,8 @@ CPU staging is bounded to one clipped 32-cubed tile. GPU admission includes the
 new grid, conservatively padded staging rows and retirement while commands finish.
 The current prototype still copies the whole old GPU grid for each changed
 revision; it is not sparse GPU residency. Callers retain each revision Arc through
-submission/presentation of its texture view. Native 3D mask display remains separate.
+submission/presentation of its texture view. Native 3D uses these immutable inputs
+on its region worker.
 
 Supplied GPU inputs retain one selected ID and the complete immutable CPU segment
 owner on that exact GPU source. R32Uint texels pack 32 binary memberships or four
@@ -457,8 +458,41 @@ cancellable worker wait. RGBA16F stores linear radiance and the shared display
 pipeline encodes it once at presentation. Output admission includes eight bytes
 per pixel, validation state and up to 256 batches of uniforms/bindings. This
 backend requires a storage buffer; devices without it retain source-only views.
-Native mask display, ordinary exports and agent snapshots
-do not use these backends yet.
+Native scalar material views can display one selected manual or supplied region
+through this path. Ordinary exports and agent snapshots exclude this scene.
+
+The native region view retains the same CPU map owners used by 2D and the upload
+worker's shared GPU source. Series selection and exact source Arc identity are
+required; numeric geometry equality cannot attach a map. One worker accepts one
+running request and one replaceable pending request. Camera changes cancel obsolete
+view computation independently of the data-upload lease, so motion cannot repeatedly
+restart an unchanged mask upload. A changed map/selected supplied ID cancels that
+lease. Manual ID changes share the uploaded all-ID grid. CPU label work suspends the
+image while retaining the renderer and prior GPU grid for changed-tile upload when
+the edit completes. Removal, disabling the view and source closure drop its owners.
+
+The paint callback only draws an immutable completed image; pipeline construction,
+packing, projection, composition and bounded GPU waits stay on the worker. Motion
+requests up to 512 pixels per side. After 180 ms without interaction, the worker can
+prepare up to 2048 in 16-row batches. Each refined batch fences before another is
+submitted, bounding obsolete queued work. A running preview finishes while only
+the newest desired camera/style request waits; it can publish a coherent frame
+for the same exact source/map/revision/ID while continuous motion continues.
+Refinement is cancelled for new input. Partial refinements never replace the
+front image. Source/map/ID
+changes hide an old region frame immediately. Camera/style changes retain the last
+coherent complete frame with an updating caption. Until the first region frame is
+ready, the existing source material is shown and labelled as such. Refusals retain
+the source and offer an explicit retry. Worker completion and the one refinement
+deadline trigger repaints; a completed quiet view schedules no further work.
+
+The 3D region selection and brightness are explicit, independent of 2D overlay
+visibility/opacity. Manual ID selection is shared with the label editor; supplied
+IDs remain u16. Fractional masks use the fixed half-maximum categorical view.
+This path has no transparency, multiple-ID scene, derived surface, 3D picking or
+painting. Enabling it selects Material; returning to Volume/MIP disables it.
+Sharing/export guards apply as soon as the local scene is selected, including
+pending or failed preparation, so they cannot substitute a source-only image.
 
 The native labels panel selects either manual labels or read-only supplied masks.
 Each keeps its own source association and state; manual undo/dirty guards never

@@ -11,6 +11,8 @@ use std::sync::{
 };
 
 pub(super) struct Ready {
+    pub source: Arc<GpuVolumeSource>,
+    pub format: wgpu::TextureFormat,
     pub volume: Arc<Volume>,
     pub renderer: VolumeRenderer,
     pub material_renderer: Option<Result<MaterialVolumeRenderer, &'static str>>,
@@ -51,9 +53,11 @@ impl Upload {
                         worker.load(Ordering::Acquire)
                     })
                     .map_err(str::to_owned)?;
-                    let material_renderer =
-                        (!volume.is_color()).then(|| MaterialVolumeRenderer::new(source, format));
+                    let material_renderer = (!volume.is_color())
+                        .then(|| MaterialVolumeRenderer::new(source.clone(), format));
                     Ok(Ready {
+                        source,
+                        format,
                         volume,
                         renderer,
                         material_renderer,

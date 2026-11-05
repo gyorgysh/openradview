@@ -47,6 +47,20 @@ impl Default for Supplied {
     }
 }
 impl Supplied {
+    pub(super) fn local_volume_map(
+        &self,
+        selected: usize,
+        source: &Arc<Volume>,
+    ) -> Result<Option<Arc<Segments>>, &'static str> {
+        if self.pending.is_some_and(|(_, series)| series == selected) {
+            return Err("Wait for supplied masks to finish loading");
+        }
+        Ok(self
+            .current
+            .as_ref()
+            .filter(|v| self.series == selected && Arc::ptr_eq(&v.source_arc(), source))
+            .cloned())
+    }
     pub(super) fn illustration_masks(
         &self,
         selected: usize,
@@ -267,7 +281,7 @@ impl Supplied {
             ui.label(&self.message);
         }
         ui.separator();
-        ui.small("Read-only on source images and thin MPR/oblique planes. Slabs, 3D and agent snapshots exclude masks. Nothing is saved automatically.");
+        ui.small("Read-only on source images and thin MPR/oblique planes. Region in 3D shows one opaque ID over a scalar material view. Slabs and agent snapshots exclude masks. Nothing is saved automatically.");
         ui.collapsing("Supported mask inputs", |ui| {
             ui.small("Choose native uncompressed little-endian BINARY, FRACTIONAL or LABELMAP DICOM SEG. Fractional values count at or above half the declared maximum. Source references and plane geometry must match the selected loaded DICOM series; no resampling is performed.");
             ui.small("Up to 64 segments and 4096 mask/source planes, 32 million source voxels and 4 million pixels per plane. Other encodings and differing grids are unsupported. Closing the source releases this set.");
@@ -361,6 +375,28 @@ fn read(request: Request, cancel: &dyn Fn() -> bool) -> Result<Option<Arc<Segmen
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_map_requires_selected_series_and_exact_source_and_waits_for_replacement() {
+        let masks = masks();
+        let source = masks.source_arc();
+        let mut state = Supplied {
+            current: Some(masks.clone()),
+            series: 4,
+            ..Default::default()
+        };
+        assert!(state.local_volume_map(3, &source).unwrap().is_none());
+        let copy = Arc::new(Volume::new(source.frames().to_vec()).unwrap());
+        assert!(state.local_volume_map(4, &copy).unwrap().is_none());
+        assert!(Arc::ptr_eq(
+            &state.local_volume_map(4, &source).unwrap().unwrap(),
+            &masks
+        ));
+        state.pending = Some((1, 4));
+        assert!(state.local_volume_map(4, &source).is_err());
+        state.pending = Some((2, 3));
+        assert!(state.local_volume_map(3, &source).is_err());
+        assert!(state.local_volume_map(4, &source).unwrap().is_some());
+    }
     fn masks() -> Arc<Segments> {
         Arc::new(
             Segments::from_binary(

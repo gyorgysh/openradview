@@ -7,6 +7,10 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 
+- **Regions in 3D.** Display one manual label or supplied mask ID over a scalar
+  material view. GPU preparation runs on a background worker and shows complete
+  frames. Fractional masks use half their declared maximum; painting stays in
+  2D. This view stays local and has no picture export or agent sharing yet.
 - **3D materials and lighting.** For scalar volumes, map intensity points to
   brightness and opacity per millimetre, with optional lighting for depth cues.
   The material view uses a larger interaction image and refines in bounded tiles.

@@ -676,7 +676,7 @@ impl Workspace {
                         ViewMode::Volume => {
                             self.labels.clear_overlays();
                             if let Some(volume) = &mut self.volume {
-                                volume.ui(ui, frame);
+                                volume.ui(ui, frame, &mut self.labels, self.selected);
                             }
                         }
                         ViewMode::Oblique => {

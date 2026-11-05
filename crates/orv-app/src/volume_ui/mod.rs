@@ -4,6 +4,7 @@ mod callback;
 mod controls;
 mod input;
 mod material;
+mod regions;
 mod sharing;
 #[cfg(all(test, feature = "gpu-tests"))]
 mod tests;
@@ -38,10 +39,11 @@ pub struct VolumeSession {
     pub(super) material_enabled: bool,
     material_editor: Option<material::MaterialEditor>,
     material_error: Option<&'static str>,
+    regions: regions::Regions,
 }
 impl VolumeSession {
-    pub(crate) fn local_material(&self) -> bool {
-        self.material_enabled
+    pub(crate) fn local_scene(&self) -> bool {
+        self.material_enabled || self.regions.enabled()
     }
     pub(crate) fn picture(&self) -> Option<(crate::export::Pixels, [u32; 2])> {
         let (spec, true) = self.shared_view()? else {
@@ -66,6 +68,7 @@ impl VolumeSession {
             material_enabled: false,
             material_editor: None,
             material_error: None,
+            regions: Default::default(),
             volume: None,
             gpu: None,
             state: None,
@@ -93,6 +96,7 @@ impl VolumeSession {
         let result = self.upload.as_ref().map(|u| u.receiver.try_recv());
         match result {
             Some(Ok(Ok(ready))) => {
+                self.regions.bind(ready.source, ready.format);
                 self.prefer_source |= ready.volume.is_color();
                 if self.prefer_source
                     && let Some(range) = &ready.source_range
@@ -146,7 +150,13 @@ impl VolumeSession {
             _ => (),
         }
     }
-    pub fn ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        frame: &eframe::Frame,
+        labels: &mut crate::labels::LabelUi,
+        selected: usize,
+    ) {
         if self.pending_frames.is_some() {
             if let Some(render) = frame.wgpu_render_state() {
                 self.start_upload(
@@ -176,6 +186,7 @@ impl VolumeSession {
             return;
         };
         crate::view_context::show(ui, &volume.frames()[0]);
+        let was_material = self.material_enabled;
         if self.material_enabled {
             state.projection = Projection::Composite;
             if let Some(editor) = &mut self.material_editor {
@@ -208,6 +219,19 @@ impl VolumeSession {
             },
         ) {
             self.needs_fit = true;
+        }
+        if was_material && !self.material_enabled {
+            self.regions.disable();
+        }
+        let region_selection = if self.material_editor.is_some() {
+            self.regions
+                .controls(ui, labels, selected, volume, &mut self.material_enabled)
+        } else {
+            self.regions.disable();
+            None
+        };
+        if self.material_enabled {
+            state.projection = Projection::Composite;
         }
         if let Some(error) = self.material_error {
             ui.label(format!("Material view unavailable: {error}"));
@@ -246,20 +270,39 @@ impl VolumeSession {
             .material_enabled
             .then(|| self.material_editor.as_ref().map(|editor| editor.style()))
             .flatten();
-        ui.painter_at(rect)
-            .add(eframe::egui_wgpu::Callback::new_paint_callback(
+        let region_mode = self.regions.enabled();
+        let painted = if let (Some(selection), Some(style)) = (region_selection, material.as_ref())
+        {
+            self.regions.show(
+                ui,
                 rect,
-                Callback {
-                    gpu: gpu.clone(),
+                regions::Scene {
+                    selection,
                     display: self.display.clone(),
                     state: state.clone(),
-                    pixels,
-                    interacting,
-                    material: material.clone(),
-                    ctx: ui.ctx().clone(),
+                    style: style.clone(),
                 },
-            ));
-        if let Ok(gpu) = gpu.try_lock() {
+                interacting,
+            )
+        } else {
+            false
+        };
+        if !painted {
+            ui.painter_at(rect)
+                .add(eframe::egui_wgpu::Callback::new_paint_callback(
+                    rect,
+                    Callback {
+                        gpu: gpu.clone(),
+                        display: self.display.clone(),
+                        state: state.clone(),
+                        pixels,
+                        interacting,
+                        material: material.clone(),
+                        ctx: ui.ctx().clone(),
+                    },
+                ));
+        }
+        if !region_mode && let Ok(gpu) = gpu.try_lock() {
             if let Some(error) = gpu.error {
                 ui.label(error);
             } else {

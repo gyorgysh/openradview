@@ -135,4 +135,9 @@ impl GpuVolumeSource {
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
     }
+    /// Worker-only bounded, cancellable completion of submitted work. Native
+    /// refinement uses this between batches to bound queued obsolete GPU work.
+    pub fn wait_submitted(&self, cancelled: impl Fn() -> bool) -> Result<(), &'static str> {
+        flush_upload(&self.device, &self.queue, &cancelled)
+    }
 }

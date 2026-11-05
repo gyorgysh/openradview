@@ -434,6 +434,15 @@ fn failed_preview_worker_reports_errors_for_later_requests_instead_of_waiting_fo
 
 #[test]
 fn local_material_revokes_approval_and_refuses_queued_source_views_or_substitute_exports() {
+    assert_local_scene_refuses_disclosure(false);
+}
+
+#[test]
+fn local_region_revokes_approval_even_while_its_first_image_is_pending() {
+    assert_local_scene_refuses_disclosure(true);
+}
+
+fn assert_local_scene_refuses_disclosure(region: bool) {
     use crate::workspace::ViewMode;
     let ctx = egui::Context::default();
     let mut workspace = workspace();
@@ -445,7 +454,11 @@ fn local_material_revokes_approval_and_refuses_queued_source_views_or_substitute
     session.request_view(scene.clone()).unwrap();
     workspace.set_mode(ViewMode::Volume, &ctx);
     let volume = workspace.volume.as_mut().unwrap();
-    volume.material_enabled = true;
+    if region {
+        volume.enable_test_region();
+    } else {
+        volume.material_enabled = true;
+    }
     assert!(volume.picture().is_none());
     assert!(volume.shared_view().is_none());
     workspace.sharing_after_ui(&ctx);
@@ -455,7 +468,7 @@ fn local_material_revokes_approval_and_refuses_queued_source_views_or_substitute
     workspace.sharing_before_ui(&ctx, false);
     workspace.apply_shared_scene(&scene, &ctx);
     assert_eq!(workspace.mode, ViewMode::Volume);
-    assert!(workspace.volume.as_ref().unwrap().local_material());
+    assert!(workspace.volume.as_ref().unwrap().local_scene());
     assert!(session.request_view(scene).is_err());
     workspace.volume.as_mut().unwrap().material_enabled = false;
     assert!(!workspace.sharing.is_active());
