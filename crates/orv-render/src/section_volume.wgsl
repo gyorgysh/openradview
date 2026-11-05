@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-@group(0) @binding(2) var output:texture_storage_2d<rgba16float,write>;
 @group(0) @binding(4) var plane0:texture_2d<f32>;
 @group(0) @binding(5) var plane1:texture_2d<f32>;
 @group(0) @binding(6) var plane2:texture_2d<f32>;
@@ -73,16 +72,17 @@ fn plane_inside_clip(s:Section,xy:vec2f)->bool {
     }
     return true;
 }
-@compute @workgroup_size(8,8,1)
-fn main(@builtin(global_invocation_id) gid:vec3u) {
-    if any(gid.xy>=vec2u(p.region.zw)) {return;}
-    let pixel=vec2i(vec2u(p.region.xy)+gid.xy);
+// Display and a bounded local probe must use identical actor ordering and optics.
+// x=radiance, y=foreground transmission, z=actor depth, w=0 background / 1 face /
+// 2..4 source-plane slot. This grants no source-membership authority by itself.
+fn evaluate_section(pixel:vec2i)->vec4f {
     // Region describes a batch, while ray centring always uses the whole image.
-    let size=textureDimensions(output);let offset=pixel_ray_offset(pixel,size);
+    let size=vec2u(vec2f(p.origin.w,p.right.w));let offset=pixel_ray_offset(pixel,size);
     let origin=p.origin.xyz+p.right.xyz*offset.x+p.down.xyz*offset.y;
     var ray=source_interval(origin,p.direction.xyz,offset);
     let surface=surface_background(pixel,origin);
     var nearest=surface.x;var background=surface.y;
+    var actor=select(0.,1.,surface.x<1e30);
     for(var slot=0u;slot<3u;slot++) {
         let s=sections[slot];if s.down.w<.5 || s.direction.z==0. {continue;}
         let local=s.origin.xyz+s.right.xyz*offset.x+s.down.xyz*offset.y;
@@ -94,11 +94,11 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
         if any(xy<vec2f(-.5)) || any(xy>=vec2f(dimensions)-.5) {continue;}
         if !plane_inside_clip(s,xy) {continue;}
         let sample=section_sample(slot,xy,dimensions);if sample.y<.5 {continue;}
-        nearest=depth;background=plane_luminance(slot,sample.x);
+        nearest=depth;background=plane_luminance(slot,sample.x);actor=f32(slot+2u);
     }
     ray.y=min(ray.y,nearest);
     let integrated=integrate_surface_source(origin,ray);
     let result=integrated.x+integrated.y*background;
     if !(result>=0. && result<=1.00001) {atomicStore(&failed,1u);}
-    textureStore(output,pixel,vec4f(result,result,result,1.));
+    return vec4f(result,integrated.y,nearest,actor);
 }

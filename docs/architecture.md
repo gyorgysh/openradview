@@ -127,6 +127,27 @@ exact actor/view/material identity and check a GPU arithmetic flag before
 publishing immutable radiance. Old completed images keep their owners/admission
 through cancellation or renderer teardown.
 
+An optional worker-only section probe uses the same actor ordering and optical
+function as the completed image. Its 56-byte readback includes the original pixel's
+cell/depth, unquantized radiance, foreground transmission, selected actor and
+completed color. It checks arithmetic and color, then independently traverses the
+CPU mask in f64 and intersects the thin planes with their completed CPU validity
+stencils. A covering plane or foreground transmission below 5% withholds the
+region hit. CPU/GPU ordering or membership disagreement and exact face-edge
+contacts are ambiguous. An exactly zero plane-normal residual proves a shared
+physical face contact without a tolerance; adjacent representable foreground
+planes still cannot gain a hit through GPU rounding. Real backfaces remain
+eligible where clipping or unknown coverage leaves the surface open.
+
+`SectionPickFrame` retains the job's originating revocable `PickScope`.
+`SectionPickState` must match the live CPU request as well as the exact prepared
+scene, including source/map/revision/ID, plane owners, VOI/inversion, interface,
+material, lights, camera/navigation/clip and size. A matching completed frame alone
+cannot establish the live desired state. The result repeats this check before
+use. Lazy probe-pipeline preparation, per-call admission and cancellable waits
+stay off the UI thread; probe failure leaves display available. This read-only
+backend grants no editing, export or disclosure authority.
+
 The native workbench passes the completed GPU MPR images and each plane's display
 window/inversion to a separate coalescing worker. Its optional region uses the
 exact current manual or supplied map, including a physical edit proposal. Shared
@@ -145,7 +166,7 @@ scope. Mask-cell mode and surface picking are disabled while planes are active:
 the older surface probe cannot account for foreground plane occlusion. Hiding
 the planes restores the stored geometry choice, with picking still off until
 explicitly enabled. Choosing Volume or MIP hides the planes; enabling planes
-selects Material. Independent plane poses, plane-aware picking and workbench
+selects Material. Independent plane poses, native plane-aware picking and workbench
 sharing/export are not implemented.
 
 The workbench's physical label tool proposes a sphere or thick disk at the

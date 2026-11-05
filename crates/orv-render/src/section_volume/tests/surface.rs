@@ -12,7 +12,7 @@ use orv_core::{
     surface::{CellSurface, SurfaceLimits},
 };
 
-fn geometry(gpu: Arc<GpuVolumeSource>) -> Arc<GpuCellSurface> {
+pub(super) fn geometry(gpu: Arc<GpuVolumeSource>) -> Arc<GpuCellSurface> {
     let volume = gpu.volume();
     let frames = volume
         .frames()
@@ -53,7 +53,7 @@ fn geometry(gpu: Arc<GpuVolumeSource>) -> Arc<GpuCellSurface> {
         .unwrap()
         .0
 }
-fn project(
+pub(super) fn project(
     projector: &GpuSurfaceProjector,
     geometry: Arc<GpuCellSurface>,
     scene: &SectionScene,
@@ -71,7 +71,11 @@ fn project(
         )
         .unwrap()
 }
-fn boundary(surface: &SectionSurface, origin: [f64; 3], direction: [f64; 3]) -> Option<(f64, f64)> {
+pub(super) fn boundary(
+    surface: &SectionSurface,
+    origin: [f64; 3],
+    direction: [f64; 3],
+) -> Option<(f64, f64)> {
     let request = surface.image.request();
     let volume = request.surface.source().volume();
     let voxel = volume.world_to_voxel(origin);

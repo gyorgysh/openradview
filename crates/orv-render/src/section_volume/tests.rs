@@ -12,6 +12,7 @@ use orv_core::{
 };
 use std::{cell::Cell, time::Duration};
 mod clipping;
+mod pick;
 mod surface;
 
 fn fence(d: &wgpu::Device) {

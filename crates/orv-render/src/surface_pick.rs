@@ -524,14 +524,14 @@ impl GpuSurfacePicker {
         bytes
     }
 }
-fn ray_error(error: InterfaceRayError) -> &'static str {
+pub(crate) fn ray_error(error: InterfaceRayError) -> &'static str {
     match error {
         InterfaceRayError::Cancelled => "Cancelled",
         InterfaceRayError::Ambiguous => "Ambiguous surface contact",
         InterfaceRayError::Geometry(message) => message,
     }
 }
-fn matches_hit(
+pub(crate) fn matches_hit(
     hit: &InterfaceHit,
     cell: [u32; 4],
     depth: f32,
@@ -554,7 +554,7 @@ fn matches_hit(
         .fold(0., f64::max);
     cell == [x, y, z, word] && (f64::from(depth) - expected).abs() * speed <= 0.005
 }
-fn u32_at(bytes: &[u8; 56], offset: usize) -> Result<u32, &'static str> {
+pub(crate) fn u32_at(bytes: &[u8; 56], offset: usize) -> Result<u32, &'static str> {
     let word = bytes
         .get(offset..offset + 4)
         .ok_or("Invalid probe word")?
@@ -562,10 +562,10 @@ fn u32_at(bytes: &[u8; 56], offset: usize) -> Result<u32, &'static str> {
         .map_err(|_| "Invalid probe word")?;
     Ok(u32::from_le_bytes(word))
 }
-fn f32_at(bytes: &[u8; 56], offset: usize) -> Result<f32, &'static str> {
+pub(crate) fn f32_at(bytes: &[u8; 56], offset: usize) -> Result<f32, &'static str> {
     Ok(f32::from_bits(u32_at(bytes, offset)?))
 }
-fn half(bits: u16) -> Option<f32> {
+pub(crate) fn half(bits: u16) -> Option<f32> {
     let exponent = (bits >> 10) & 31;
     if exponent == 31 {
         return None;

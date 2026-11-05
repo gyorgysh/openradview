@@ -15,7 +15,9 @@ use orv_render::{
     GpuReservation,
     material_volume::Lighting,
     reslice::GpuReslicer,
+    section_volume::pick::{SectionPickFrame, SectionPickState},
     section_volume::{SectionImage, SectionPlane, SectionRenderer, SectionScene, SectionSurface},
+    surface_pick::PickScope,
     surface_projection::{GpuSurfaceProjector, SurfaceProjection},
     surface_source::GpuCellSurface,
     volume_source::GpuVolumeSource,
@@ -134,6 +136,52 @@ fn measure(
         "max_ms":times[samples-1],"row_batches":scene.size[1].div_ceil(rows)}),
         previous.ok_or("Section timing image unavailable")?,
     ))
+}
+fn probes(renderer: &mut SectionRenderer, image: Arc<SectionImage>) -> Result<Value> {
+    let frame = SectionPickFrame::new(image, PickScope::new()?);
+    let current = SectionPickState::from_frame(&frame)?;
+    let side = current.scene.size[0];
+    let samples = if side == 512 { 120 } else { 30 };
+    let mut cases = Vec::new();
+    for pixel in [[side / 2, side / 2], [side / 4, side / 2], [0, 0]] {
+        let start = Instant::now();
+        let first = renderer.probe(&frame, &current, pixel, || false)?;
+        let first_ms = start.elapsed().as_secs_f64() * 1000.;
+        let kind = first.kind();
+        let first_hit = first.hit().map(|hit| hit.face);
+        let transmittance = first.foreground_transmittance();
+        drop(first);
+        let mut times = Vec::new();
+        for index in 0..samples + 3 {
+            let start = Instant::now();
+            let result = renderer.probe(&frame, &current, pixel, || false)?;
+            if !result.is_current(&current, pixel)
+                || result.kind() != kind
+                || result.hit().map(|hit| hit.face) != first_hit
+                || result.foreground_transmittance() != transmittance
+            {
+                return Err(
+                    "A generated section probe changed for the same completed scene".into(),
+                );
+            }
+            drop(result);
+            fence(frame.image().source().device())?;
+            if index >= 3 {
+                times.push(start.elapsed().as_secs_f64() * 1000.);
+            }
+        }
+        times.sort_by(f64::total_cmp);
+        cases.push(
+            json!({"pixel":pixel,"kind":format!("{kind:?}"),"hit_cell":first_hit.map(|h|h.cell()),
+            "foreground_transmittance":transmittance,"first_probe_ms":first_ms,
+            "samples":samples,"warmups":3,"median_ms":times[samples/2],
+            "p95_ms":times[(samples*95).div_ceil(100)-1],"max_ms":times[samples-1]}),
+        );
+    }
+    Ok(
+        json!({"first_case_includes_lazy_pipeline":side==512,"cases":cases,
+        "scope":"one original image pixel; allocation, shared actor/optical calculation, 56-byte readback, completed-color check, independent f64 face/plane/validity checks, result drop and retirement fence; scene, source and plane preparation excluded"}),
+    )
 }
 fn main() -> Result<()> {
     let arguments: Vec<_> = std::env::args().skip(1).collect();
@@ -264,13 +312,18 @@ fn main() -> Result<()> {
                 1,
             )?;
             let admission = json!({"cpu_bytes":MemoryBudget::volumes().used(),"gpu_bytes":MemoryBudget::gpu().used()});
+            let probes = if with_surface {
+                probes(&mut renderer, a.clone())?
+            } else {
+                Value::Null
+            };
             let a = read(&gpu, &a)?;
             let b = read(&gpu, &b)?;
             if a.pixels != b.pixels {
                 return Err("Section row composition differs from complete dispatch".into());
             }
             sizes.push(json!({"size":[side,side],"surface_projection_ms":surface_projection_ms,"full":full,"rows16":tiled,"verified_pixels":a.pixels.len(),"all_row_pixels_equal":true,
-                "admission_after_images_before_verification":admission}));
+                "admission_after_images_before_verification_and_probe":admission,"probes":probes}));
         }
         cases.push(json!({"source":kind,"dimensions":[512,512,128],"unique_scalar_planes":true,"source_upload_ms":upload_ms,"completed_mpr_preparation_ms":prepare_planes_ms,
             "pipeline_ms":pipeline_ms,"surface_projector_pipeline_ms":projector_pipeline_ms,"sphere_geometry_preparation_ms":geometry_preparation_ms,
@@ -284,7 +337,7 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"schema":2,"with_generated_sphere_surface":with_surface,"adapter":adapter.get_info().name,"cases":cases,
+            &json!({"schema":3,"with_generated_sphere_surface":with_surface,"adapter":adapter.get_info().name,"cases":cases,
         "scope":"resident corrected thin plane textures; complete immutable source composition, uniforms, status readback, previous-front retention, old-front drop and retirement fence; individually fenced 16-row sequences; source/plane/pipeline preparation separate; verification readback and native input/presentation excluded",
         "verification":"all pixels finite monochrome [0,1] with opaque alpha; full and complete row images bit-equal; independent f64 optical/plane/known-face references are exercised by section_volume GPU tests; admission sampled after both images before verification staging",
         "admission_before":before,"admission_after":after,"admission_is_rss_or_driver_memory":false})

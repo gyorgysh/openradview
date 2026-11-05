@@ -76,7 +76,7 @@ impl SectionScene {
     }
 }
 /// Immutable complete radiance, retaining the exact source, planes and optics.
-/// This image supplies no region-picking or mutation authority.
+/// The image alone supplies no region-picking or mutation authority.
 pub struct SectionImage {
     source: Arc<GpuVolumeSource>,
     scene: SectionScene,
@@ -110,6 +110,8 @@ struct Pending {
     next_row: u32,
     dispatches: usize,
 }
+pub mod pick;
+
 pub struct SectionRenderer {
     source: Arc<GpuVolumeSource>,
     pipeline: wgpu::ComputePipeline,
@@ -118,6 +120,7 @@ pub struct SectionRenderer {
     empty: wgpu::Texture,
     empty_cells: wgpu::Texture,
     empty_depth: wgpu::Texture,
+    probe: Option<pick::Pipeline>,
     pending: [Option<Pending>; 2],
     _gpu: allocation::GpuReservation,
 }
@@ -183,7 +186,7 @@ impl SectionRenderer {
         let empty_depth = empty_surface(wgpu::TextureFormat::R32Float)?;
         let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let layout = layout(device);
+        let layout = layout(device, wgpu::TextureFormat::Rgba16Float);
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ordered source section layout"),
             bind_group_layouts: &[Some(&layout)],
@@ -192,17 +195,7 @@ impl SectionRenderer {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("source before physical MPR planes"),
             source: wgpu::ShaderSource::Wgsl(
-                format!(
-                    "{}\n{}\n{}\n{}\n{}\n{}\n{}",
-                    include_str!("pixel_ray.wgsl"),
-                    crate::VOLUME_SAMPLING_SHADER,
-                    crate::material_volume::optics_shader(true, false),
-                    include_str!("opaque_interval.wgsl"),
-                    include_str!("surface_optics.wgsl"),
-                    include_str!("voi.wgsl"),
-                    include_str!("section_volume.wgsl")
-                )
-                .into(),
+                shader(include_str!("section_volume_render.wgsl")).into(),
             ),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -227,6 +220,7 @@ impl SectionRenderer {
             empty,
             empty_cells,
             empty_depth,
+            probe: None,
             pending: Default::default(),
             _gpu: gpu,
         })
@@ -297,64 +291,21 @@ impl SectionRenderer {
             bytemuck::cast_slice(&surface_values),
             wgpu::BufferUsages::UNIFORM,
         )?;
-        let bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("source section row bindings"),
-            layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.source.source),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&pending.target),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&self.source.validity),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&pending.planes[0]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&pending.planes[1]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&pending.planes[2]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::TextureView(&self.source.voi),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
-                    resource: pending.status.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 9,
-                    resource: section.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 10,
-                    resource: wgpu::BindingResource::TextureView(&pending.surface_cells),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 11,
-                    resource: wgpu::BindingResource::TextureView(&pending.surface_depth),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 12,
-                    resource: surface.as_entire_binding(),
-                },
-            ],
-        });
+        let bindings = bindings(
+            device,
+            &self.layout,
+            &self.source,
+            Resources {
+                output: &pending.target,
+                planes: &pending.planes,
+                cells: &pending.surface_cells,
+                depth: &pending.surface_depth,
+                status: &pending.status,
+                optics: &uniform,
+                sections: &section,
+                boundary: &surface,
+            },
+        );
         let mut encoder = device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -462,6 +413,95 @@ impl SectionRenderer {
     }
 }
 
+fn shader(entry: &str) -> String {
+    format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        include_str!("pixel_ray.wgsl"),
+        crate::VOLUME_SAMPLING_SHADER,
+        crate::material_volume::optics_shader(true, false),
+        include_str!("opaque_interval.wgsl"),
+        include_str!("surface_optics.wgsl"),
+        include_str!("voi.wgsl"),
+        include_str!("section_volume.wgsl"),
+        entry
+    )
+}
+struct Resources<'a> {
+    output: &'a wgpu::TextureView,
+    planes: &'a [wgpu::TextureView; 3],
+    cells: &'a wgpu::TextureView,
+    depth: &'a wgpu::TextureView,
+    status: &'a wgpu::Buffer,
+    optics: &'a wgpu::Buffer,
+    sections: &'a wgpu::Buffer,
+    boundary: &'a wgpu::Buffer,
+}
+fn bindings(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    source: &GpuVolumeSource,
+    resources: Resources<'_>,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("checked source section resources"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&source.source),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: resources.optics.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(resources.output),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&source.validity),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&resources.planes[0]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(&resources.planes[1]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: wgpu::BindingResource::TextureView(&resources.planes[2]),
+            },
+            wgpu::BindGroupEntry {
+                binding: 7,
+                resource: wgpu::BindingResource::TextureView(&source.voi),
+            },
+            wgpu::BindGroupEntry {
+                binding: 8,
+                resource: resources.status.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 9,
+                resource: resources.sections.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 10,
+                resource: wgpu::BindingResource::TextureView(resources.cells),
+            },
+            wgpu::BindGroupEntry {
+                binding: 11,
+                resource: wgpu::BindingResource::TextureView(resources.depth),
+            },
+            wgpu::BindGroupEntry {
+                binding: 12,
+                resource: resources.boundary.as_entire_binding(),
+            },
+        ],
+    })
+}
+
 fn parameters(
     source: &GpuVolumeSource,
     scene: &SectionScene,
@@ -476,6 +516,9 @@ fn parameters(
         scene.size,
         region,
     )?;
+    // Whole-image dimensions stay identical for display rows and one-pixel probes.
+    values[3] = scene.size[0] as f32;
+    values[7] = scene.size[1] as f32;
     let volume = source.volume();
     let reference = volume.center();
     let frame = crate::physical_camera::centred_frame(
@@ -679,7 +722,7 @@ fn plane_parameters(
     Ok(result)
 }
 
-fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+fn layout(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::BindGroupLayout {
     let texture = |binding, sample_type, view_dimension| wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::COMPUTE,
@@ -714,7 +757,7 @@ fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::StorageTexture {
                     access: wgpu::StorageTextureAccess::WriteOnly,
-                    format: wgpu::TextureFormat::Rgba16Float,
+                    format,
                     view_dimension: wgpu::TextureViewDimension::D2,
                 },
                 count: None,
