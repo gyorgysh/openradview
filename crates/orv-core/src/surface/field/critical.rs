@@ -2,6 +2,8 @@
 //! Projection-critical points of the exact trilinear zero set. A point is not
 //! itself a connection decision; contours and singular sections still matter.
 use super::*;
+mod graph;
+pub use graph::{AnchorLine, CriticalGraph, ExactCoordinate, GraphEdge, GraphNode, WholeSection};
 
 // For corner magnitudes <=255, each section coefficient has magnitude <=520200.
 // The bound also keeps sign tests with arbitrary i32 linear forms inside i128.

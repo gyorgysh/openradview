@@ -536,6 +536,22 @@ geometry intact; persistent zero edges and saddle families remain explicit
 critical outcomes. They do not independently establish the joined surface's
 topology or manifoldness.
 
+`critical_graph` derives finite axis-aligned zero lines directly from the two
+bilinear equations obtained by separating the line's coordinate. A line can
+cross the cell even when its critical intersection is outside it. Exact
+fractional-linear coordinates merge finite critical points and boundary
+endpoints, then order the segments on each line. Common-radical comparisons use
+checked i128 coefficients and fixed 256-bit products; expressions have no
+representation-based coordinate equality. No floating distance chooses a join.
+The graph uses fixed storage for at most 18 nodes, six lines and 102 segments,
+with bounded cancellation points and no per-cell heap allocation. Identically
+vanishing eliminations and whole zero sections remain explicit diagnostics.
+Strict same-sign fields have no interior zero set; an empty graph does not
+establish absent mask membership or resolve finite-grid truncation. Complete
+face contours, singular families and triangulation remain separate work. Future
+mesh owners must retain source/map/ID/revision and admit aggregate geometry;
+unit-cell graphs grant no edit or disclosure authority.
+
 `InterfaceRay` is a separate f64 membership reference for known cell interfaces.
 It walks bounded source-cell intervals without allocating or scanning derived
 faces. Only eligible positive cells against known valid negatives or marked grid

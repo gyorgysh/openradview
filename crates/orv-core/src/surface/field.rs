@@ -8,7 +8,8 @@ use crate::{
     volume::Volume,
 };
 pub use critical::{
-    AlgebraicRoot, FaceInteriorLimit, LimitContours, ProjectionAnalysis, ProjectionPoint,
+    AlgebraicRoot, AnchorLine, CriticalGraph, ExactCoordinate, FaceInteriorLimit, GraphEdge,
+    GraphNode, LimitContours, ProjectionAnalysis, ProjectionPoint, WholeSection,
 };
 use std::sync::Arc;
 
@@ -18,6 +19,7 @@ pub enum FieldError {
     Bounds,
     Value,
     Arithmetic,
+    Cancelled,
 }
 impl std::fmt::Display for FieldError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -26,6 +28,7 @@ impl std::fmt::Display for FieldError {
             Self::Bounds => "Interpolation cell is outside the source-centre lattice",
             Self::Value => "Mask field values must be between -255 and 255",
             Self::Arithmetic => "Mask field arithmetic cannot be represented",
+            Self::Cancelled => "Cancelled",
         })
     }
 }
