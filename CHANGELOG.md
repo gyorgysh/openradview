@@ -7,6 +7,11 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 
+- **Cell faces and linked picking.** Display a region's source-grid faces with
+  optional lighting. With **Pick surface** enabled, click a visible face to
+  inspect its source cell; in MPR + 3D, the three planes follow that cell's centre.
+  Picking waits for the current completed view and refuses obscured or ambiguous
+  hits. Missing and unknown boundaries stay open. Labels are unchanged.
 - **MPR + 3D.** View the three linked planes beside a local 3D projection of the
   same volume. The projected cursor follows their physical position; 3D keeps
   separate camera and appearance controls. Manual and supplied region selection

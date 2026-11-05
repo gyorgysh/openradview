@@ -548,8 +548,31 @@ deadline trigger repaints; a completed quiet view schedules no further work.
 The 3D region selection and brightness are explicit, independent of 2D overlay
 visibility/opacity. Manual ID selection is shared with the label editor; supplied
 IDs remain u16. Fractional masks use the fixed half-maximum categorical view.
-This path has no transparency, multiple-ID scene, derived surface, 3D picking or
-painting. Enabling it selects Material; returning to Volume/MIP disables it.
+The geometry control chooses mask cells or source-grid cell faces. Switching
+geometry retires the previous worker backend; unchanged immutable fronts retain
+their own resources. Cell faces use `CellSurface` and `GpuCellSurface`, including
+changed-tile/chunk reuse, followed by ordered `OpaqueSurfaceRenderer` composition.
+Projection is reused when only material, brightness or lighting changes. Surface
+lighting is independent of source lighting. Missing and unknown interfaces remain
+open; physical clipping adds no cap. There is no smoothing or decimation.
+
+**Pick surface** enables a read-only primary-click probe for cell faces. Each
+requested image captures its originating `PickScope`. A separate bounded worker
+checks the actual completed optics against the desired map, revision, ID, camera,
+clip, material, both lights, quality, image size and scope. An interactive front
+cannot authorize a desired refined view. Foreground transmittance below 5% blocks
+a hit regardless of its displayed brightness; exact edge/corner contacts remain
+ambiguous. The click is mapped through the actual viewport to the completed raster.
+Navigation, tool/view changes, changed viewport bounds or a newer click cancel the
+pending probe. Returning to an earlier camera requires a new active originating
+scope, rather than reauthorizing the old frame. A newer MPR input generation also
+clears pending probes without rerendering or retagging an unchanged 3D scene.
+Only a current checked hit returns the source-cell centre to the workbench's MPR
+request; the geometric outer face may lie outside its centre-sampling domain.
+Standalone 3D shows a local coordinate readout. No label is changed.
+
+This path has no transparency, multiple-ID scene or 3D painting. Enabling it
+selects Material; returning to Volume/MIP disables it.
 Sharing/export guards apply as soon as the local scene is selected, including
 pending or failed preparation, so they cannot substitute a source-only image.
 

@@ -484,8 +484,12 @@ impl MprSession {
                 ui.ctx().clone(),
             ));
         }
-        if let Some(workbench) = &mut self.workbench {
-            workbench.embedded_ui(ui, labels, selected, snapshot.point);
+        let link_epoch = self.worker.generation();
+        let picked = self.workbench.as_mut().and_then(|workbench| {
+            workbench.embedded_ui(ui, labels, selected, snapshot.point, link_epoch)
+        });
+        if let Some(point) = picked {
+            self.request(&snapshot.volume, point);
         }
     }
     fn guide(&self, ui: &mut egui::Ui, snapshot: &MprSnapshot) {

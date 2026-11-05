@@ -37,7 +37,9 @@ impl VolumeSession {
         labels: &mut crate::labels::LabelUi,
         selected: usize,
         point: [f64; 3],
-    ) {
+        link_epoch: u64,
+    ) -> Option<[f64; 3]> {
+        self.regions.set_link_epoch(link_epoch);
         self.poll();
         let narrow = ui.available_width() < 250.;
         if narrow {
@@ -65,11 +67,11 @@ impl VolumeSession {
         });
         if let Some(error) = &self.error {
             ui.label(error);
-            return;
+            return None;
         }
         if self.volume.is_none() {
             ui.label("Preparing 3D from the MPR source…");
-            return;
+            return None;
         }
         let mut open = self.settings_open;
         crate::dialogs::escape(ui.ctx(), &mut open);
@@ -105,6 +107,7 @@ impl VolumeSession {
         {
             paint_cursor(ui, rect, volume, &camera, point);
         }
+        self.regions.take_point()
     }
 }
 

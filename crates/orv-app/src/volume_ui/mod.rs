@@ -274,6 +274,7 @@ impl VolumeSession {
                     style: style.clone(),
                 },
                 interacting,
+                response,
             )
         } else {
             false

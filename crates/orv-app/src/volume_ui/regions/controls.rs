@@ -13,6 +13,9 @@ pub(super) struct Settings {
     group: Group,
     supplied: u16,
     pub luminance: f32,
+    pub geometry: Geometry,
+    pub surface_lighting: bool,
+    pub pick: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -21,6 +24,9 @@ impl Default for Settings {
             group: Group::Manual,
             supplied: 0,
             luminance: 0.8,
+            geometry: Geometry::Cells,
+            surface_lighting: true,
+            pick: false,
         }
     }
 }
@@ -66,14 +72,22 @@ impl Settings {
                         ui.small(error);
                     }
                 }
-                crate::toolbar::number(
-                    ui,
-                    "Brightness",
-                    egui::DragValue::new(&mut self.luminance)
-                        .range(0. ..=1.)
-                        .speed(0.01)
-                        .fixed_decimals(2),
-                );
+                egui::containers::menu::MenuButton::new(format!("{}{}…", self.geometry.label(), if self.pick { " · pick" } else { "" }))
+                    .config(egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside))
+                    .ui(ui, |ui| {
+                        ui.set_max_width(400.);
+                        crate::toolbar::row(ui, |ui| {
+                            for geometry in [Geometry::Cells, Geometry::Faces] {
+                                ui.selectable_value(&mut self.geometry, geometry, geometry.label());
+                            }
+                            crate::toolbar::number(ui, "Brightness", egui::DragValue::new(&mut self.luminance).range(0. ..=1.).speed(0.01).fixed_decimals(2));
+                        });
+                        if self.geometry == Geometry::Faces {
+                            ui.checkbox(&mut self.surface_lighting, "Surface lighting");
+                            ui.checkbox(&mut self.pick, "Pick surface").on_hover_text("Click a visible, completed cell face to inspect its source coordinates. In the workbench the MPR crosshair follows the selected source-cell centre. No label is changed.");
+                            ui.small("Cell faces follow the source grid. Unknown/missing interfaces stay open; clipping adds no cap. This is derived geometry, not inferred anatomy.");
+                        } else { self.pick = false; }
+                    });
             }
             if ui.button("Labels…").clicked() {
                 labels.open = true;
@@ -176,6 +190,58 @@ mod tests {
     use orv_core::{labels::Labels, study::demo_study, volume_view::TransferPreset};
 
     #[test]
+    fn geometry_menu_keeps_direct_choices_and_picking_available_after_selection() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut frames = demo_study().series.remove(0).frames;
+        frames.truncate(2);
+        let source = Arc::new(Volume::new(frames).unwrap());
+        let mut labels = LabelUi::default();
+        labels.current = Some(Arc::new(Labels::empty(source.clone()).unwrap()));
+        let mut settings = Settings {
+            enabled: true,
+            ..Default::default()
+        };
+        let mut material = true;
+        let mut time = 0.;
+        let mut draw = |events| {
+            time += 0.1;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    time: Some(time),
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900., 600.),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    settings.ui(ui, &mut labels, 0, &source, &mut material);
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let mut output = draw(vec![]);
+        for target in ["Mask cells…", "Cell faces", "Pick surface"] {
+            let position = crate::controls::tests::text_rect(&output, target).center();
+            let _ = draw(vec![egui::Event::PointerMoved(position)]);
+            for pressed in [true, false] {
+                let _ = draw(vec![egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }]);
+            }
+            output = draw(vec![]);
+        }
+        assert!(crate::controls::tests::text_rect(&output, "Brightness").is_positive());
+        assert!(settings.geometry == Geometry::Faces && settings.pick);
+    }
+
+    #[test]
     fn selection_without_settings_ui_tracks_the_current_manual_id_revision_and_source() {
         let mut frames = demo_study().series.remove(0).frames;
         frames.truncate(2);
@@ -275,7 +341,7 @@ mod tests {
             if pass < 2 {
                 continue;
             }
-            for text in ["Region in 3D", "Manual", "ID", "Brightness", "Labels…"] {
+            for text in ["Region in 3D", "Manual", "ID", "Mask cells…", "Labels…"] {
                 let rect = crate::controls::tests::text_rect(&output, text);
                 assert!(
                     rect.left() >= 220. && rect.right() <= 828.,

@@ -8,7 +8,7 @@ use orv_render::{
     segment_source::GpuSegment,
 };
 
-pub(super) struct Engine {
+pub(super) struct Cells {
     source: Arc<GpuVolumeSource>,
     projector: GpuMaskProjector,
     renderer: OpaqueMaterialRenderer,
@@ -16,7 +16,7 @@ pub(super) struct Engine {
     mask: Option<Arc<MaskImage>>,
     material: Option<Arc<orv_core::volume_material::VolumeMaterial>>,
 }
-impl Engine {
+impl Cells {
     fn new(source: Arc<GpuVolumeSource>, format: wgpu::TextureFormat) -> Result<Self, String> {
         Ok(Self {
             projector: GpuMaskProjector::new(source.clone()).map_err(str::to_owned)?,
@@ -151,6 +151,50 @@ impl Engine {
         complete.ok_or_else(|| "Region composition did not complete".into())
     }
 }
+pub(super) enum Engine {
+    Cells(Box<Cells>),
+    Faces(Box<super::surface::Engine>),
+}
+impl Engine {
+    fn new(
+        source: Arc<GpuVolumeSource>,
+        format: wgpu::TextureFormat,
+        geometry: Geometry,
+    ) -> Result<Self, String> {
+        match geometry {
+            Geometry::Cells => {
+                Cells::new(source, format).map(|engine| Self::Cells(Box::new(engine)))
+            }
+            Geometry::Faces => super::surface::Engine::new(source, format)
+                .map(|engine| Self::Faces(Box::new(engine))),
+        }
+    }
+    fn matches(&self, geometry: Geometry) -> bool {
+        matches!(
+            (self, geometry),
+            (Self::Cells(_), Geometry::Cells) | (Self::Faces(_), Geometry::Faces)
+        )
+    }
+    fn render(&mut self, input: &Request, cancel: &dyn Fn() -> bool) -> Result<Arc<Image>, String> {
+        match self {
+            Self::Cells(engine) => engine
+                .render(input, cancel)
+                .map(|image| Arc::new(Image::Cells(image))),
+            Self::Faces(engine) => engine
+                .render(input, cancel)
+                .map(|image| Arc::new(Image::Faces(image))),
+        }
+    }
+    fn cancel(&mut self) {
+        match self {
+            Self::Cells(engine) => {
+                let _ = engine.projector.discard_pending(0);
+                let _ = engine.renderer.cancel(0);
+            }
+            Self::Faces(engine) => engine.cancel(),
+        }
+    }
+}
 pub(super) fn run(input: Request, cancel: &dyn Fn() -> bool) -> Result<Completed, String> {
     if cancel() {
         return Err("Cancelled".into());
@@ -159,14 +203,21 @@ pub(super) fn run(input: Request, cancel: &dyn Fn() -> bool) -> Result<Completed
         .engine
         .lock()
         .map_err(|_| "Region renderer unavailable; reopen 3D")?;
-    if engine.is_none() {
-        *engine = Some(Engine::new(input.source.clone(), input.format)?);
+    if engine
+        .as_ref()
+        .is_none_or(|engine| !engine.matches(input.key.geometry))
+    {
+        *engine = None;
+        *engine = Some(Engine::new(
+            input.source.clone(),
+            input.format,
+            input.key.geometry,
+        )?);
     }
     let engine = engine.as_mut().ok_or("Region renderer unavailable")?;
     let result = engine.render(&input, cancel);
     if result.is_err() {
-        let _ = engine.projector.discard_pending(0);
-        let _ = engine.renderer.cancel(0);
+        engine.cancel();
     }
     let image = result?;
     if cancel() {
@@ -176,5 +227,6 @@ pub(super) fn run(input: Request, cancel: &dyn Fn() -> bool) -> Result<Completed
         key: input.key,
         refined: input.refined,
         image,
+        scope: input.scope,
     })
 }

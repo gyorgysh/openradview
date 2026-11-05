@@ -10,19 +10,19 @@ impl super::super::VolumeSession {
 }
 
 #[cfg(feature = "gpu-tests")]
-mod gpu {
+pub(super) mod gpu {
     use super::*;
     use crate::labels::{RegionMap, RegionSelection};
     use orv_core::{
         labels::Labels,
         segments::Segments,
-        study::{Geometry, demo_study},
+        study::{Geometry as SourceGeometry, demo_study},
         volume_material::{MaterialPoint, VolumeMaterial},
         volume_view::Projection,
     };
     use orv_render::{mask_input::MaskInput, material_volume::Lighting};
 
-    fn source() -> Arc<GpuVolumeSource> {
+    pub(in crate::volume_ui::regions) fn source() -> Arc<GpuVolumeSource> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: orv_render::configured_backends().unwrap(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -41,7 +41,7 @@ mod gpu {
                         frame.width = 8;
                         frame.height = 8;
                         frame.pixels = vec![20.; 64].into();
-                        frame.geometry = Some(Geometry {
+                        frame.geometry = Some(SourceGeometry {
                             position: [0., 0., f64::from(z)],
                             orientation: [1., 0., 0., 0., 1., 0.],
                             spacing: [1., 1.],
@@ -56,11 +56,14 @@ mod gpu {
         );
         GpuVolumeSource::new(&device, &queue, volume, || false).unwrap()
     }
-    fn key(map: RegionMap, number: u16) -> Key {
+    pub(in crate::volume_ui::regions) fn key(map: RegionMap, number: u16) -> Key {
         let mut state = VolumeView::fit(&map.source());
         state.projection = Projection::Composite;
         Key {
             selection: RegionSelection::new(map, number).unwrap(),
+            geometry: Geometry::Cells,
+            surface_lighting: true,
+            pick: false,
             display: ViewState::default(),
             state,
             style: OpticalStyle {
@@ -77,12 +80,16 @@ mod gpu {
             refined: [96, 64],
         }
     }
-    fn request(source: &Arc<GpuVolumeSource>, key: Key) -> Request {
+    pub(in crate::volume_ui::regions) fn request(
+        source: &Arc<GpuVolumeSource>,
+        key: Key,
+    ) -> Request {
         Request {
             engine: Arc::new(Mutex::new(None)),
             source: source.clone(),
             format: wgpu::TextureFormat::Rgba8Unorm,
             data_cancel: Arc::new(AtomicBool::new(false)),
+            scope: None,
             size: key.interactive,
             key,
             refined: false,
@@ -109,6 +116,7 @@ mod gpu {
             source: input.source.clone(),
             format: input.format,
             data_cancel: input.data_cancel.clone(),
+            scope: input.scope.clone(),
             key: input.key.clone(),
             size: input.size,
             refined: input.refined,
@@ -116,30 +124,30 @@ mod gpu {
         let first = worker::run(make(&input), &|| false).unwrap();
         assert!(first.key.same(&original));
         assert_eq!(
-            first.image.texture().format(),
+            first.image.cells().texture().format(),
             wgpu::TextureFormat::Rgba16Float
         );
         input.key.luminance = 0.25;
         let styled = worker::run(make(&input), &|| false).unwrap();
         assert!(Arc::ptr_eq(
-            &first.image.scene().mask,
-            &styled.image.scene().mask
+            &first.image.cells().scene().mask,
+            &styled.image.cells().scene().mask
         ));
-        assert_eq!(first.image.scene().mask_luminance, 0.8);
-        assert_eq!(styled.image.scene().mask_luminance, 0.25);
+        assert_eq!(first.image.cells().scene().mask_luminance, 0.8);
+        assert_eq!(styled.image.cells().scene().mask_luminance, 0.25);
         let mut edit = labels.try_clone(|| false).unwrap();
         edit.paint(1, &[[4., 4.]], 1, 0, || false).unwrap();
         input.key.selection = RegionSelection::new(RegionMap::Manual(Arc::new(edit)), 7).unwrap();
         let edited = worker::run(make(&input), &|| false).unwrap();
         assert_ne!(
-            first.image.scene().mask.revision(),
-            edited.image.scene().mask.revision()
+            first.image.cells().scene().mask.revision(),
+            edited.image.cells().scene().mask.revision()
         );
-        let MaskInput::Manual(old) = &first.image.scene().mask.request().input else {
+        let MaskInput::Manual(old) = &first.image.cells().scene().mask.request().input else {
             panic!()
         };
         assert_eq!(old.labels().value([4, 4, 1]), Some(7));
-        let MaskInput::Manual(new) = &edited.image.scene().mask.request().input else {
+        let MaskInput::Manual(new) = &edited.image.cells().scene().mask.request().input else {
             panic!()
         };
         assert_eq!(new.labels().value([4, 4, 1]), Some(0));
@@ -149,10 +157,10 @@ mod gpu {
         let undo = worker::run(make(&input), &|| false).unwrap();
         assert!(undo.refined);
         assert_eq!(
-            undo.image.scene().mask.revision(),
-            first.image.scene().mask.revision()
+            undo.image.cells().scene().mask.revision(),
+            first.image.cells().scene().mask.revision()
         );
-        assert_eq!(undo.image.scene().mask.request().size, [96, 64]);
+        assert_eq!(undo.image.cells().scene().mask.request().size, [96, 64]);
         input.key.selection = RegionSelection::new(
             RegionMap::Manual(Arc::new(
                 Labels::empty(Arc::new(
@@ -164,6 +172,117 @@ mod gpu {
         )
         .unwrap();
         assert!(worker::run(make(&input), &|| false).is_err());
+        source.wait_submitted(|| false).unwrap();
+    }
+
+    #[test]
+    fn native_cell_face_worker_reuses_projection_but_preserves_edit_and_undo_fronts() {
+        let source = source();
+        let mut labels = Labels::empty(source.volume().clone()).unwrap();
+        labels.threshold(None, [0., 100.], 7, || false).unwrap();
+        let labels = Arc::new(labels);
+        let mut selected = key(RegionMap::Manual(labels.clone()), 7);
+        selected.geometry = Geometry::Faces;
+        let mut input = request(&source, selected.clone());
+        let make = |input: &Request| Request {
+            engine: input.engine.clone(),
+            source: input.source.clone(),
+            format: input.format,
+            data_cancel: input.data_cancel.clone(),
+            scope: input.scope.clone(),
+            key: input.key.clone(),
+            size: input.size,
+            refined: input.refined,
+        };
+        let first = worker::run(make(&input), &|| false).unwrap();
+        let surface = |output: &Completed| match &*output.image {
+            Image::Faces(image) => image.clone(),
+            _ => panic!("Expected a cell-face image"),
+        };
+        let first = surface(&first);
+        assert_eq!(first.texture().format(), wgpu::TextureFormat::Rgba16Float);
+        assert!(Arc::ptr_eq(
+            first.scene().surface.request().surface.source(),
+            &source
+        ));
+        input.key.luminance = 0.25;
+        let styled = surface(&worker::run(make(&input), &|| false).unwrap());
+        assert!(Arc::ptr_eq(&first.scene().surface, &styled.scene().surface));
+        input.key.surface_lighting = false;
+        let unlit = surface(&worker::run(make(&input), &|| false).unwrap());
+        assert!(Arc::ptr_eq(&styled.scene().surface, &unlit.scene().surface));
+        assert_eq!(unlit.scene().surface_lighting, Lighting::UNLIT);
+        let mut edited = labels.try_clone(|| false).unwrap();
+        edited.paint(1, &[[4., 4.]], 1, 0, || false).unwrap();
+        input.key.selection = RegionSelection::new(RegionMap::Manual(Arc::new(edited)), 7).unwrap();
+        let changed = surface(&worker::run(make(&input), &|| false).unwrap());
+        assert_ne!(
+            changed.scene().surface.revision(),
+            first.scene().surface.revision()
+        );
+        assert_eq!(
+            first.scene().surface.request().surface.surface().revision(),
+            labels.revision()
+        );
+        input.key.selection = selected.selection;
+        input.refined = true;
+        input.size = input.key.refined;
+        let undo = surface(&worker::run(make(&input), &|| false).unwrap());
+        assert_eq!(
+            undo.scene().surface.revision(),
+            first.scene().surface.revision()
+        );
+        assert_eq!(undo.scene().surface.request().size, input.key.refined);
+        input.key.geometry = Geometry::Cells;
+        assert!(matches!(
+            &*worker::run(make(&input), &|| false).unwrap().image,
+            Image::Cells(_)
+        ));
+        source.wait_submitted(|| false).unwrap();
+    }
+
+    #[test]
+    fn interactive_surface_camera_round_trip_renews_the_originating_pick_scope() {
+        let source = source();
+        let mut labels = Labels::empty(source.volume().clone()).unwrap();
+        labels.threshold(None, [0., 100.], 7, || false).unwrap();
+        let mut latest = key(RegionMap::Manual(Arc::new(labels)), 7);
+        latest.geometry = Geometry::Faces;
+        latest.pick = true;
+        latest.state.quality = Quality::Interactive;
+        let ctx = egui::Context::default();
+        let mut view =
+            View::new(source.clone(), wgpu::TextureFormat::Rgba8Unorm, ctx.clone()).unwrap();
+        let engine = view.engine.clone();
+        let blocked = engine.lock().unwrap();
+        view.update(latest.clone(), true, &ctx);
+        let first = view.scope.clone().unwrap();
+        latest.state.camera.yaw_degrees = 30.;
+        view.update(latest.clone(), true, &ctx);
+        assert!(!first.is_active());
+        latest.state.camera.yaw_degrees = 0.;
+        view.update(latest.clone(), true, &ctx);
+        let restored = view.scope.clone().unwrap();
+        drop(blocked);
+        until(|| {
+            view.update(latest.clone(), true, &ctx);
+            view.current_front(&latest)
+        });
+        let front = view.front.as_ref().unwrap();
+        assert!(!front.refined);
+        assert!(Arc::ptr_eq(front.scope.as_ref().unwrap(), &restored));
+        latest.geometry = Geometry::Cells;
+        latest.pick = false;
+        view.update(latest, false, &ctx);
+        assert!(!restored.is_active());
+        assert!(
+            view.front.is_none(),
+            "Old geometry must disappear immediately"
+        );
+        let weak = Arc::downgrade(&view.engine);
+        drop(view);
+        drop(engine);
+        until(|| weak.upgrade().is_none());
         source.wait_submitted(|| false).unwrap();
     }
 
@@ -186,7 +305,7 @@ mod gpu {
             &|| false,
         )
         .unwrap();
-        let mask = &output.image.scene().mask;
+        let mask = &output.image.cells().scene().mask;
         assert_eq!(mask.key().number, 50000);
         let MaskInput::Supplied(gpu) = &mask.request().input else {
             panic!()
