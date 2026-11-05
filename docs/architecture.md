@@ -492,6 +492,24 @@ repair. Diagonal contacts can be non-manifold. Open unknown boundaries do not
 claim equivalence to a closed-volume first-hit visualization. Source-cell counts
 remain authoritative. Surfaces do not authorize picks or edits.
 
+`surface::field` separately defines source-bound inputs for a derived trilinear
+mask field. Lattice nodes are source-cell centres: manual/binary membership is
+-1/+1, while fractional samples retain their exact `2*value-maximum` amplitudes.
+The zero level is half maximum. Original encoding, categorical counts and source
+storage stay unchanged. Unknown supplied coverage and source validity remain
+separate; a cell needs all eight known valid corners. Finite-grid bounds are not
+exterior zero padding. Immutable owners retain source/map/ID/revision identity
+without a dense field copy.
+
+Canonical global edge/face keys and reduced rational edge positions agree across
+cell owners. Bounded integer products select strict bilinear contour pairings;
+exact saddles and zero-corner/edge contacts are explicit outcomes, without an
+epsilon or an invented empty face. Parallel-section determinant coefficients
+and their internal extrema remain exact. These extrema are candidates, not a
+complete body-diagonal connectivity test. No extractor, singularity regularization,
+manifold guarantee, physical-normal conversion or native smooth geometry follows
+from this field layer. The existing exact cell-face view remains independent.
+
 `InterfaceRay` is a separate f64 membership reference for known cell interfaces.
 It walks bounded source-cell intervals without allocating or scanning derived
 faces. Only eligible positive cells against known valid negatives or marked grid

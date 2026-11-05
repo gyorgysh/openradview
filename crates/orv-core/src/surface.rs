@@ -3,6 +3,7 @@
 //! Unknown coverage and missing samples leave open boundaries. Grid truncation
 //! faces are marked separately. These derived faces do not authorize an edit.
 mod face;
+pub mod field;
 mod layout;
 mod ray;
 mod walk;
