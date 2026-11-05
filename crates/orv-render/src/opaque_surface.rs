@@ -514,7 +514,7 @@ pub(crate) fn shader(entry: &str, ranges: bool) -> String {
     format!(
         "{}\n{}\n{}\n{}\n{}\n{}\n{}",
         include_str!("pixel_ray.wgsl"),
-        include_str!("volume_sampling.wgsl"),
+        crate::VOLUME_SAMPLING_SHADER,
         crate::material_volume::optics_shader(ranges, ranges),
         include_str!("opaque_interval.wgsl"),
         include_str!("surface_optics.wgsl"),

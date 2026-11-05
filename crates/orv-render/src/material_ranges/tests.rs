@@ -520,7 +520,7 @@ fn shared_sampler_preserves_conservative_ranges_nodes_and_validity_under_large_a
         let gpu = GpuVolumeSource::new(&d, &q, volume.clone(), || false).unwrap();
         let code = format!(
             "{}\n{}\n{}",
-            include_str!("../volume_sampling.wgsl"),
+            crate::VOLUME_SAMPLING_SHADER,
             crate::material_volume::optics_shader(true, false),
             r#"
 @group(0) @binding(2) var output:texture_storage_2d<rgba32float,write>;
@@ -1069,7 +1069,7 @@ fn actual_gpu_tile_jumps_preserve_all_intermediate_indices_under_directed_roundi
         GpuMaterialRanges::new(gpu.clone(), ranges.clone(), default_material(), || false).unwrap();
     let code = format!(
         "{}\n{}\n{}",
-        include_str!("../volume_sampling.wgsl"),
+        crate::VOLUME_SAMPLING_SHADER,
         crate::material_volume::optics_shader(true, true),
         r#"
 @group(0) @binding(2) var output:texture_storage_2d<rgba32uint,write>;

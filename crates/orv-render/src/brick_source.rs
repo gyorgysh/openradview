@@ -7,13 +7,25 @@ use orv_core::{
     volume::Volume,
 };
 use std::sync::Arc;
+mod atlas;
+pub(crate) use atlas::GpuBrickAtlasStream;
+pub use atlas::{AtlasCopyStatistics, GpuBrickAtlas, GpuBrickAtlasPool};
 mod page;
 pub use page::GpuBrickPage;
 #[cfg(all(test, feature = "gpu-tests"))]
-mod tests;
+pub(crate) mod tests;
 
 pub const MAX_RESIDENT_BRICK_BYTES: u64 = 256 * 1024 * 1024;
-pub const BRICK_SAMPLING_SHADER: &str = include_str!("brick_source/sampling.wgsl");
+pub const BRICK_SAMPLING_SHADER: &str = concat!(
+    include_str!("brick_source/status.wgsl"),
+    "\n",
+    include_str!("brick_source/sampling.wgsl")
+);
+pub const ATLAS_SAMPLING_SHADER: &str = concat!(
+    include_str!("brick_source/status.wgsl"),
+    "\n",
+    include_str!("brick_source/atlas.wgsl")
+);
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrickSampleStatus {
@@ -22,6 +34,7 @@ pub enum BrickSampleStatus {
     NotOwned = 3,
     OutsideSource = 4,
     StencilUnavailable = 5,
+    Nonresident = 6,
 }
 
 pub struct GpuBrickSource {

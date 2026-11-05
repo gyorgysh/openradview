@@ -165,7 +165,7 @@ impl MaterialVolumeRenderer {
             source: wgpu::ShaderSource::Wgsl(
                 format!(
                     "{}\n{}\n{}",
-                    include_str!("volume_sampling.wgsl"),
+                    crate::VOLUME_SAMPLING_SHADER,
                     optics_shader(shared_stencil, use_range_bindings),
                     include_str!("material_volume.wgsl")
                 )
@@ -328,8 +328,10 @@ impl MaterialVolumeRenderer {
 
 pub(crate) fn optics_shader(shared_stencil: bool, ranges: bool) -> String {
     format!(
-        "const SHARED_OPTICAL_STENCIL:bool={shared_stencil};\n{}\n{}\n{}\n{}",
+        "const SHARED_OPTICAL_STENCIL:bool={shared_stencil};\n{}\n{}\n{}\n{}\n{}\n{}",
+        include_str!("material_parameters.wgsl"),
         include_str!("material_stencil.wgsl"),
+        include_str!("material_mapping.wgsl"),
         include_str!("material_sample.wgsl"),
         if ranges {
             include_str!("material_ranges.wgsl")
@@ -342,6 +344,26 @@ pub(crate) fn optics_shader(shared_stencil: bool, ranges: bool) -> String {
 
 pub(crate) fn parameters(
     source: &GpuVolumeSource,
+    navigation: &ViewState,
+    state: &VolumeView,
+    material: &VolumeMaterial,
+    lighting: Lighting,
+    size: [u32; 2],
+    region: [[u32; 2]; 2],
+) -> Result<[f32; 336], &'static str> {
+    parameters_for_volume(
+        source.volume(),
+        navigation,
+        state,
+        material,
+        lighting,
+        size,
+        region,
+    )
+}
+
+pub(crate) fn parameters_for_volume(
+    volume: &orv_core::volume::Volume,
     navigation: &ViewState,
     state: &VolumeView,
     material: &VolumeMaterial,
@@ -362,18 +384,13 @@ pub(crate) fn parameters(
     }
     let mut values = [0.; 336];
     values[..60].copy_from_slice(&crate::volume_uniform::parameters_with_limit(
-        &source.volume,
-        navigation,
-        state,
-        size,
-        region,
-        2048,
+        volume, navigation, state, size, region, 2048,
     )?);
     let mut vectors = [[0.; 3]; 4];
     for (axis, vector) in vectors[..3].iter_mut().enumerate() {
         let mut unit = [0.; 3];
         unit[axis] = 1.;
-        *vector = source.volume.world_vector_to_voxel(unit);
+        *vector = volume.world_vector_to_voxel(unit);
     }
     vectors[3] = state
         .camera

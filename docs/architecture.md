@@ -923,10 +923,51 @@ generation untouched, and pending GPU commands retain their admission. Actual
 GPU tests compare page scalars/secants with independent dense global stencils,
 including rounded block boundaries, source ends, missing/extreme values and a
 source wider than a constrained device's 3D side. The dense CPU source stays
-resident; there is no disk spill. These are resource/sampling inputs: the volume
-renderer does not yet ray-march across pages, so desktop 3D retains its dense
-source limits. Continuous ray accumulation, global midpoint phase, complete-frame
-publication and native interaction remain requirements for that integration.
+resident; there is no disk spill.
+
+A bounded GPU atlas packs source pages with an integer directory and the same
+sampling/gradient halos. Immutable `GpuBrickAtlas` snapshots can copy retained
+pages from an earlier snapshot or upload original CPU values directly. Requested
+indices must be distinct and source/pool ownership must match. Atlas storage is
+limited to 256 MiB and 128 slots, within actual 3D texture sides and the shared
+GPU allowance. Source values and validity are independent of atlas placement.
+Direct upload admits one CPU brick of at most 16 MiB, plus aligned GPU staging
+of 16 MiB and one maximum padded brick. It flushes at that staging threshold and
+at completion, checks cancellation per source row and never copies a whole CPU
+volume. Pending GPU work retains its reservation.
+
+`PagedMaterialRenderer` produces complete, checked, immutable linear images.
+The global ray interval, midpoint count and sample expression stay unchanged
+through page misses. Sixteen-byte float32 continuation records retain radiance,
+transmittance and the next original sample index for at most sixteen rows. A
+miss records its required page without advancing that index; it cannot act as
+transparent data. A bounded request/status readback drives worker uploads. Missing
+source samples retain the dense material path's validity rule. Physical gradients
+use the source inverse transpose, including reflection and shear. Arithmetic or
+stencil failures refuse publication. Batches must be consecutive and retain the
+exact source, material and view. At most 4096 waves per batch and 16 GiB of source
+uploads per image are allowed. Fully resident sources use a separate one-dispatch
+entry with local ray state and one final status check.
+
+The renderer's working cache is private and cannot escape into a completed image.
+It fences submitted readers before slot reuse and keeps no encoded, unsubmitted
+uses across replacement. Replaced directory entries become nonresident before
+source bytes are overwritten. New entries become readable only after their full
+values/validity upload completes. Cancellation or refused staging may discard
+cache residency, but partially written data remains unmapped and later work can
+reload it. Public atlas snapshots remain immutable. Completed image textures and
+their exact CPU source/material/view identities are separate from this cache, so
+replacement cannot mutate an earlier front. Callers still validate the live
+source/session/input epoch before displaying or using a completed result.
+
+Actual GPU tests compare dense and paged scalar/gradient queries and complete
+images, force single-slot eviction, verify cancellation/recovery and retain old
+fronts. Independent f64 rays check physical attenuation. A constrained device
+renders a source wider than its 3D side at a requested width of 2048 pixels.
+These backend interfaces do not enable desktop paging, picking, sharing or
+exports. Desktop 3D retains its dense source limits until its worker integration,
+interaction performance and native visual checks are accepted. Small-cache
+streaming remains a separate performance concern from fully resident rendering.
 
 Optional physical LPS clipping intersects the original affine source ray domain
 before sampling. It changes neither source data nor opacity distance units; its

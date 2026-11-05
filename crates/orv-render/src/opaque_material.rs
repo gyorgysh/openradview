@@ -165,7 +165,7 @@ impl OpaqueMaterialRenderer {
                 format!(
                     "{}\n{}\n{}\n{}\n{}",
                     include_str!("pixel_ray.wgsl"),
-                    include_str!("volume_sampling.wgsl"),
+                    crate::VOLUME_SAMPLING_SHADER,
                     crate::material_volume::optics_shader(false, false),
                     include_str!("opaque_interval.wgsl"),
                     include_str!("opaque_material.wgsl")

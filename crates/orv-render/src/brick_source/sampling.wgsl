@@ -9,11 +9,6 @@ struct BrickParameters {
 @group(0) @binding(0) var brick_values:texture_3d<f32>;
 @group(0) @binding(1) var brick_validity:texture_3d<u32>;
 @group(0) @binding(2) var<uniform> brick:BrickParameters;
-const BRICK_KNOWN:u32=1u;
-const BRICK_MISSING:u32=2u;
-const BRICK_NOT_OWNED:u32=3u;
-const BRICK_OUTSIDE_SOURCE:u32=4u;
-const BRICK_STENCIL_UNAVAILABLE:u32=5u;
 struct BrickValue {value:f32,status:u32}
 struct BrickGradient {value:vec3f,status:u32}
 fn brick_ownership(point:vec3f)->u32 {

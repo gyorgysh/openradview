@@ -10,6 +10,7 @@ pub mod material_ranges;
 pub mod material_volume;
 pub mod opaque_material;
 pub mod opaque_surface;
+pub mod paged_material;
 pub mod reslice;
 pub mod segment_source;
 pub mod slice;
@@ -35,3 +36,9 @@ pub fn native_backends() -> wgpu::Backends {
 }
 
 pub use volume::allocation::GpuReservation;
+
+pub(crate) const VOLUME_SAMPLING_SHADER: &str = concat!(
+    include_str!("volume_interval.wgsl"),
+    "\n",
+    include_str!("volume_sampling.wgsl")
+);

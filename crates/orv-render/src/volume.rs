@@ -162,7 +162,7 @@ impl VolumeRenderer {
             source: wgpu::ShaderSource::Wgsl(
                 format!(
                     "{}\n{}\n{}",
-                    include_str!("volume_sampling.wgsl"),
+                    crate::VOLUME_SAMPLING_SHADER,
                     include_str!("voi.wgsl"),
                     include_str!("volume.wgsl")
                 )

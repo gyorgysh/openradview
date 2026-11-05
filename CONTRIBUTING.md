@@ -187,6 +187,36 @@ are excluded. Recorded replacement admission is sampled after preparation and
 excludes transient staging peaks; it is neither process RSS nor measured VRAM.
 This example validates GPU source inputs, without a bricked ray marcher.
 
+For complete paged optical images, run
+`cargo run --locked --release -p orv-render --example paged_material_latency`.
+It uses unique 512×512×128 planes with a fixed oblique view, a nonmonotonic luminance curve,
+sparse unlit/headlight, missing headlight and dense headlight cases at 512, plus
+sparse headlight at 2048. Eight-slot and full-layout caches are measured separately.
+A cold first image has one sample. Warm constrained streaming has three samples
+after one warmup; fully cached 512 rendering has twelve after three, and 2048
+has two after three. `--quick` is a development smoke run with one source/lighting
+case and two samples; it does not replace the full workload.
+
+Paged timings include new immutable output and row-state allocations, source
+uploads, cache replacement, every status fence, old-front drop and retirement.
+Fully resident images use one dispatch; constrained residency uses sixteen-row
+waves with original sample positions and no quality reduction. The dense baseline
+reuses its source, pipeline and output and times dispatch/fence only, so these are
+explicitly different scopes. Initial/final untimed readback requires every float16
+pixel to match the dense image. Source generation, dense upload, pipeline/cache
+construction, verification and native input/presentation are excluded. Admission
+is sampled after complete images and excludes transient peaks, driver allocation
+and RSS. Inspect per-image uploaded bytes and wave counts: small caches may still
+stream heavily. These are worker/backend timings and do not establish native FPS.
+
+`--wide` runs a separate 4096×512×256 logical source with a 128-slot atlas and
+128×128 output. All 256 frames share one constant 8 MiB CPU plane; source
+admission still counts the full 2 GiB grid. It is a one-sample functional and
+physical-ray check, not a unique-data throughput or RSS benchmark. The JSON states
+whether the actual device refuses that width on the dense path. The timing excludes verification and final image/source teardown. Every output
+pixel is checked against independent f64 physical attenuation, and CPU/GPU
+reservations must return to their starting values.
+
 Use an external process-memory tool for RSS/footprint. GPU-fenced command timings
 exclude native input, display/vsync and file decoding; native interaction and
 quiet-window acceptance remain separate checks. This example opens no study and

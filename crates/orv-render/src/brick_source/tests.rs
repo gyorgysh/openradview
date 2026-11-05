@@ -6,7 +6,7 @@ use orv_core::{
 };
 use std::{cell::Cell, sync::mpsc, time::Duration};
 use wgpu::util::DeviceExt;
-fn device(side: Option<u32>) -> (wgpu::Device, wgpu::Queue) {
+pub(crate) fn device(side: Option<u32>) -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -19,7 +19,7 @@ fn device(side: Option<u32>) -> (wgpu::Device, wgpu::Queue) {
     }
     pollster::block_on(adapter.request_device(&d)).unwrap()
 }
-fn source(dims: [usize; 3], kind: usize, missing: bool, reverse: bool) -> Arc<Volume> {
+pub(crate) fn source(dims: [usize; 3], kind: usize, missing: bool, reverse: bool) -> Arc<Volume> {
     let template = demo_study().series.remove(0).frames.remove(0);
     let frames = (0..dims[2])
         .map(|z| {
@@ -92,6 +92,32 @@ struct Probe {
 }
 impl Probe {
     fn new(source: Arc<GpuBrickSource>, analytic: Option<[f64; 3]>) -> Self {
+        Self::prepare(
+            source.clone(),
+            analytic,
+            source.binding_layout(),
+            BRICK_SAMPLING_SHADER,
+        )
+    }
+    fn for_atlas(pool: &GpuBrickAtlasPool) -> Self {
+        let shader = format!(
+            "{}\n{}",
+            ATLAS_SAMPLING_SHADER,
+            r#"
+struct BrickValue {value:f32,status:u32}
+struct BrickGradient {value:vec3f,status:u32}
+fn brick_scalar(point:vec3f)->BrickValue {let v=atlas_scalar(point);return BrickValue(v.value,v.status);}
+fn brick_index_gradient(point:vec3f)->BrickGradient {let v=atlas_index_gradient(point);return BrickGradient(v.value,v.status);}
+"#
+        );
+        Self::prepare(pool.source().clone(), None, pool.binding_layout(), &shader)
+    }
+    fn prepare(
+        source: Arc<GpuBrickSource>,
+        analytic: Option<[f64; 3]>,
+        input_layout: &wgpu::BindGroupLayout,
+        input_shader: &str,
+    ) -> Self {
         let d = source.device();
         let dims = source.source().dimensions();
         let count = dims.iter().product::<usize>();
@@ -138,7 +164,7 @@ impl Probe {
         });
         let text = format!(
             "{}\nconst REF_DIM:vec3u=vec3u({}u,{}u,{}u);\n{}",
-            BRICK_SAMPLING_SHADER,
+            input_shader,
             dims[0],
             dims[1],
             dims[2],
@@ -150,7 +176,7 @@ impl Probe {
         });
         let p = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[Some(source.binding_layout()), Some(&layout)],
+            bind_group_layouts: &[Some(input_layout), Some(&layout)],
             immediate_size: 0,
         });
         let pipeline = d.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -173,6 +199,13 @@ impl Probe {
     }
     fn run(&self, page: &Arc<GpuBrickPage>, points: &[[f32; 4]]) -> Vec<[u32; 12]> {
         assert!(Arc::ptr_eq(page.source(), &self.source));
+        self.run_bindings(page.bindings(), points)
+    }
+    fn run_bindings(
+        &self,
+        source_bindings: &wgpu::BindGroup,
+        points: &[[f32; 4]],
+    ) -> Vec<[u32; 12]> {
         let d = self.source.device();
         let q = self.source.queue();
         let bytes = points.len() as u64 * 48;
@@ -214,7 +247,7 @@ impl Probe {
         {
             let mut p = e.begin_compute_pass(&Default::default());
             p.set_pipeline(&self.pipeline);
-            p.set_bind_group(0, page.bindings(), &[]);
+            p.set_bind_group(0, source_bindings, &[]);
             p.set_bind_group(1, &bindings, &[]);
             p.dispatch_workgroups((points.len() as u32).div_ceil(64), 1, 1);
         }
@@ -688,3 +721,6 @@ fn unsupported_page_values_and_other_device_sources_cannot_replace_old_residency
         .is_err()
     );
 }
+
+#[path = "atlas_tests.rs"]
+mod atlas_tests;
