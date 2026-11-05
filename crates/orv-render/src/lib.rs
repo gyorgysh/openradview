@@ -12,6 +12,7 @@ pub mod opaque_material;
 pub mod opaque_surface;
 pub mod paged_material;
 pub mod paged_material_ranges;
+mod physical_camera;
 pub mod reslice;
 pub mod section_volume;
 pub mod segment_source;

@@ -7,6 +7,33 @@
 @group(0) @binding(8) var<storage,read_write> failed:atomic<u32>;
 struct Section {origin:vec4f,right:vec4f,down:vec4f,direction:vec4f,window:vec4f,voi:vec4f}
 @group(0) @binding(9) var<uniform> sections:array<Section,3>;
+@group(0) @binding(10) var surface_cells:texture_2d<u32>;
+@group(0) @binding(11) var surface_depth:texture_2d<f32>;
+struct Boundary {material:vec4f,flags:vec4f}
+@group(0) @binding(12) var<uniform> boundary:Boundary;
+fn surface_background(pixel:vec2i,origin:vec3f)->vec2f {
+    let empty=vec2f(1e30,0.0030352698);
+    if boundary.flags.x<.5 {return empty;}
+    let cell=textureLoad(surface_cells,pixel,0);let depth=textureLoad(surface_depth,pixel,0).r;
+    if cell.w==0u {
+        if any(cell.xyz!=vec3u(0u)) || depth!=0. {atomicStore(&failed,1u);}
+        return empty;
+    }
+    let side=(cell.w>>16u)&7u;let axis=side/2u;
+    if (cell.w&65535u)!=u32(boundary.material.y) || side>5u || (cell.w&~0x0107ffffu)!=0u ||
+        any(cell.xyz>=textureDimensions(source)) || !(depth>=-1e20 && depth<=1e20) {
+        atomicStore(&failed,1u);return empty;
+    }
+    let sign=select(-1.,1.,(side&1u)!=0u);
+    let local=origin+p.direction.xyz*depth-vec3f(cell.xyz);
+    if !all(abs(local)<=vec3f(.505)) || abs(local[axis]-sign*.5)>.005 {atomicStore(&failed,1u);return empty;}
+    var normal=vec3f(p.inverse_x[axis],p.inverse_y[axis],p.inverse_z[axis])*sign;
+    let scale=max(max(abs(normal.x),abs(normal.y)),abs(normal.z));
+    if !(scale>0. && scale<=1e20) {atomicStore(&failed,1u);return empty;}
+    normal=normalize(normal/scale);
+    let light=boundary.material.z+boundary.material.w*abs(dot(normal,p.light.xyz));
+    return vec2f(depth,boundary.material.x*light);
+}
 fn plane_texel(slot:u32,xy:vec2i)->vec2f {
     if slot==0u {return textureLoad(plane0,xy,0).rg;}
     if slot==1u {return textureLoad(plane1,xy,0).rg;}
@@ -47,7 +74,8 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
     let size=textureDimensions(output);let offset=pixel_ray_offset(pixel,size);
     let origin=p.origin.xyz+p.right.xyz*offset.x+p.down.xyz*offset.y;
     var ray=source_interval(origin,p.direction.xyz,offset);
-    var nearest=1e30;var background=0.0030352698;
+    let surface=surface_background(pixel,origin);
+    var nearest=surface.x;var background=surface.y;
     for(var slot=0u;slot<3u;slot++) {
         let s=sections[slot];if s.down.w<.5 || s.direction.z==0. {continue;}
         let local=s.origin.xyz+s.right.xyz*offset.x+s.down.xyz*offset.y;

@@ -11,6 +11,7 @@ use orv_core::{
     volume_view::{PhysicalClip, Quality},
 };
 use std::{cell::Cell, time::Duration};
+mod surface;
 
 fn fence(d: &wgpu::Device) {
     d.poll(wgpu::PollType::Wait {
@@ -100,6 +101,7 @@ fn scene(gpu: Arc<GpuVolumeSource>) -> SectionScene {
         .render_frames(grids.each_ref().map(Some), || false)
         .unwrap();
     SectionScene {
+        surface: None,
         planes: images.map(|image| {
             image.map(|image| SectionPlane {
                 image,

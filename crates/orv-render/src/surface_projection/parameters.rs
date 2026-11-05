@@ -7,15 +7,12 @@ fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
 /// Same ray lines, with the origin expressed relative to the source centre and
 /// moved along the direction onto its perpendicular plane before f32 conversion.
 pub(crate) fn centred_frame(request: &SurfaceProjection) -> Result<RayFrame, &'static str> {
-    let mut frame = request.camera.frame(
+    crate::physical_camera::centred_frame(
+        &request.camera,
         &request.display,
-        f64::from(request.size[0]) / f64::from(request.size[1]),
-    )?;
-    let center = request.surface.source().volume().center();
-    let relative = std::array::from_fn(|a| frame.origin_mm[a] - center[a]);
-    let along = dot(relative, frame.direction_unit);
-    frame.origin_mm = std::array::from_fn(|a| relative[a] - along * frame.direction_unit[a]);
-    Ok(frame)
+        request.size,
+        request.surface.source().volume().center(),
+    )
 }
 pub(super) struct Values {
     pub uniform: [f32; 84],

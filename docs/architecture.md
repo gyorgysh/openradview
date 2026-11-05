@@ -102,19 +102,26 @@ source/label data, counts or the physical brush extent. These are clipping
 halfspaces, without textured source-plane geometry or independent plane poses.
 
 The separate `section_volume` backend composes up to three opaque, two-sided thin
-`GpuReformatImage` planes with source optics. Each plane retains its corrected
+`GpuReformatImage` planes and an optional known cell-face interface with source
+optics. Each plane retains its corrected
 scalar/validity texture and exact GPU source owner. Physical camera rays are
 projected into pixel/normal coordinates in f64 before upload, avoiding f32
 subtraction of large LPS positions. Display pan, zoom and flips do not move plane
 geometry. Scalar bilinear validity, VOI functions/tables, MONOCHROME1 and inversion
 follow slice presentation; mapped grayscale is converted to linear luminance.
-The nearest valid plane stops source integration, while missing plane stencils
-can expose farther planes. Equal-depth hits use stable slot order. Manual clips
-apply to both source rays and plane hits. Complete contiguous row sequences retain
-exact plane/view/material identity and check a GPU arithmetic flag before
+Source rays, section planes and cell-face depth share an origin relative to the
+source centre, shifted onto the perpendicular camera plane in f64. A large camera
+target displacement along its viewing direction does not change depth ordering.
+The nearest valid actor stops source integration; missing plane stencils can
+expose farther actors. Equal-depth planes use stable slot order, and a known
+interface wins a coincident plane tie. Its actual affine normal supplies surface
+lighting. The interface must match the exact source, camera, navigation, size,
+clip and depth reference; unknown and clipped interfaces stay open. Manual clips
+apply to source rays and actor hits. Complete contiguous row sequences retain
+exact actor/view/material identity and check a GPU arithmetic flag before
 publishing immutable radiance. Old completed images keep their owners/admission
 through cancellation or renderer teardown. This backend is not yet connected to
-the native workbench, mask composition, region picking or sharing contracts.
+the native workbench, mask-cell composition, region picking or sharing contracts.
 
 The workbench's physical label tool proposes a sphere or thick disk at the
 completed thin MPR point, or a continuous sweep drawn on one thin plane. The

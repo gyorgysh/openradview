@@ -216,10 +216,15 @@ The complete-dispatch result also stays resident during the row-sequence case.
 Untimed readback checks every pixel for finite monochrome radiance in [0,1] and
 opaque alpha, and requires full/row results to match bit for bit. Independent f64
 ray/plane and homogeneous optical references run in the GPU tests. Verification,
-native input/display and mask composition are outside the benchmark. Recorded
-admission includes both retained verification readbacks and comparison images;
-it is neither peak driver memory nor RSS. Inspect sample counts and workload
+native input/display are outside the benchmark. Schema 2 samples admission after
+both complete images and before verification staging; it is neither peak driver
+memory nor RSS. Inspect sample counts and workload
 before comparing times. This measures the backend, without native plane controls.
+Add `-- --surface` to include a generated 30 mm sphere's known cell faces in the
+same depth order. Its physical label proposal, CPU extraction and GPU geometry
+upload are reported as preparation; the surface projector pipeline and each
+resolution's complete interface image are separate from composition timings.
+No mask-cell projection or local pick is measured.
 
 For complete paged optical images, run
 `cargo run --locked --release -p orv-render --example paged_material_latency`.

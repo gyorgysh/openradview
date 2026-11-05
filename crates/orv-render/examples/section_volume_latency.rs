@@ -4,7 +4,10 @@
 mod optical;
 use orv_core::{
     Plane, ViewState, WindowLevel,
+    labels::{BrushAction, BrushShape, Labels, PhysicalBrush},
+    mask::MaskOwner,
     resources::{MemoryBudget, Reservation},
+    surface::{CellSurface, SurfaceLimits},
     volume_material::{MaterialPoint, VolumeMaterial},
     volume_view::{Projection, Quality, VolumeView},
 };
@@ -12,7 +15,9 @@ use orv_render::{
     GpuReservation,
     material_volume::Lighting,
     reslice::GpuReslicer,
-    section_volume::{SectionImage, SectionPlane, SectionRenderer, SectionScene},
+    section_volume::{SectionImage, SectionPlane, SectionRenderer, SectionScene, SectionSurface},
+    surface_projection::{GpuSurfaceProjector, SurfaceProjection},
+    surface_source::GpuCellSurface,
     volume_source::GpuVolumeSource,
 };
 use serde_json::{Value, json};
@@ -131,6 +136,12 @@ fn measure(
     ))
 }
 fn main() -> Result<()> {
+    let arguments: Vec<_> = std::env::args().skip(1).collect();
+    let with_surface = match arguments.as_slice() {
+        [] => false,
+        [option] if option == "--surface" => true,
+        _ => return Err("Use no arguments or --surface".into()),
+    };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: orv_render::configured_backends()?,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -159,6 +170,39 @@ fn main() -> Result<()> {
         let start = Instant::now();
         let mut renderer = SectionRenderer::new(gpu.clone(), wgpu::TextureFormat::Rgba8UnormSrgb)?;
         let pipeline_ms = start.elapsed().as_secs_f64() * 1000.;
+        let start = Instant::now();
+        let surface = if with_surface {
+            let base = Arc::new(Labels::empty(cpu.clone())?);
+            let proposal = base.propose_physical_stroke(
+                &PhysicalBrush {
+                    label: 1,
+                    action: BrushAction::Add,
+                    radius_mm: 30.,
+                    shape: BrushShape::Sphere,
+                    clip: None,
+                    protected_ids: [false; 256],
+                },
+                &[cpu.center()],
+                || false,
+            )?;
+            let geometry = CellSurface::build(
+                MaskOwner::Manual(proposal.preview().clone()),
+                1,
+                None,
+                SurfaceLimits::default(),
+                || false,
+            )?
+            .0;
+            Some(GpuCellSurface::upload(gpu.clone(), geometry, None, || false)?.0)
+        } else {
+            None
+        };
+        let geometry_preparation_ms = start.elapsed().as_secs_f64() * 1000.;
+        let start = Instant::now();
+        let projector = with_surface
+            .then(|| GpuSurfaceProjector::new(gpu.clone()))
+            .transpose()?;
+        let projector_pipeline_ms = start.elapsed().as_secs_f64() * 1000.;
         let material = Arc::new(VolumeMaterial::new(&[-1e20, 1e20].map(|value| {
             MaterialPoint {
                 value,
@@ -167,6 +211,7 @@ fn main() -> Result<()> {
             }
         }))?);
         let mut scene = SectionScene {
+            surface: None,
             planes: planes.map(|image| {
                 image.map(|image| SectionPlane {
                     image,
@@ -190,6 +235,25 @@ fn main() -> Result<()> {
         let mut sizes = Vec::new();
         for (side, samples, warmups) in [(512, 12, 3), (2048, 3, 1)] {
             scene.size = [side, side];
+            let start = Instant::now();
+            if let (Some(surface), Some(projector)) = (&surface, &projector) {
+                let image = projector.render(
+                    SurfaceProjection {
+                        surface: surface.clone(),
+                        camera: scene.volume.camera.clone(),
+                        display: scene.navigation.clone(),
+                        clip: scene.volume.clip.clone(),
+                        size: scene.size,
+                    },
+                    || false,
+                )?;
+                scene.surface = Some(SectionSurface {
+                    image,
+                    luminance: 0.8,
+                    lighting: Lighting::HEADLIGHT,
+                });
+            }
+            let surface_projection_ms = start.elapsed().as_secs_f64() * 1000.;
             let (full, a) = measure(&gpu, &mut renderer, &scene, side, samples, warmups)?;
             let (tiled, b) = measure(
                 &gpu,
@@ -199,16 +263,18 @@ fn main() -> Result<()> {
                 if side == 512 { 4 } else { 2 },
                 1,
             )?;
+            let admission = json!({"cpu_bytes":MemoryBudget::volumes().used(),"gpu_bytes":MemoryBudget::gpu().used()});
             let a = read(&gpu, &a)?;
             let b = read(&gpu, &b)?;
             if a.pixels != b.pixels {
                 return Err("Section row composition differs from complete dispatch".into());
             }
-            sizes.push(json!({"size":[side,side],"full":full,"rows16":tiled,"verified_pixels":a.pixels.len(),"all_row_pixels_equal":true,
-                "admission_after_complete":{"cpu_bytes":MemoryBudget::volumes().used(),"gpu_bytes":MemoryBudget::gpu().used()}}));
+            sizes.push(json!({"size":[side,side],"surface_projection_ms":surface_projection_ms,"full":full,"rows16":tiled,"verified_pixels":a.pixels.len(),"all_row_pixels_equal":true,
+                "admission_after_images_before_verification":admission}));
         }
         cases.push(json!({"source":kind,"dimensions":[512,512,128],"unique_scalar_planes":true,"source_upload_ms":upload_ms,"completed_mpr_preparation_ms":prepare_planes_ms,
-            "pipeline_ms":pipeline_ms,"sizes":sizes}));
+            "pipeline_ms":pipeline_ms,"surface_projector_pipeline_ms":projector_pipeline_ms,"sphere_geometry_preparation_ms":geometry_preparation_ms,
+            "surface_faces":surface.as_ref().map(|s|s.surface().face_count()),"sizes":sizes}));
     }
     fence(&device)?;
     let after = [MemoryBudget::volumes().used(), MemoryBudget::gpu().used()];
@@ -218,9 +284,9 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"schema":1,"adapter":adapter.get_info().name,"cases":cases,
+            &json!({"schema":2,"with_generated_sphere_surface":with_surface,"adapter":adapter.get_info().name,"cases":cases,
         "scope":"resident corrected thin plane textures; complete immutable source composition, uniforms, status readback, previous-front retention, old-front drop and retirement fence; individually fenced 16-row sequences; source/plane/pipeline preparation separate; verification readback and native input/presentation excluded",
-        "verification":"all pixels finite monochrome [0,1] with opaque alpha; full and complete row images bit-equal; independent f64 optical/plane references are exercised by section_volume GPU tests",
+        "verification":"all pixels finite monochrome [0,1] with opaque alpha; full and complete row images bit-equal; independent f64 optical/plane/known-face references are exercised by section_volume GPU tests; admission sampled after both images before verification staging",
         "admission_before":before,"admission_after":after,"admission_is_rss_or_driver_memory":false})
         )?
     );

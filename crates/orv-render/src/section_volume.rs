@@ -5,6 +5,7 @@ use crate::{
     mask_projection::MAX_ROW_DISPATCHES,
     material_volume::Lighting,
     reslice::GpuReformatImage,
+    surface_projection::SurfaceImage,
     volume::{allocation, flush_upload},
     volume_source::GpuVolumeSource,
 };
@@ -28,9 +29,18 @@ pub struct SectionPlane {
     pub invert: bool,
 }
 #[derive(Clone)]
+pub struct SectionSurface {
+    pub image: Arc<SurfaceImage>,
+    pub luminance: f32,
+    pub lighting: Lighting,
+}
+#[derive(Clone)]
 pub struct SectionScene {
     /// Equal-depth valid planes use the first slot. Invalid pixels are transparent.
     pub planes: [Option<SectionPlane>; 3],
+    /// A known open interface wins an exactly coincident plane tie. No clipping
+    /// or unknown cap is constructed.
+    pub surface: Option<SectionSurface>,
     pub navigation: ViewState,
     pub volume: VolumeView,
     pub material: Arc<VolumeMaterial>,
@@ -49,6 +59,15 @@ impl SectionScene {
                 }
                 _ => false,
             })
+            && match (&self.surface, &other.surface) {
+                (None, None) => true,
+                (Some(a), Some(b)) => {
+                    Arc::ptr_eq(&a.image, &b.image)
+                        && a.luminance == b.luminance
+                        && a.lighting == b.lighting
+                }
+                _ => false,
+            }
             && self.navigation == other.navigation
             && self.volume == other.volume
             && Arc::ptr_eq(&self.material, &other.material)
@@ -85,6 +104,8 @@ struct Pending {
     image: SectionImage,
     target: wgpu::TextureView,
     planes: [wgpu::TextureView; 3],
+    surface_cells: wgpu::TextureView,
+    surface_depth: wgpu::TextureView,
     status: wgpu::Buffer,
     next_row: u32,
     dispatches: usize,
@@ -95,6 +116,8 @@ pub struct SectionRenderer {
     layout: wgpu::BindGroupLayout,
     display: Arc<LinearDisplay>,
     empty: wgpu::Texture,
+    empty_cells: wgpu::Texture,
+    empty_depth: wgpu::Texture,
     pending: [Option<Pending>; 2],
     _gpu: allocation::GpuReservation,
 }
@@ -109,9 +132,9 @@ impl SectionRenderer {
         if source.volume().is_color() {
             return Err("Source sections require a scalar volume");
         }
-        if limits.max_sampled_textures_per_shader_stage < 6
-            || limits.max_bindings_per_bind_group < 10
-            || limits.max_uniform_buffers_per_shader_stage < 2
+        if limits.max_sampled_textures_per_shader_stage < 8
+            || limits.max_bindings_per_bind_group < 13
+            || limits.max_uniform_buffers_per_shader_stage < 3
             || limits.max_uniform_buffer_binding_size < 1344
             || limits.max_storage_buffers_per_shader_stage < 1
             || limits.max_storage_buffer_binding_size < 4
@@ -119,7 +142,7 @@ impl SectionRenderer {
         {
             return Err("This GPU cannot bind the checked source section resources");
         }
-        let gpu = allocation::reserve_bytes(65536 + 16, device, source.queue())?;
+        let gpu = allocation::reserve_bytes(65536 + 36, device, source.queue())?;
         let empty = allocation::texture(
             device,
             &wgpu::TextureDescriptor {
@@ -137,6 +160,27 @@ impl SectionRenderer {
                 view_formats: &[],
             },
         )?;
+        let empty_surface = |format| {
+            allocation::texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some("absent section cell interface"),
+                    size: wgpu::Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                },
+            )
+        };
+        let empty_cells = empty_surface(wgpu::TextureFormat::Rgba32Uint)?;
+        let empty_depth = empty_surface(wgpu::TextureFormat::R32Float)?;
         let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let layout = layout(device);
@@ -181,6 +225,8 @@ impl SectionRenderer {
             layout,
             display,
             empty,
+            empty_cells,
+            empty_depth,
             pending: Default::default(),
             _gpu: gpu,
         })
@@ -205,16 +251,9 @@ impl SectionRenderer {
             return Err("Source section rows exceed the image");
         }
         let region = [[0, rows.start], [scene.size[0], rows.end - rows.start]];
-        let parameters = crate::material_volume::parameters(
-            &self.source,
-            &scene.navigation,
-            &scene.volume,
-            &scene.material,
-            scene.lighting,
-            scene.size,
-            region,
-        )?;
+        let parameters = parameters(&self.source, scene, region)?;
         let planes = plane_parameters(&self.source, scene)?;
+        let surface_values = surface_parameters(&self.source, scene)?;
         let device = self.source.device();
         if [
             scene.size[0].div_ceil(8),
@@ -250,6 +289,12 @@ impl SectionRenderer {
             device,
             "immutable physical section coordinates",
             bytemuck::cast_slice(&planes),
+            wgpu::BufferUsages::UNIFORM,
+        )?;
+        let surface = allocation::initialized_buffer(
+            device,
+            "immutable section cell interface style",
+            bytemuck::cast_slice(&surface_values),
             wgpu::BufferUsages::UNIFORM,
         )?;
         let bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -295,6 +340,18 @@ impl SectionRenderer {
                 wgpu::BindGroupEntry {
                     binding: 9,
                     resource: section.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: wgpu::BindingResource::TextureView(&pending.surface_cells),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: wgpu::BindingResource::TextureView(&pending.surface_depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 12,
+                    resource: surface.as_entire_binding(),
                 },
             ],
         });
@@ -374,6 +431,16 @@ impl SectionRenderer {
                 .map_or(&self.empty, |p| p.image.texture())
                 .create_view(&Default::default())
         });
+        let surface_cells = scene
+            .surface
+            .as_ref()
+            .map_or(&self.empty_cells, |s| s.image.cells())
+            .create_view(&Default::default());
+        let surface_depth = scene
+            .surface
+            .as_ref()
+            .map_or(&self.empty_depth, |s| s.image.depth())
+            .create_view(&Default::default());
         Ok(Pending {
             image: SectionImage {
                 source: self.source.clone(),
@@ -386,6 +453,8 @@ impl SectionRenderer {
             },
             target,
             planes,
+            surface_cells,
+            surface_depth,
             status,
             next_row: 0,
             dispatches: 0,
@@ -393,13 +462,100 @@ impl SectionRenderer {
     }
 }
 
+fn parameters(
+    source: &GpuVolumeSource,
+    scene: &SectionScene,
+    region: [[u32; 2]; 2],
+) -> Result<[f32; 336], &'static str> {
+    let mut values = crate::material_volume::parameters(
+        source,
+        &scene.navigation,
+        &scene.volume,
+        &scene.material,
+        scene.lighting,
+        scene.size,
+        region,
+    )?;
+    let volume = source.volume();
+    let reference = volume.center();
+    let frame = crate::physical_camera::centred_frame(
+        &scene.volume.camera,
+        &scene.navigation,
+        scene.size,
+        reference,
+    )?;
+    let delta = volume.world_vector_to_voxel(frame.origin_mm);
+    for a in 0..3 {
+        values[a] = ((volume.dimensions()[a] - 1) as f64 * 0.5 + delta[a]) as f32;
+    }
+    if let Some(clip) = &scene.volume.clip {
+        for (i, vector) in [
+            frame.origin_mm,
+            frame.right_mm,
+            frame.down_mm,
+            frame.direction_unit,
+            std::array::from_fn(|a| clip.minimum_mm[a] - reference[a]),
+            std::array::from_fn(|a| clip.maximum_mm[a] - reference[a]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for a in 0..3 {
+                values[36 + i * 4 + a] = vector[a] as f32;
+            }
+        }
+        if (0..3).any(|a| values[52 + a] >= values[56 + a]) {
+            return Err("Source section clip exceeds GPU coordinate precision");
+        }
+    }
+    if values.iter().any(|v| !v.is_finite() || v.abs() > 1e20) {
+        return Err("Source section rays exceed GPU coordinate limits");
+    }
+    Ok(values)
+}
+fn surface_parameters(
+    source: &GpuVolumeSource,
+    scene: &SectionScene,
+) -> Result<[f32; 8], &'static str> {
+    let Some(surface) = &scene.surface else {
+        return Ok([0.; 8]);
+    };
+    let request = surface.image.request();
+    if !std::ptr::eq(source, request.surface.source().as_ref())
+        || request.camera != scene.volume.camera
+        || request.display != scene.navigation
+        || request.clip != scene.volume.clip
+        || request.size != scene.size
+        || surface.image.depth_reference_mm() != source.volume().center()
+    {
+        return Err("Source section and cell interface views no longer match");
+    }
+    if !surface.luminance.is_finite() || !(0. ..=1.).contains(&surface.luminance) {
+        return Err("Source section surface luminance must be between zero and one");
+    }
+    surface.lighting.validate()?;
+    Ok([
+        surface.luminance,
+        f32::from(request.surface.surface().key().number),
+        surface.lighting.ambient,
+        surface.lighting.diffuse,
+        1.,
+        0.,
+        0.,
+        0.,
+    ])
+}
+
 fn plane_parameters(
     source: &GpuVolumeSource,
     scene: &SectionScene,
 ) -> Result<[f32; 72], &'static str> {
-    let camera = scene.volume.camera.frame(
+    let reference = source.volume().center();
+    let camera = crate::physical_camera::centred_frame(
+        &scene.volume.camera,
         &scene.navigation,
-        f64::from(scene.size[0]) / f64::from(scene.size[1]),
+        scene.size,
+        reference,
     )?;
     let mut result = [0.; 72];
     for (slot, plane) in scene.planes.iter().enumerate() {
@@ -443,7 +599,8 @@ fn plane_parameters(
         let n = geometry.normal();
         let length = dot(n, n).sqrt();
         let normal = n.map(|v| v / length);
-        let delta = std::array::from_fn(|a| camera.origin_mm[a] - geometry.position[a]);
+        let delta =
+            std::array::from_fn(|a| (reference[a] - geometry.position[a]) + camera.origin_mm[a]);
         let output = &mut result[slot * 24..(slot + 1) * 24];
         // Project relative f64 rays before conversion. Large LPS origins and
         // tiny spacings never subtract as f32 world positions in the shader.
@@ -557,6 +714,17 @@ fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 count: None,
             },
             uniform(9, 288),
+            texture(
+                10,
+                wgpu::TextureSampleType::Uint,
+                wgpu::TextureViewDimension::D2,
+            ),
+            texture(
+                11,
+                wgpu::TextureSampleType::Float { filterable: false },
+                wgpu::TextureViewDimension::D2,
+            ),
+            uniform(12, 32),
         ],
     })
 }
