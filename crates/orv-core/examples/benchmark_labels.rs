@@ -169,7 +169,14 @@ fn supplied(source: &Arc<Volume>, budget: &Arc<MemoryBudget>) -> Result<Vec<Valu
     }
     Ok(results)
 }
+#[path = "benchmark_labels/physical.rs"]
+mod physical;
 fn main() -> Result<()> {
+    match std::env::args().nth(1).as_deref() {
+        Some("--physical") => return physical::run(),
+        None => (),
+        _ => return Err("Use no argument or --physical".into()),
+    }
     let source = source()?;
     let budget = MemoryBudget::volumes();
     let before = budget.used();

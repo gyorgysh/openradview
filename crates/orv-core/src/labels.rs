@@ -3,10 +3,15 @@
 use crate::{resources::MemoryBudget, study::Frame, volume::Volume};
 use std::sync::Arc;
 mod export;
+mod physical;
 mod regions;
 mod sampling;
 mod statistics;
 mod tiles;
+pub use physical::{
+    BrushAction, BrushShape, MAX_PHYSICAL_BRUSH_RADIUS_MM, MAX_STROKE_CANDIDATES,
+    MAX_STROKE_POINTS, PhysicalBrush, PhysicalStroke, StrokeSummary,
+};
 pub use regions::{
     LabelScope, LabelSelection, RegionOperation, SelectionRequest, SelectionSummary,
 };

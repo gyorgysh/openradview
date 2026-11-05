@@ -104,6 +104,31 @@ allocations retain CPU-pool reservations until their final reader drops them.
 Cancellation or admission failure discards the unpublished private checkpoint.
 Logical source-order iteration and bounded export chunks avoid a dense duplicate.
 
+`PhysicalStroke` prepares a private tiled label revision on a worker for an
+explicit source-space volumetric sphere or plane brush. Consecutive physical
+points define continuous capsules, including end spheres; there is no sampling
+at display-frame intervals. A plane brush projects the path onto its declared
+physical plane and sweeps a disk through an explicit symmetric thickness. Closed
+source-cell centre membership uses the fitted affine in millimetres, including
+shear and reflection. Clips, scalar validity or color alpha, protected existing
+IDs and competing categorical IDs are checked before writes. Supplied masks have
+no mutation entry point. This is not a visible-surface correction tool.
+
+The proposal retains its exact base Arc, complete ordered input path, edit
+settings and read-only preview map. Apply consumes it only when the base, path
+and all settings still match; the caller also revalidates its live
+source/session/tool scope and input epoch. A real edit returns the already
+prepared revision; a no-op retains the original map and history identity. There
+is no voxel scan during Apply. Metadata, the retained input path, temporary segment
+bounds, directories and changed COW tiles are admitted; cancellation or failure drops all unpublished
+changes. The input is bounded to 8192 points and preflight caps aggregate bounding
+box visits at 64 Mi cells, counting overlaps. Radius is 0.000001–256 mm; plane
+thickness is 0.000001–512 mm. Coordinates and source extents relative to the source
+origin are limited to one billion millimetres. Inverse-derived pruning boxes use
+a full-cell margin and checked affine residual/arithmetic bounds; unsafe pruning
+retains a full bounded scan. These backend proposals are not native 3D tools or
+saved/sharable scenes and grant no pick, edit or disclosure authority.
+
 RAM-only object/revision keys distinguish replacement maps and no-op operations.
 Tile differences bind an exact previous object/revision, including undo/redo;
 these keys contain no source tags and are not serialized. Native history retains

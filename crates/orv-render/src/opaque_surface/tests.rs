@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod acceleration;
+mod physical_stroke;
 mod pick;
 use super::*;
 use crate::{

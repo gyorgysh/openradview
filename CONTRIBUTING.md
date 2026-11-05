@@ -64,6 +64,17 @@ from retained mask bytes. Construction has three samples; row/plane cases have
 120. Fractional values remain original bytes with a declared maximum and meaning;
 the sampled overlay uses the existing half-maximum categorical view.
 
+Use `cargo run --locked --release -p orv-core --example benchmark_labels --
+--physical` for schema 3 physical stroke timings on the same generated
+512×512×128 source. It checks every cell against an independent capsule/plane
+calculation, then alternates add/erase for 120 samples after four warmups while
+retaining 16 history revisions. Worker proposal/apply/history and the prepared
+Apply operation are measured separately. Sub-microsecond Apply samples include
+timer overhead and quantization; use the complete worker timing for stroke cost.
+Source construction, full-grid
+verification, GPU work and native input/display are outside these timings.
+Label admission includes live COW revisions and proposals; it is not process RSS.
+
 For complete GPU label revision uploads, run
 `cargo run --locked --release -p orv-render --example label_latency`. The workload
 includes CPU checkpoints/paint, target allocation, a full prior-grid GPU copy,
