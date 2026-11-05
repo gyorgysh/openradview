@@ -6,6 +6,7 @@ use orv_core::{
     mask::MaskOwner,
 };
 use std::{cell::Cell, collections::BTreeSet};
+mod stamp;
 
 fn brush(scene: &SectionScene) -> PhysicalBrush {
     PhysicalBrush {

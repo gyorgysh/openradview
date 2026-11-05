@@ -4,6 +4,7 @@ use super::*;
 use orv_core::labels::{
     FaceErase, FaceEraseSelection, FaceEraseSummary, Labels, MAX_ERASE_FACES, PhysicalBrush,
 };
+mod stamp;
 
 /// Counts original-raster outcomes, including duplicate regions. Non-hit pixels
 /// contribute no editable cell; this operation never infers across their gaps.

@@ -174,6 +174,20 @@ across covered input centres, edit supplied masks or authorize disclosure. Nativ
 integration must additionally retain/revalidate its live CPU request, edit session
 and ordered input epoch before publishing a revision.
 
+`propose_erase_stamp` converts a checked original-image click and physical sphere
+radius into that proposal. A Hit anchors the sphere at its source-cell centre.
+The proof rectangle expands the projected sphere by the largest affine half-cell
+corner extent, so a cell's visible face is included even when its centre projects
+elsewhere. A conditioned f64 camera inverse, absolute-coordinate rounding bound
+and extra pixel border conservatively bound the rectangle; unresolved zooms are
+refused. These guards widen only the proof rectangle, never the physical brush
+or a ray. The original raster is partitioned into at most 256×16 rectangles, each
+using the existing color/optical/independent geometry checks. The total cap stays
+65,536 pixels; oversize requests ask for a smaller radius or zoom out rather than
+reducing resolution. The transient batch directory is admitted before allocation.
+Cancellation/revocation releases all unpublished batches and edits. This remains
+a worker backend for a one-click stamp, without a native surface-editing control.
+
 The native workbench passes the completed GPU MPR images and each plane's display
 window/inversion to a separate coalescing worker. Its optional region uses the
 exact current manual or supplied map, including a physical edit proposal. Shared
