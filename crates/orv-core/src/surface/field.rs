@@ -3,6 +3,7 @@
 //! These primitives neither extract a mesh nor establish 3D connectivity or edit
 //! authority. Critical faces remain explicit until a shared regularization exists.
 mod critical;
+mod factor;
 mod neighborhood;
 use crate::{
     mask::{MaskKey, MaskOwner, MaskRevision},
@@ -12,6 +13,9 @@ pub use critical::{
     AlgebraicRoot, AnchorLine, ContourNode, ContourSegment, CriticalGraph, ExactCoordinate,
     FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode, LimitContours, ProjectionAnalysis,
     ProjectionPoint, WholeSection,
+};
+pub use factor::{
+    AxisFactor, CellFactorization, CellPhase, CellResidual, ResidualKind, ZeroBoundary,
 };
 pub use neighborhood::{CellNeighborhood, EdgePartition, EdgePoint, NeighborhoodCell, SourceFace};
 use std::sync::Arc;

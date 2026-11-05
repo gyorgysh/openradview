@@ -609,6 +609,29 @@ and bounded cancellation, with no dense source copy or per-neighborhood heap
 allocation. Whole-grid chunk admission, triangulation, interior-family resolution
 and GPU/native mesh publication still require separate ownership and validation.
 
+`Trilinear::phase` uses the inclusive F>=0 level, matching retained fractional
+half-maximum ties. Nonnegative corners select the complete closed cell; strictly
+negative corners select none. Nonpositive corners with zeros select only all-zero
+boundary strata, since tensor weights are strictly positive in an open cell or
+face. `zero_boundary` records these vertices, edges and faces. Opposite strict
+corner signs identify crossing cells. These classifications preserve original
+categorical membership; an entire zero cell is selected, not an empty mask or
+an internal surface by itself.
+
+`factorization` separates primitive integer axis factors from a constant or
+irreducible bilinear/trilinear residual; an identically zero field stays whole.
+A multi-affine product cannot share a variable between nonconstant factors,
+because degrees add. Reducibility therefore supplies a one-axis factor, found
+by an exact rank-one 2x4 corner flattening. Primitive proportional rows have
+integer quotients, retaining bounded amplitudes. Reconstructing all eight corners
+certifies the full polynomial identity before publication. Axis factors retain
+out-of-cell zeros as absent planes and classify exact in-cell coordinate signs
+without an epsilon. Residual bilinear axes remain explicit; residual trilinear
+fields have no identically vanishing section determinant. Source faces retain
+each known incident cell's factorization alongside its original critical graph.
+Fixed storage and cancellation keep this analysis separate from patch
+intersection/orientation, singular contacts, finite-grid closure and triangulation.
+
 `InterfaceRay` is a separate f64 membership reference for known cell interfaces.
 It walks bounded source-cell intervals without allocating or scanning derived
 faces. Only eligible positive cells against known valid negatives or marked grid

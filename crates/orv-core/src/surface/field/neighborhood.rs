@@ -27,6 +27,9 @@ impl NeighborhoodCell {
     pub fn interpolant(&self) -> Option<Trilinear> {
         self.interpolant
     }
+    pub fn phase(&self) -> Option<CellPhase> {
+        self.interpolant.map(Trilinear::phase)
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EdgePoint {
@@ -123,6 +126,7 @@ pub struct SourceFace {
     samples: [FieldSample; 4],
     cells: [NeighborhoodCell; 2],
     graphs: [Option<CriticalGraph>; 2],
+    factorizations: [Option<CellFactorization>; 2],
     edges: [EdgePartition; 4],
     contour: Option<FaceArrangement>,
 }
@@ -143,6 +147,9 @@ impl SourceFace {
     /// Unresolved eliminations and whole sections stay attached to their cell.
     pub fn graphs(&self) -> &[Option<CriticalGraph>; 2] {
         &self.graphs
+    }
+    pub fn factorizations(&self) -> &[Option<CellFactorization>; 2] {
+        &self.factorizations
     }
     pub fn edges(&self) -> &[EdgePartition; 4] {
         &self.edges
@@ -424,9 +431,11 @@ impl MaskField {
             self.neighborhood_cell(Some(key.origin))?,
         ];
         let mut graphs = [None, None];
+        let mut factorizations = [None, None];
         for (i, cell) in cells.into_iter().enumerate() {
             check_cancel(&cancel)?;
             if let Some(field) = cell.interpolant {
+                factorizations[i] = Some(field.factorization(&cancel)?);
                 graphs[i] = Some(field.critical_graph(&cancel)?);
             }
         }
@@ -493,6 +502,7 @@ impl MaskField {
             samples,
             cells,
             graphs,
+            factorizations,
             edges,
             contour,
         })

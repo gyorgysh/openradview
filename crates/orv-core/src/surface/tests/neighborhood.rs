@@ -449,6 +449,23 @@ fn source_faces_share_exact_edge_unions_across_axes_boundaries_and_repeated_owne
                         assert_eq!(face.key(), key);
                         assert_eq!(face.field().key(), field.key());
                         assert_eq!(face.field().revision(), field.revision());
+                        for (index, cell) in face.cells().iter().enumerate() {
+                            match cell.interpolant() {
+                                Some(original) => {
+                                    let factors = face.factorizations()[index].unwrap();
+                                    assert_eq!(factors.original(), original);
+                                    assert_eq!(
+                                        factors.reconstruct_values().unwrap(),
+                                        original.values()
+                                    );
+                                    assert_eq!(cell.phase(), Some(original.phase()));
+                                }
+                                None => {
+                                    assert!(face.factorizations()[index].is_none());
+                                    assert_eq!(cell.phase(), None);
+                                }
+                            }
+                        }
                         assert_eq!(face_points(&face), face_points(&duplicate));
                         assert_eq!(
                             face.contour().unwrap().segments().collect::<Vec<_>>(),

@@ -47,6 +47,60 @@ fn source_bound_field_retains_manual_identity_without_changing_labels() {
 }
 
 #[test]
+fn fractional_half_level_ties_select_whole_zero_cells_without_changing_samples() {
+    for (maximum, value, phase, kind) in [
+        (200, 100, CellPhase::Selected, ResidualKind::Whole),
+        (255, 127, CellPhase::Unselected, ResidualKind::Constant),
+        (255, 128, CellPhase::Selected, ResidualKind::Constant),
+    ] {
+        let masks = Arc::new(
+            Segments::from_fractional(
+                source([2; 3], false, false),
+                &[65535],
+                &[(65535, 0), (65535, 1)],
+                &[value; 8],
+                FractionalEncoding {
+                    kind: FractionalKind::Probability,
+                    maximum,
+                },
+                Some(true),
+                || false,
+            )
+            .unwrap(),
+        );
+        let field = MaskField::new(MaskOwner::Supplied(masks.clone()), 65535).unwrap();
+        let cell = field.cell([0; 3]).unwrap().interpolant().unwrap();
+        assert_eq!(cell.phase(), phase);
+        assert_eq!(
+            cell.factorization(|| false).unwrap().residual().kind(),
+            kind
+        );
+        let face = field
+            .source_face(
+                FaceKey {
+                    origin: [0; 3],
+                    axis: 0,
+                },
+                || false,
+            )
+            .unwrap();
+        assert_eq!(face.cells()[1].phase(), Some(phase));
+        assert_eq!(face.factorizations()[1].unwrap().original(), cell);
+        for x in 0..2 {
+            for y in 0..2 {
+                for z in 0..2 {
+                    assert_eq!(masks.mask(65535).unwrap().raw_value([x, y, z]), Some(value));
+                    assert_eq!(
+                        masks.mask(65535).unwrap().value([x, y, z]),
+                        Some(phase == CellPhase::Selected)
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn fractional_field_uses_original_amplitudes_and_keeps_missing_and_unknown_separate() {
     let source = source([3; 3], false, true);
     for (maximum, kind) in [
