@@ -9,6 +9,8 @@ use crate::jobs;
 pub(crate) use illustration::{CapturedMasks, MaskDescription};
 pub(crate) use local_volume::{RegionMap, RegionMaps, RegionSelection};
 mod overlay;
+mod physical;
+pub(crate) use physical::PhysicalContext;
 mod regions;
 mod supplied;
 pub(crate) use canvas::overlay_mesh;
@@ -48,6 +50,7 @@ pub struct LabelUi {
     counts: counts::Counts,
     display: overlay::Display,
     regions: regions::Regions,
+    physical: physical::Physical,
     supplied: supplied::Supplied,
     supplied_active: bool,
     stroke: Vec<[f64; 2]>,
@@ -78,6 +81,7 @@ impl Default for LabelUi {
             counts: Default::default(),
             display: Default::default(),
             regions: regions::Regions::new(),
+            physical: Default::default(),
             supplied: Default::default(),
             supplied_active: false,
             stroke: Vec::new(),
@@ -92,11 +96,14 @@ impl LabelUi {
         let result = self.task.as_ref().and_then(Task::poll);
         let Some(result) = result else { return };
         self.task = None;
+        self.physical.pending = false;
         match result {
             Ok(Output::Start(labels)) => {
                 self.current = Some(labels);
                 self.mark_saved();
-                self.message = "Blank labels ready. Paint on the 2D source image.".into();
+                self.message =
+                    "Blank labels ready. Choose a source-image brush or a physical workbench edit."
+                        .into();
             }
             Ok(Output::Change(labels)) => {
                 self.commit_change(labels);
@@ -113,6 +120,13 @@ impl LabelUi {
                 } else {
                     self.message = "Selection inputs changed. Request a new preview.".into();
                 }
+            }
+            Ok(Output::Physical(preview)) => {
+                self.message = if self.physical.completed(*preview, self.current.as_ref()) {
+                    String::new()
+                } else {
+                    "Physical edit inputs changed. Request a new preview.".into()
+                };
             }
             Ok(Output::Saved) => {
                 self.mark_saved();
@@ -150,6 +164,7 @@ impl LabelUi {
         self.dirty = false;
     }
     fn changed_revision(&mut self) {
+        self.invalidate_physical();
         self.regions.invalidate();
         self.regions.picking = false;
         self.stroke.clear();
@@ -187,6 +202,9 @@ impl LabelUi {
     }
     fn start(&mut self, op: Operation, ctx: &egui::Context) {
         if self.task.is_none() {
+            if !matches!(&op, Operation::Physical(..)) {
+                self.invalidate_physical();
+            }
             if !matches!(&op, Operation::Preview(..)) {
                 self.regions.invalidate();
             }
@@ -212,6 +230,7 @@ impl LabelUi {
         };
     }
     pub fn stop_painting(&mut self) {
+        self.end_physical_tools();
         self.paint = false;
         self.stroke.clear();
         self.regions.picking = false;

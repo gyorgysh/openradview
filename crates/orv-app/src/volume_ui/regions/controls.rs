@@ -31,6 +31,11 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    pub fn select_manual(&mut self) {
+        self.enabled = true;
+        self.group = Group::Manual;
+        self.pick = false;
+    }
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,

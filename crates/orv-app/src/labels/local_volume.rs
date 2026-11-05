@@ -57,7 +57,7 @@ impl LabelUi {
                 .current
                 .as_ref()
                 .filter(|v| Arc::ptr_eq(&v.source_arc(), source))
-                .cloned())
+                .map(|map| self.physical.displayed(map).unwrap_or(map).clone()))
         };
         RegionMaps {
             manual,

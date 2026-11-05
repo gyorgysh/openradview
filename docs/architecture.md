@@ -89,6 +89,28 @@ Combined views are local: entering this layout revokes single-view approvals,
 denies queued connections and withholds source-substitute exports. Canonical
 single-view reconstruction and sharing contracts do not describe a workbench.
 
+The workbench's physical label tool proposes one sphere or thick disk at the
+completed thin MPR point. The disk normal follows the active anatomical plane;
+radius and symmetric thickness use millimetres and source-cell centres under the
+full source affine. It is an explicit volumetric stamp that can reach hidden
+cells, independent of 3D display clipping. Supplied masks remain read-only.
+Blank manual labels are created on a worker over the exact shared CPU volume.
+`PhysicalStroke` prepares a private COW map on the label worker. The native input
+scope binds the exact base/source, selected series, MPR generation/point, shape,
+label, action, radius, thickness and protected IDs. Hidden IDs are protected;
+source validity and competing-ID rules also apply. Pending navigation, slabs,
+changed inputs or another label operation invalidate/cancel the proposal.
+
+Thin MPR overlays and the manual 3D region use that same immutable preview map,
+labelled **PHYSICAL PREVIEW ONLY**. Its marker does not resize the 3D viewport;
+narrow windows put the edit entry inside 3D settings. Counts and explicit label
+exports retain the applied map; illustration capture refuses an unapplied preview.
+Apply revalidates the scope and consumes the prepared proposal once, creating one
+undo checkpoint. A no-op retains the original map/history. Closing the tool window
+keeps its proposal for inspection; leaving the layout discards it. Continuous
+pointer strokes and visible-surface correction are separate tools, not supplied
+by this one-point editor.
+
 Agent panel/review/live sessions and unseen inbound requests select canonical CPU
 reconstruction. Backend changes increment the request generation, invalidate the
 plane cache and reject old-mode previews; the GPU source stays available for local

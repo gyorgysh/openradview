@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use eframe::egui;
 use orv_core::{
-    labels::{Labels, SelectionRequest},
+    labels::{Labels, PhysicalBrush, SelectionRequest},
     study::Series,
+    volume::Volume,
 };
 use std::sync::{
     Arc,
@@ -12,16 +13,19 @@ use std::sync::{
 
 pub enum Operation {
     Start(Arc<Series>),
+    StartVolume(Arc<Volume>),
     Import(Arc<Labels>),
     Export(Arc<Labels>),
     Paint(Arc<Labels>, usize, Vec<[f64; 2]>, u32, u8),
     Threshold(Arc<Labels>, Option<usize>, [f32; 2], u8),
     Preview(Arc<Labels>, SelectionRequest, u64),
+    Physical(Arc<Labels>, Box<PhysicalBrush>, [f64; 3], u64),
 }
 pub enum Output {
     Start(Arc<Labels>),
     Change(Arc<Labels>),
     Preview(Box<super::regions::Preview>),
+    Physical(Box<super::physical::Preview>),
     Saved,
     Cancelled,
 }
@@ -78,6 +82,7 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
             let volume = series.volume(cancelled)?;
             Output::Start(Arc::new(Labels::empty(volume)?))
         }
+        Operation::StartVolume(volume) => Output::Start(Arc::new(Labels::empty(volume)?)),
         Operation::Import(current) => {
             let Some(path) = rfd::FileDialog::new()
                 .set_title("Load matching NIfTI label map (integer 0–255)")
@@ -143,6 +148,10 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
                 summary,
                 epoch,
             }))
+        }
+        Operation::Physical(current, settings, point, epoch) => {
+            let stroke = current.propose_physical_stroke(&settings, &[point], cancelled)?;
+            Output::Physical(Box::new(super::physical::Preview { stroke, epoch }))
         }
     };
     if cancelled() {

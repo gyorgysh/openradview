@@ -185,6 +185,9 @@ impl LabelUi {
         if self.region_preview_visible() {
             return Err("Apply or discard the connected-region preview before including labels");
         }
+        if self.physical_preview_visible() {
+            return Err("Apply or discard the physical edit preview before including labels");
+        }
         CapturedMasks::new(
             Map::Manual(map.clone(), Box::new(self.display.clone())),
             MaskGroup::Manual,

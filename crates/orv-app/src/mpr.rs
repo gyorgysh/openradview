@@ -197,6 +197,11 @@ impl MprSession {
             ui.label(RichText::new("Images remain on this device.").color(theme::SILVER));
             return;
         };
+        if self.is_workbench() {
+            labels.sync_physical(&self.physical_context(&snapshot, selected));
+        } else {
+            labels.end_physical_tools();
+        }
         let color = snapshot.volume.is_color();
         if color && self.tool == Tool::Window {
             self.tool = Tool::Pan;
@@ -381,6 +386,7 @@ impl MprSession {
                 for (index, rect) in rects[..3].iter().enumerate() {
                     paints.push(self.prepare_plane(ui, index, *rect, &snapshot));
                 }
+                labels.sync_physical(&self.physical_context(&snapshot, selected));
                 let rect = rects[3];
                 let mut view = ui.new_child(
                     egui::UiBuilder::new()
@@ -425,6 +431,9 @@ impl MprSession {
             view.window = self.window;
             view.invert = self.invert;
         }
+        if self.is_workbench() {
+            labels.sync_physical(&self.physical_context(&snapshot, selected));
+        }
         labels.prepare_planes(
             selected,
             &snapshot.volume,
@@ -437,6 +446,26 @@ impl MprSession {
         );
         for paint in paints {
             self.finish_plane(paint, frame, &snapshot, labels);
+        }
+        if self.is_workbench() {
+            labels.physical_window(ui.ctx(), &self.physical_context(&snapshot, selected));
+        }
+    }
+    fn physical_context<'a>(
+        &self,
+        snapshot: &'a MprSnapshot,
+        selected: usize,
+    ) -> crate::labels::PhysicalContext<'a> {
+        crate::labels::PhysicalContext {
+            source: &snapshot.volume,
+            selected,
+            point: snapshot.point,
+            plane: self.active_index(),
+            generation: self.worker.generation(),
+            ready: self.worker.generation() == snapshot.generation
+                && !snapshot.preview
+                && self.slab.is_none()
+                && snapshot.images.iter().all(|image| image.slab.is_none()),
         }
     }
     pub(crate) fn controls_open(&self) -> bool {

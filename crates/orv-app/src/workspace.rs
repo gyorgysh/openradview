@@ -207,6 +207,7 @@ impl Workspace {
             || self.image_info.is_open()
             || self.export.is_open()
             || self.labels.open
+            || self.labels.physical_dialog_open()
             || self.labels.discard_question
             || self.discard_labels
             || self.show_demo_credits
@@ -474,6 +475,7 @@ impl Workspace {
         if blocked
             || self.show_demo_credits
             || self.labels.open
+            || self.labels.physical_dialog_open()
             || self.loading.is_some()
             || ui.input(|i| !i.focused || i.viewport().minimized == Some(true))
         {
@@ -488,6 +490,7 @@ impl Workspace {
             ui.ctx(),
             !blocked
                 && !self.labels.open
+                && !self.labels.physical_dialog_open()
                 && !self.show_demo_credits
                 && !self.view_controls_open()
                 && self.loading.is_none(),

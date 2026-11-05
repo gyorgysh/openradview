@@ -35,7 +35,7 @@ impl LabelUi {
             self.overlays.clear();
             return;
         };
-        let labels = self.regions.displayed(current).clone();
+        let labels = self.displayed_manual(current).clone();
         self.overlays
             .prepare(labels, source, images, view, &self.display, ctx);
     }
@@ -55,12 +55,21 @@ impl LabelUi {
             return;
         }
         let Some(current) = &self.current else { return };
-        let labels = self.regions.displayed(current);
+        let labels = self.displayed_manual(current);
         if let Some(texture) = self.overlays.texture(index, image, labels, &self.display)
             && let Some(mesh) =
                 super::canvas::overlay_mesh(response.rect, image, view, texture, self.opacity)
         {
             ui.painter_at(response.rect).add(egui::Shape::mesh(mesh));
+        }
+        if self.physical_preview_visible() {
+            ui.painter_at(response.rect).text(
+                response.rect.left_top() + egui::vec2(6., 20.),
+                egui::Align2::LEFT_TOP,
+                "PHYSICAL PREVIEW ONLY",
+                egui::FontId::monospace(10.),
+                crate::theme::PAPER,
+            );
         }
     }
     pub(super) fn display_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {

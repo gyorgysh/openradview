@@ -45,6 +45,7 @@ impl VolumeSession {
         if narrow {
             crate::theme::eyebrow(ui, "3D · LOCAL");
         }
+        let mut edit_requested = false;
         ui.horizontal_wrapped(|ui| {
             if !narrow {
                 crate::theme::eyebrow(ui, "3D · LOCAL");
@@ -64,6 +65,9 @@ impl VolumeSession {
                 self.display.pan = [0.; 2];
                 self.needs_fit = true;
             }
+            if !narrow && ui.button("Physical edit…").clicked() {
+                edit_requested = true;
+            }
         });
         if let Some(error) = &self.error {
             ui.label(error);
@@ -79,6 +83,9 @@ impl VolumeSession {
             .open(&mut open)
             .default_width(440.)
             .show(ui.ctx(), |ui| {
+                if ui.button("Physical label edit…").clicked() {
+                    edit_requested = true;
+                }
                 ui.weak("3D camera and appearance are independent of the MPR display.");
                 self.show_controls(ui, labels, selected, false);
                 ui.checkbox(&mut self.cursor_visible, "Projected MPR cursor");
@@ -86,7 +93,12 @@ impl VolumeSession {
                 ui.weak("This combined view stays local. Choose a single MPR pane or 3D mode for the supported picture and sharing views.");
                 crate::dialogs::reveal_focus(ui);
             });
-        self.settings_open = open;
+        self.settings_open = open && !edit_requested;
+        if edit_requested {
+            labels.open_physical_tools();
+            self.regions.select_manual();
+            self.material_enabled = true;
+        }
         if let Some(editor) = &mut self.material_editor {
             editor.window(ui.ctx());
         }
@@ -99,6 +111,24 @@ impl VolumeSession {
             egui::Sense::click_and_drag(),
         );
         let shown = self.paint_viewport(ui, rect, &response, selection, true);
+        if labels.physical_preview_visible() {
+            let painter = ui.painter_at(rect);
+            let text = painter.layout_no_wrap(
+                "PHYSICAL PREVIEW ONLY".into(),
+                egui::FontId::monospace(10.),
+                crate::theme::PAPER,
+            );
+            let position = rect.left_top() + egui::vec2(4., 4.);
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    position - egui::vec2(2., 2.),
+                    text.size() + egui::vec2(4., 4.),
+                ),
+                2.,
+                egui::Color32::BLACK,
+            );
+            painter.galley(position, text, crate::theme::PAPER);
+        }
         if self.cursor_visible
             && let (Some(volume), Some((display, state, size))) = (&self.volume, shown)
             && let Ok(camera) = state

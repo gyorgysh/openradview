@@ -327,6 +327,9 @@ pub(super) struct Regions {
     link_epoch: Option<u64>,
 }
 impl Regions {
+    pub fn select_manual(&mut self) {
+        self.settings.select_manual();
+    }
     pub fn bind(&mut self, source: Arc<GpuVolumeSource>, format: wgpu::TextureFormat) {
         self.view = None;
         self.source = Some((source, format));
@@ -487,10 +490,25 @@ impl Regions {
                 } else {
                     "Preview"
                 };
-                ui.small(format!(
-                    "Region {} · local · {status}",
-                    key.selection.number
-                ));
+                if rect.width() < 250. {
+                    let status = if view.pending.is_some() {
+                        if view.front.is_some() {
+                            "updating"
+                        } else {
+                            "preparing"
+                        }
+                    } else if view.front.as_ref().is_some_and(|v| v.refined) {
+                        "refined"
+                    } else {
+                        "preview"
+                    };
+                    ui.small(format!("Region {} · {status}", key.selection.number));
+                } else {
+                    ui.small(format!(
+                        "Region {} · local · {status}",
+                        key.selection.number
+                    ));
+                }
             }
         }
         if let Some(error) = &self.error {
