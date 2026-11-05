@@ -5,6 +5,8 @@ use orv_core::{Plane, study::demo_study};
 use std::time::{Duration, Instant};
 mod approval_priority;
 use crate::dicom_acquisition_phantom as cine_phantom;
+#[cfg(feature = "gpu-tests")]
+mod gpu_mpr;
 mod reconstruction;
 
 #[test]

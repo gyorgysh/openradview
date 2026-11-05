@@ -46,7 +46,7 @@ It also records adapter/requested limits and shared GPU admission before/after
 renderer teardown. Reservations are not measured driver memory or free VRAM.
 Reslice cases compute three moving 512-side grids on that same uploaded source:
 thin, 65-sample maximum and 257-sample mean. Those timings exclude display mapping,
-readback and native presentation; the reslicer is a backend prototype.
+readback and native presentation; these measure the compute-only backend.
 For completed scalar frames, run
 `cargo run --locked --release -p orv-render --example reformat_frames_latency`.
 It uses unique generated 512×512×128 planes, with and without missing samples,
@@ -60,8 +60,9 @@ checked against the CPU for exact validity/geometry and relative scalar error
 at most 0.0002, including exact zeros. Comparison and display/native presentation
 are excluded; the one-plane case also excludes unchanged-plane retention/display.
 Inspect correction counts and sample counts before comparing timings. Reported
-application admission is neither peak driver memory nor RSS. Desktop MPR still
-uses its existing CPU worker.
+application admission is neither peak driver memory nor RSS. Desktop linked MPR
+uses completed GPU planes where supported, with full-detail CPU fallback; these
+benchmark numbers do not measure native input or presentation.
 Material cases use an explicit four-knot optical mapping and headlight, with
 512-side interactive and 1024/2048-side refined complete compute. They retain
 linear float16 output and exclude final presentation. The 2048 case has only

@@ -54,8 +54,24 @@ presenter can bind their scalar/validity texture directly while tools retain the
 matching CPU pixels. Its constructor uses the image's own GPU context, and later
 uploads require the same exact source owner; raw native device IDs can repeat
 across instances. The existing display mapping, VOI and transforms are shared.
-These backend APIs are not yet connected to desktop MPR, masks, exports or shared
-snapshots. They do not change the canonical CPU scene reconstruction contract.
+Native linked MPR offers GPU handles once to its worker, which uploads one scalar
+source and reuses it across navigation. Completed planes bind directly for display;
+labels, measurements and local picture/sheet exports retain their matching CPU
+Frames. Color, unsupported arithmetic/device limits or refused GPU admission use
+the same requested CPU grids. A failed GPU path is retired for that view session,
+avoiding repeated upload or precision failures on each pointer event.
+Leaving linked MPR suspends that worker and releases its GPU source, plane cache
+and completed snapshot. Position, display settings and annotations stay in the
+session. Returning rebuilds from the same CPU volume on demand; inactive views
+do not reserve a second dense GPU source beside the active 3D view.
+
+Agent panel/review/live sessions and unseen inbound requests select canonical CPU
+reconstruction. Backend changes increment the request generation, invalidate the
+plane cache and reject old-mode previews; the GPU source stays available for local
+navigation afterward. Inbound requests remain unseen in the approval-only broker
+until the canonical frame is settled. Canonical preparation grants no access.
+Local picture readiness uses the actual completed Frame independently of sharing
+readiness. The saved/shared scene reconstruction contract remains CPU-based.
 
 The separate material volume backend integrates piecewise optical materials into
 linear RGBA16F targets up to 2048 pixels per side. Its optional two-sided headlight
@@ -871,18 +887,21 @@ unchanged. The source-to-viewport map is shared by probes, measurements, label
 meshes/brush footprints and overlays; the slice shader applies its inverse.
 Transforms participate in scene serialization/hashes and exact-view consent.
 Volume projections use their camera orientation and reject 2D transforms.
-The linked MPR worker retains one immutable thin image per anatomical plane,
-keyed by that plane's physical coordinate and requested sampling side. Moving
-another axis changes the crosshair without resampling or uploading that image.
-Interactive thin updates retain the requested spatial sampling; they remain
-provisional for exact-view sharing until input is quiet. A coherent set completes
-despite newer pointer input, preventing starvation, while study closure cancels
-the worker. Slabs retain their separate preview policy.
+The linked MPR worker retains one immutable image per anatomical plane, keyed by
+that plane's physical coordinate, requested sampling side, slab settings and
+backend mode. Moving another axis changes the crosshair without resampling or
+uploading that image. Both thin and slab interaction retain the requested spatial
+sampling and all declared slab intervals. Updates remain provisional for
+measurements and exact-view sharing until input is quiet; settling reuses the same
+completed pixels. A coherent set completes despite newer pointer input, preventing
+starvation, while study closure or a backend-mode change cancels it. The idle
+worker waits on a condition variable.
 Scalar slabs sample bounded discrete extrema or a mean along an explicit physical
 plane normal, excluding missing samples before display mapping. The mean sums at
 most 257 finite samples in f64 and divides by the valid count. Slab hashes keep
 their original projection bytes and give the mean a new one. CPU workers publish a
-small coherent preview, then refine once input is quiet. Projection parameters
+small coherent preview for oblique interaction, then refine once input is quiet.
+Linked MPR retains full sampling during movement. Projection parameters
 and the sampling grid travel through scenes/snapshots; public image metadata does
 not label them as measurement geometry. Measurements refuse projected frames.
 No full-depth projection buffer, source copy or persistence is introduced.

@@ -20,7 +20,7 @@ impl Workspace {
                 },
                 ViewMode::Mpr => {
                     let mpr = self.mpr.as_ref().ok_or("No completed MPR grid")?;
-                    let (_, ready) = mpr.shared_view().ok_or("No completed MPR grid")?;
+                    let (_, ready) = mpr.rendered_view().ok_or("No completed MPR grid")?;
                     if !ready {
                         return Err("Wait for all MPR planes to finish");
                     }

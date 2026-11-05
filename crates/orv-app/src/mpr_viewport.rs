@@ -151,7 +151,11 @@ impl MprSession {
         self.picture_sizes[index] = Some(crate::rendered::picture_size(
             response.rect.size() * ui.ctx().pixels_per_point(),
         ));
-        viewport::draw(ui, frame, response.rect, image.clone(), view, index + 1, "");
+        let display = snapshot.gpu_images[index].as_ref().map_or_else(
+            || viewport::SliceImage::Cpu(image.clone()),
+            |gpu| viewport::SliceImage::Gpu(gpu.clone()),
+        );
+        viewport::draw(ui, frame, response.rect, display, view, index + 1, "");
         labels.draw_plane(ui, response, image, view, index);
         let painter = ui.painter_at(response.rect);
         if self.active_index() == index {

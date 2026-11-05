@@ -24,10 +24,27 @@ impl Workspace {
             self.sharing.panel_open = false;
         }
         self.sharing.poll(ctx);
+        let canonical = self.sharing.panel_open
+            || self.sharing.modal_open()
+            || self.sharing.is_active()
+            || self
+                .sharing
+                .broker
+                .as_ref()
+                .is_some_and(|b| b.has_unseen_request());
+        if let Some(mpr) = &mut self.mpr {
+            mpr.set_canonical(canonical);
+            mpr.poll();
+        }
+        let mpr_pending = self.mode == ViewMode::Mpr
+            && !self
+                .canonical_rendered_view()
+                .is_some_and(|(_, ready)| ready);
         // Leave unseen requests in the bounded broker while the user reviews a
         // local dialog. Closing it triggers another frame; no polling is added.
         if !external_dialog_open
             && !self.local_dialog_open()
+            && !mpr_pending
             && let Some(request) = self.sharing.broker.as_ref().and_then(|b| b.take_request())
         {
             if self.mode == ViewMode::Compare
@@ -39,7 +56,7 @@ impl Workspace {
                 if let Some(broker) = &self.sharing.broker {
                     broker.deny(request.id);
                 }
-            } else if let Some((spec, true)) = self.rendered_view()
+            } else if let Some((spec, true)) = self.canonical_rendered_view()
                 && let Some(series) = self
                     .study
                     .as_ref()
@@ -68,7 +85,7 @@ impl Workspace {
             self.sharing.revoke();
             self.sharing.panel_open = false;
         }
-        if let Some((spec, ready)) = self.rendered_view() {
+        if let Some((spec, ready)) = self.canonical_rendered_view() {
             self.sharing.publish(spec, ready);
         }
         if !self.sharing.modal_open() {
@@ -90,6 +107,9 @@ impl Workspace {
             .clicked()
         {
             self.sharing.panel_open = true;
+            if let Some(mpr) = &mut self.mpr {
+                mpr.set_canonical(true);
+            }
         }
     }
     fn agent_panel(&mut self, ctx: &egui::Context) {
@@ -98,7 +118,7 @@ impl Workspace {
             && !self.sharing.is_active()
             && self.sharing.draft.is_none()
             && self.loading.is_none()
-            && let Some((spec, true)) = self.rendered_view()
+            && let Some((spec, true)) = self.canonical_rendered_view()
             && let Some(series) = self
                 .study
                 .as_ref()

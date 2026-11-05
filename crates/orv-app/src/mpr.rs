@@ -49,6 +49,20 @@ pub struct MprSession {
     slab: Option<orv_core::slab::Slab>,
 }
 impl MprSession {
+    pub(super) fn set_active(&mut self, active: bool) {
+        self.worker.set_suspended(!active);
+        if !active {
+            self.snapshot = None;
+            self.picture_sizes = [None; 3];
+        }
+    }
+    pub(super) fn offer_gpu(
+        &self,
+        device: &eframe::egui_wgpu::wgpu::Device,
+        queue: &eframe::egui_wgpu::wgpu::Queue,
+    ) {
+        self.worker.offer_gpu(device, queue);
+    }
     pub(super) fn active_index(&self) -> usize {
         match self.layout {
             Layout::Axial => 0,
@@ -58,9 +72,9 @@ impl MprSession {
         }
     }
     pub(crate) fn picture(&self) -> Option<(crate::export::Pixels, [u32; 2])> {
-        let (_, true) = self.shared_view()? else {
+        if !self.is_settled() {
             return None;
-        };
+        }
         let index = self.active_index();
         Some((
             crate::export::Pixels::Reformat(
@@ -121,6 +135,10 @@ impl MprSession {
             .as_ref()
             .is_some_and(|s| !s.preview && s.generation == self.worker.generation())
     }
+    #[cfg(feature = "mcp")]
+    pub(super) fn set_canonical(&mut self, canonical: bool) {
+        self.worker.set_canonical(canonical);
+    }
     pub(super) fn poll(&mut self) {
         if let Some(result) = self.worker.take() {
             match result {
@@ -154,6 +172,9 @@ impl MprSession {
         selected: usize,
     ) {
         let content_width = ui.available_width();
+        if let Some(render) = frame.wgpu_render_state() {
+            self.offer_gpu(&render.device, &render.queue);
+        }
         self.poll();
         if let Some(error) = &self.error {
             ui.add_space(20.);
@@ -278,7 +299,7 @@ impl MprSession {
                 );
             }
         });
-        if !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume) {
+        if !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume, false) {
             let point = self.target.unwrap_or(snapshot.point);
             self.target = None;
             self.request(&snapshot.volume, point);
@@ -385,7 +406,7 @@ impl MprSession {
         );
     }
 
-    pub(super) fn shared_view(&self) -> Option<(crate::rendered::ViewSpec, bool)> {
+    pub(super) fn rendered_view(&self) -> Option<(crate::rendered::ViewSpec, bool)> {
         let snapshot = self.snapshot.as_ref()?;
         let index = self.active_index();
         let mut view = self.views[index].clone();
@@ -418,7 +439,7 @@ impl MprSession {
                 reconstruction,
                 preferred_size: None,
             },
-            snapshot.generation == self.worker.generation() && !snapshot.preview,
+            self.is_settled(),
         ))
     }
 
@@ -515,14 +536,14 @@ mod preview_sharing_tests {
             assert!(std::time::Instant::now() < deadline);
             std::thread::yield_now();
         }
-        let (_, ready) = session.shared_view().unwrap();
+        let (_, ready) = session.rendered_view().unwrap();
         assert!(!ready);
         while !session.is_settled() {
             session.poll();
             assert!(std::time::Instant::now() < deadline);
             std::thread::yield_now();
         }
-        let (spec, ready) = session.shared_view().unwrap();
+        let (spec, ready) = session.rendered_view().unwrap();
         assert!(ready);
         assert_eq!(spec.reformat_side, 512);
         assert_eq!(spec.point, Some([1., 2., 9.]));

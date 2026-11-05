@@ -4,7 +4,12 @@ use orv_core::{
     slab::{Slab, SlabProjection},
     volume::Volume,
 };
-pub fn show(ui: &mut egui::Ui, slab: &mut Option<Slab>, volume: &Volume) -> bool {
+pub fn show(
+    ui: &mut egui::Ui,
+    slab: &mut Option<Slab>,
+    volume: &Volume,
+    reduced_preview: bool,
+) -> bool {
     let before = *slab;
     crate::toolbar::row(ui, |ui| {
         let mut projection = slab.map(|s| s.projection);
@@ -38,8 +43,18 @@ pub fn show(ui: &mut egui::Ui, slab: &mut Option<Slab>, volume: &Volume) -> bool
                     *slab = Some(Slab::for_volume(volume, thickness, projection));
                 }
                 if let Some(slab) = slab {
-                    ui.label(format!("{} samples · projection; measurement off", slab.intervals + 1))
-                    .on_hover_text("Discrete extrema or mean of valid samples along the physical normal, including both boundaries and the center. The mean is a sample average, not an exact volume integral. At most 257 samples; thick slabs can miss features between samples. Preview uses fewer samples until interaction stops.");
+                    let mut explanation = String::from(
+                        "Discrete extrema or mean of valid samples along the physical normal, including both boundaries and the center. The mean is a sample average, not an exact volume integral. At most 257 samples; thick slabs can miss features between samples.",
+                    );
+                    if reduced_preview {
+                        explanation
+                            .push_str(" Preview uses fewer samples until interaction stops.");
+                    }
+                    ui.label(format!(
+                        "{} samples · projection; measurement off",
+                        slab.intervals + 1
+                    ))
+                    .on_hover_text(explanation);
                 }
             }
         }

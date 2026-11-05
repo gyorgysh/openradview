@@ -18,6 +18,9 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Changed
 
+- Linked MPR uses GPU resampling where supported and keeps its requested image
+  detail and slab samples during movement. Unchanged planes reuse their completed
+  images. Unsupported sources/devices use the same sampling on the CPU.
 - Fractional segmentation imports retain their original values and probability
   or occupancy meaning in memory. Counts and overlays still use values at or
   above half the declared maximum.

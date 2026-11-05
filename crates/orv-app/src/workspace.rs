@@ -211,6 +211,9 @@ impl Workspace {
     pub(super) fn discard_inactive_views(&mut self) {
         self.pause_playback();
         self.clear_gpu = true;
+        if let Some(mpr) = &mut self.mpr {
+            mpr.set_active(self.mode == ViewMode::Mpr);
+        }
         if self.mode != ViewMode::Volume {
             self.volume = None;
         }

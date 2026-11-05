@@ -39,7 +39,7 @@ pub(crate) fn frames() -> Vec<Arc<Frame>> {
         })
         .collect()
 }
-fn wait(worker: &MprWorker) -> Result<MprSnapshot, String> {
+pub(super) fn wait(worker: &MprWorker) -> Result<MprSnapshot, String> {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if let Some(result) = worker.take() {
@@ -51,6 +51,27 @@ fn wait(worker: &MprWorker) -> Result<MprSnapshot, String> {
         );
         std::thread::sleep(Duration::from_millis(2));
     }
+}
+
+#[test]
+fn backend_mode_changes_discard_old_previews_even_when_their_generation_is_current() {
+    let mut producer = MprWorker::start(frames(), egui::Context::default());
+    let mut snapshot = wait(&producer).unwrap();
+    let handle = producer.worker.take().unwrap();
+    drop(producer);
+    handle.join().unwrap();
+    let worker = MprWorker {
+        shared: Arc::new(Shared::default()),
+        worker: None,
+    };
+    worker.set_canonical(true);
+    snapshot.preview = true;
+    snapshot.generation = worker.generation();
+    lock(&worker.shared.work).result = Some(Ok(snapshot.clone()));
+    assert!(worker.take().is_none());
+    snapshot.canonical_requested = true;
+    lock(&worker.shared.work).result = Some(Ok(snapshot));
+    assert!(worker.take().unwrap().unwrap().preview);
 }
 #[test]
 fn rapid_crosshair_requests_publish_the_latest_consistent_three_plane_set() {
@@ -73,6 +94,10 @@ fn rapid_crosshair_requests_publish_the_latest_consistent_three_plane_set() {
 #[test]
 fn unavailable_geometry_returns_an_error_instead_of_a_fabricated_view() {
     let worker = MprWorker::start(vec![], egui::Context::default());
+    assert!(matches!(wait(&worker),Err(message) if message.contains("at least two")));
+    worker.set_suspended(true);
+    assert!(worker.take().is_none());
+    worker.set_suspended(false);
     assert!(matches!(wait(&worker),Err(message) if message.contains("at least two")));
 }
 
@@ -218,7 +243,7 @@ fn completed_preview_can_be_drawn_while_newer_input_is_queued_but_stale_full_res
 }
 
 #[test]
-fn slab_worker_publishes_coherent_bounded_preview_then_exact_requested_sampling() {
+fn slab_worker_keeps_every_requested_sample_and_resolution_during_navigation() {
     use orv_core::slab::*;
     let worker = MprWorker::start(frames(), egui::Context::default());
     wait(&worker).unwrap();
@@ -234,14 +259,8 @@ fn slab_worker_publishes_coherent_bounded_preview_then_exact_requested_sampling(
         let snapshot = wait(&worker).unwrap();
         assert_eq!(snapshot.point, [1., 2., 4.5]);
         for image in &snapshot.images {
-            assert_eq!(
-                image.slab,
-                Some(if snapshot.preview {
-                    slab.preview()
-                } else {
-                    slab
-                })
-            );
+            assert_eq!(image.slab, Some(slab));
+            assert_eq!(snapshot.reformat_side, 512);
             assert!(
                 image.width <= snapshot.reformat_side && image.height <= snapshot.reformat_side
             );

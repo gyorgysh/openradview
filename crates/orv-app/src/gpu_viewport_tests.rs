@@ -28,6 +28,7 @@ fn four_gpu_viewports_keep_independent_images_settings_and_release_closed_slots(
                 pixels[0] = f32::NAN;
             }
             SliceCallback {
+                gpu_image: None,
                 slot: 8 + i,
                 repaint: egui::Context::default(),
                 image: Arc::new(Frame {
@@ -65,6 +66,36 @@ fn four_gpu_viewports_keep_independent_images_settings_and_release_closed_slots(
             }
         })
         .collect::<Vec<_>>();
+    for i in [0, 2, 3] {
+        let frames = (0..2)
+            .map(|z| {
+                let mut frame = (*callbacks[i].image).clone();
+                frame.geometry = Some(orv_core::study::Geometry {
+                    position: [0., 0., f64::from(z)],
+                    orientation: [1., 0., 0., 0., 1., 0.],
+                    spacing: [1.; 2],
+                    frame_of_reference: Some("generated native callback source".into()),
+                    nifti_transform: None,
+                });
+                Arc::new(frame)
+            })
+            .collect();
+        let volume = Arc::new(orv_core::volume::Volume::new(frames).unwrap());
+        let grid = volume
+            .reformat_grid(orv_core::Plane::Axial, volume.center(), 64)
+            .unwrap();
+        let source =
+            orv_render::volume_source::GpuVolumeSource::new(&device, &queue, volume, || false)
+                .unwrap();
+        let image = orv_render::reslice::GpuReslicer::new(source)
+            .unwrap()
+            .render_frames([Some(&grid), None, None], || false)
+            .unwrap()[0]
+            .take()
+            .unwrap();
+        callbacks[i].image = image.frame().clone();
+        callbacks[i].gpu_image = Some(image);
+    }
     for callback in &callbacks {
         assert!(
             callback
@@ -178,6 +209,16 @@ fn four_gpu_viewports_keep_independent_images_settings_and_release_closed_slots(
     }
     drop(bytes);
     buffer.unmap();
+    callbacks[0].gpu_image = None;
+    let mut transition = device.create_command_encoder(&Default::default());
+    callbacks[0].prepare(&device, &queue, &screen, &mut transition, &mut resources);
+    let slot = &resources.get::<ViewportRenderers>().unwrap().slots[&8];
+    assert!(slot.error.is_none());
+    assert!(slot.gpu_source.is_none());
+    assert!(Arc::ptr_eq(
+        slot.current.as_ref().unwrap(),
+        &callbacks[0].image
+    ));
     let closed = [
         Arc::downgrade(&callbacks[2].image),
         Arc::downgrade(&callbacks[3].image),

@@ -179,7 +179,7 @@ impl ObliqueSession {
             }
         });
         let slab_changed =
-            !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume);
+            !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume, true);
         let controls = egui::CollapsingHeader::new("Plane controls")
             .default_open(width >= 800.)
             .show(ui, |ui| self.plane_controls(ui, &snapshot.volume));

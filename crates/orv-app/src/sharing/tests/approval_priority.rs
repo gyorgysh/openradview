@@ -4,7 +4,7 @@ use super::*;
 use orv_mcp::{broker::RequestBroker, consent::BearerToken, http::ServerStatus};
 use std::io::{Read, Write};
 
-fn request(port: u16, key: &str, method: &str) -> serde_json::Value {
+pub(super) fn request(port: u16, key: &str, method: &str) -> serde_json::Value {
     let mut stream = std::net::TcpStream::connect_timeout(
         &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
         Duration::from_secs(2),

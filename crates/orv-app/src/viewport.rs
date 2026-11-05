@@ -4,7 +4,7 @@ use eframe::{
     egui_wgpu::{self, wgpu},
 };
 use orv_core::{ViewState, study::Frame};
-use orv_render::slice::SliceRenderer;
+use orv_render::{reslice::GpuReformatImage, slice::SliceRenderer, volume_source::GpuVolumeSource};
 
 #[cfg(all(test, feature = "gpu-tests"))]
 #[path = "gpu_viewport_tests.rs"]
@@ -23,6 +23,7 @@ pub struct ViewportRenderers {
 struct ViewportRenderer {
     engine: Option<SliceRenderer>,
     current: Option<Arc<Frame>>,
+    gpu_source: Option<Arc<GpuVolumeSource>>,
     pub error: Option<&'static str>,
 }
 
@@ -30,6 +31,7 @@ pub struct SliceCallback {
     pub slot: usize,
     pub repaint: egui::Context,
     pub image: Arc<Frame>,
+    pub gpu_image: Option<Arc<GpuReformatImage>>,
     pub view: ViewState,
     pub aspect: f32,
     pub format: wgpu::TextureFormat,
@@ -49,16 +51,59 @@ impl egui_wgpu::CallbackTrait for SliceCallback {
         if let Some(renderers) = resources.get_mut::<ViewportRenderers>() {
             let state = renderers.slots.entry(self.slot).or_default();
             let previous = state.error;
-            let engine = state
-                .engine
-                .get_or_insert_with(|| SliceRenderer::new(device, self.format));
             state.error = None;
+            if self
+                .gpu_image
+                .as_ref()
+                .is_some_and(|g| !Arc::ptr_eq(g.frame(), &self.image))
+            {
+                state.error = Some("Completed plane and display image differ");
+                if previous != state.error {
+                    self.repaint.request_repaint();
+                }
+                return vec![];
+            }
+            let source = self.gpu_image.as_ref().map(|g| g.source());
+            let same_source = match (&state.gpu_source, source) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            };
+            if state.engine.is_none() || !same_source {
+                let prepared = if let Some(image) = &self.gpu_image {
+                    SliceRenderer::from_reslice(image.clone(), self.format)
+                } else {
+                    Ok(SliceRenderer::new(device, self.format))
+                };
+                match prepared {
+                    Ok(engine) => {
+                        state.engine = Some(engine);
+                        state.gpu_source = source.cloned();
+                        state.current = self.gpu_image.as_ref().map(|_| self.image.clone());
+                    }
+                    Err(error) => {
+                        state.error = Some(error);
+                        if previous != state.error {
+                            self.repaint.request_repaint();
+                        }
+                        return vec![];
+                    }
+                }
+            }
+            let Some(engine) = &mut state.engine else {
+                return vec![];
+            };
             if !state
                 .current
                 .as_ref()
                 .is_some_and(|f| Arc::ptr_eq(f, &self.image))
             {
-                if let Err(e) = engine.upload(device, queue, &self.image) {
+                let upload = if let Some(image) = &self.gpu_image {
+                    engine.upload_reslice(image.clone())
+                } else {
+                    engine.upload(device, queue, &self.image)
+                };
+                if let Err(e) = upload {
                     state.error = Some(e);
                     if previous != state.error {
                         self.repaint.request_repaint();
@@ -243,16 +288,34 @@ fn remove_slot(resources: &mut egui_wgpu::CallbackResources, slot: usize) {
     }
 }
 
+pub enum SliceImage {
+    Cpu(Arc<Frame>),
+    Gpu(Arc<GpuReformatImage>),
+}
+impl From<Arc<Frame>> for SliceImage {
+    fn from(frame: Arc<Frame>) -> Self {
+        Self::Cpu(frame)
+    }
+}
+impl From<Arc<GpuReformatImage>> for SliceImage {
+    fn from(image: Arc<GpuReformatImage>) -> Self {
+        Self::Gpu(image)
+    }
+}
 pub fn draw(
     ui: &mut egui::Ui,
     frame: &eframe::Frame,
     rect: egui::Rect,
-    image: Arc<Frame>,
+    image: impl Into<SliceImage>,
     view: &ViewState,
     slot: usize,
     label: &str,
 ) {
     let painter = ui.painter_at(rect);
+    let (image, gpu_image) = match image.into() {
+        SliceImage::Cpu(frame) => (frame, None),
+        SliceImage::Gpu(image) => (image.frame().clone(), Some(image)),
+    };
     if let Some(render) = frame.wgpu_render_state() {
         painter.add(egui_wgpu::Callback::new_paint_callback(
             rect,
@@ -260,6 +323,7 @@ pub fn draw(
                 slot,
                 repaint: ui.ctx().clone(),
                 image,
+                gpu_image,
                 view: view.clone(),
                 aspect: rect.aspect_ratio(),
                 format: render.target_format,
