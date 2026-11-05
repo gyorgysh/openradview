@@ -216,7 +216,7 @@ The complete-dispatch result also stays resident during the row-sequence case.
 Untimed readback checks every pixel for finite monochrome radiance in [0,1] and
 opaque alpha, and requires full/row results to match bit for bit. Independent f64
 ray/plane and homogeneous optical references run in the GPU tests. Verification,
-native input/display are outside the benchmark. Schema 3 samples admission after
+native input/display are outside the benchmark. Schema 4 samples admission after
 both complete images and before probe preparation/verification staging; it is neither peak driver
 memory nor RSS. Inspect sample counts and workload
 before comparing times. This measures the backend, without native plane controls.
@@ -224,7 +224,7 @@ Add `-- --surface` to include a generated 30 mm sphere's known cell faces in the
 same depth order. Its physical label proposal, CPU extraction and GPU geometry
 upload are reported as preparation; the surface projector pipeline and each
 resolution's complete interface image are separate from composition timings.
-Schema 3 also measures three local section probes with the sphere enabled: the
+Schema 4 also measures three local section probes with the sphere enabled: the
 centre, one-quarter across and the top-left pixel, using their original viewport
 rays. Each has 120 samples at 512 and 30 at 2048 after three warmups. The first
 case at 512 reports a separate first call that includes lazy probe-pipeline
@@ -234,6 +234,15 @@ result drop and retirement fence. Scene preparation and native input remain
 excluded. Repeated outcomes must agree; missing and empty outcomes are reported
 without inventing a face. Admission is sampled before probe preparation and
 verification staging. No mask-cell projection is measured.
+
+It also checks a 256×16 rectangle around the image centre without changing the
+original raster resolution. These 4096-pixel batches have twelve samples after
+three warmups at 512 and four after one at 2048. The pipeline is already warm;
+the reference and previous batch stay resident. Timings include allocation, GPU
+work/readback, every pixel's arithmetic/color/f64 checks, previous-batch drop and
+retirement fence. Repeat-outcome comparison and native input/display are excluded.
+Inspect the reported hit/empty/obscured/ambiguous counts; this measures read-only
+proofs and does not time a surface brush or label edit.
 
 For complete paged optical images, run
 `cargo run --locked --release -p orv-render --example paged_material_latency`.

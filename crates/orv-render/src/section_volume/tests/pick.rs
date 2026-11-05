@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod batch;
 use crate::{
     section_volume::pick::{SectionPickFrame, SectionPickState},
     surface_pick::{MIN_PICK_TRANSMITTANCE, PickScope, SurfaceProbeKind},

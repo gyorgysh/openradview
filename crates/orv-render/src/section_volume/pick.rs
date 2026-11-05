@@ -10,6 +10,8 @@ use orv_core::{
     surface::{InterfaceHit, InterfaceRay, InterfaceRayError},
 };
 
+mod batch;
+pub use batch::{SectionProbeBatch, SectionProbeSample};
 mod geometry;
 mod gpu;
 pub(super) use gpu::Pipeline;
@@ -138,20 +140,42 @@ impl SectionRenderer {
             .as_ref()
             .ok_or("Section probe pipeline unavailable")?
             .read(self, frame, pixel, &obsolete)?;
-        if u32_at(&bytes, 20)? != 0 {
+        let sample = self.sample(frame, current, pixel, &bytes, &obsolete)?;
+        if obsolete() || !current.matches(frame) {
+            return Err("Cancelled");
+        }
+        Ok(SectionProbe {
+            frame: frame.clone(),
+            pixel,
+            kind: sample.kind,
+            hit: sample.hit,
+            transmittance: sample.transmittance,
+            _metadata: metadata,
+        })
+    }
+    fn sample(
+        &self,
+        frame: &SectionPickFrame,
+        current: &SectionPickState,
+        pixel: [u32; 2],
+        bytes: &[u8; 56],
+        obsolete: &impl Fn() -> bool,
+    ) -> Result<SectionProbeSample, &'static str> {
+        let scene = frame.image.scene();
+        if u32_at(bytes, 20)? != 0 {
             return Err("Section probe arithmetic could not resolve this pixel");
         }
         let cells = [
-            u32_at(&bytes, 0)?,
-            u32_at(&bytes, 4)?,
-            u32_at(&bytes, 8)?,
-            u32_at(&bytes, 12)?,
+            u32_at(bytes, 0)?,
+            u32_at(bytes, 4)?,
+            u32_at(bytes, 8)?,
+            u32_at(bytes, 12)?,
         ];
-        let depth = f32_at(&bytes, 16)?;
-        let radiance = f32_at(&bytes, 32)?;
-        let transmittance = f32_at(&bytes, 36)?;
-        let actor_depth = f32_at(&bytes, 40)?;
-        let actor = f32_at(&bytes, 44)?;
+        let depth = f32_at(bytes, 16)?;
+        let radiance = f32_at(bytes, 32)?;
+        let transmittance = f32_at(bytes, 36)?;
+        let actor_depth = f32_at(bytes, 40)?;
+        let actor = f32_at(bytes, 44)?;
         if !depth.is_finite()
             || !radiance.is_finite()
             || !(0. ..=1.00001).contains(&radiance)
@@ -215,16 +239,11 @@ impl SectionRenderer {
                 }
             }
         };
-        if obsolete() || !current.matches(frame) {
-            return Err("Cancelled");
-        }
-        Ok(SectionProbe {
-            frame: frame.clone(),
+        Ok(SectionProbeSample {
             pixel,
             kind,
             hit,
             transmittance,
-            _metadata: metadata,
         })
     }
 }

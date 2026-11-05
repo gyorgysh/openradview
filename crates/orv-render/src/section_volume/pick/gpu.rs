@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod packing;
+use packing::Packing;
 
 pub(in super::super) struct Pipeline {
     pipeline: wgpu::ComputePipeline,
@@ -50,6 +52,22 @@ impl Pipeline {
         pixel: [u32; 2],
         cancelled: &impl Fn() -> bool,
     ) -> Result<[u8; 56], &'static str> {
+        self.read_region(
+            renderer,
+            frame,
+            [pixel, [1; 2]],
+            cancelled,
+            |data, packing| packing.packet(data, [0; 2]),
+        )
+    }
+    pub(super) fn read_region<T>(
+        &self,
+        renderer: &SectionRenderer,
+        frame: &SectionPickFrame,
+        region: [[u32; 2]; 2],
+        cancelled: &impl Fn() -> bool,
+        consume: impl FnOnce(&[u8], &Packing) -> Result<T, &'static str>,
+    ) -> Result<T, &'static str> {
         let source = &renderer.source;
         let device = source.device();
         let queue = source.queue();
@@ -58,7 +76,21 @@ impl Pipeline {
             .surface
             .as_ref()
             .ok_or("No region in the completed scene")?;
-        let _gpu = allocation::reserve_bytes(65536 + 1344 + 576 + 32 + 4 + 56, device, queue)?;
+        let packing = Packing::new(region[1])?;
+        let _cpu = MemoryBudget::volumes()
+            .reserve(packing.bytes)
+            .ok_or("Not enough memory for section probe staging")?;
+        let _gpu = allocation::reserve_bytes(
+            65536
+                + 1344
+                + 576
+                + 32
+                + 4
+                + u64::from(region[1][0]) * u64::from(region[1][1]) * 16
+                + packing.bytes,
+            device,
+            queue,
+        )?;
         let uniform = |label, values: &[f32]| {
             allocation::initialized_buffer(
                 device,
@@ -69,7 +101,7 @@ impl Pipeline {
         };
         let optics = uniform(
             "immutable section probe optics",
-            &parameters(source, scene, [pixel, [1; 2]])?,
+            &parameters(source, scene, region)?,
         )?;
         let sections = uniform(
             "immutable section probe planes",
@@ -88,10 +120,10 @@ impl Pipeline {
         let target = allocation::texture(
             device,
             &wgpu::TextureDescriptor {
-                label: Some("one-pixel local section probe"),
+                label: Some("bounded local section probe"),
                 size: wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
+                    width: region[1][0],
+                    height: region[1][1],
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -130,7 +162,7 @@ impl Pipeline {
             device,
             &wgpu::BufferDescriptor {
                 label: Some("bounded section probe readback"),
-                size: 56,
+                size: packing.bytes,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             },
@@ -143,14 +175,17 @@ impl Pipeline {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &bindings, &[]);
-            pass.dispatch_workgroups(1, 1, 1);
+            pass.dispatch_workgroups(region[1][0].div_ceil(8), region[1][1].div_ceil(8), 1);
         }
-        for (texture, origin, offset) in [
-            (surface.image.cells(), pixel, 0),
-            (surface.image.depth(), pixel, 16),
-            (&target, [0; 2], 32),
-            (frame.image.texture(), pixel, 48),
-        ] {
+        for (field, (texture, origin)) in [
+            (surface.image.cells(), region[0]),
+            (surface.image.depth(), region[0]),
+            (&target, [0; 2]),
+            (frame.image.texture(), region[0]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let mut copy = texture.as_image_copy();
             copy.origin = wgpu::Origin3d {
                 x: origin[0],
@@ -162,21 +197,21 @@ impl Pipeline {
                 wgpu::TexelCopyBufferInfo {
                     buffer: &buffer,
                     layout: wgpu::TexelCopyBufferLayout {
-                        offset,
-                        // Explicit aligned pitch preserves packed destination
+                        offset: packing.offsets[field],
+                        // Explicit aligned pitch also preserves packed destination
                         // offsets on the tested Metal one-row copy path.
-                        bytes_per_row: Some(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT),
+                        bytes_per_row: Some(packing.strides[field]),
                         rows_per_image: None,
                     },
                 },
                 wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
+                    width: region[1][0],
+                    height: region[1][1],
                     depth_or_array_layers: 1,
                 },
             );
         }
-        encoder.copy_buffer_to_buffer(&status, 0, &buffer, 20, 4);
+        encoder.copy_buffer_to_buffer(&status, 0, &buffer, packing.status, 4);
         queue.submit([encoder.finish()]);
         let (tx, rx) = mpsc::sync_channel(1);
         buffer.map_async(wgpu::MapMode::Read, .., move |r| {
@@ -190,7 +225,7 @@ impl Pipeline {
             let data = buffer
                 .get_mapped_range(..)
                 .map_err(|_| "Section probe mapping failed")?;
-            <[u8; 56]>::try_from(&data[..]).map_err(|_| "Invalid section probe readback length")
+            consume(&data, &packing)
         };
         buffer.unmap();
         bytes

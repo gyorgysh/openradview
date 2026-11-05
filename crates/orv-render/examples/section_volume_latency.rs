@@ -178,8 +178,57 @@ fn probes(renderer: &mut SectionRenderer, image: Arc<SectionImage>) -> Result<Va
             "p95_ms":times[(samples*95).div_ceil(100)-1],"max_ms":times[samples-1]}),
         );
     }
+    let region = [[side / 2 - 128, side / 2 - 8], [256, 16]];
+    let reference = renderer.probe_region(&frame, &current, region, || false)?;
+    let mut kinds = [0usize; 4];
+    for sample in reference.samples() {
+        kinds[match sample.kind() {
+            orv_render::surface_pick::SurfaceProbeKind::Hit => 0,
+            orv_render::surface_pick::SurfaceProbeKind::Empty => 1,
+            orv_render::surface_pick::SurfaceProbeKind::Obscured => 2,
+            orv_render::surface_pick::SurfaceProbeKind::Ambiguous => 3,
+        }] += 1;
+    }
+    let (batch_samples, warmups) = if side == 512 {
+        (12usize, 3usize)
+    } else {
+        (4, 1)
+    };
+    let mut previous = None;
+    let mut times = Vec::new();
+    for index in 0..batch_samples + warmups {
+        let start = Instant::now();
+        let next = renderer.probe_region(&frame, &current, region, || false)?;
+        drop(previous.replace(next));
+        fence(frame.image().source().device())?;
+        let elapsed = start.elapsed().as_secs_f64() * 1000.;
+        let next = previous.as_ref().ok_or("Section probe batch unavailable")?;
+        if !next.is_current(&current, region)
+            || next.samples().len() != 4096
+            || !next
+                .samples()
+                .iter()
+                .zip(reference.samples())
+                .all(|(a, b)| {
+                    a.pixel() == b.pixel()
+                        && a.kind() == b.kind()
+                        && a.hit() == b.hit()
+                        && a.foreground_transmittance() == b.foreground_transmittance()
+                })
+        {
+            return Err("A generated section probe batch changed its checked outcomes".into());
+        }
+        if index >= warmups {
+            times.push(elapsed);
+        }
+    }
+    times.sort_by(f64::total_cmp);
+    let batch = json!({"region":region,"checked_pixels":4096,"kind_counts_hit_empty_obscured_ambiguous":kinds,
+        "samples":batch_samples,"warmups":warmups,"median_ms":times[batch_samples/2],
+        "p95_ms":times[(batch_samples*95).div_ceil(100)-1],"max_ms":times[batch_samples-1],
+        "scope":"original complete raster; allocation, bounded GPU calculation/readback, per-pixel arithmetic/completed-color/f64 checks, previous-batch drop and retirement fence; pipeline warmed, reference and previous batch retained; repeat-outcome comparison and native input/display excluded"});
     Ok(
-        json!({"first_case_includes_lazy_pipeline":side==512,"cases":cases,
+        json!({"first_case_includes_lazy_pipeline":side==512,"cases":cases,"batch":batch,
         "scope":"one original image pixel; allocation, shared actor/optical calculation, 56-byte readback, completed-color check, independent f64 face/plane/validity checks, result drop and retirement fence; scene, source and plane preparation excluded"}),
     )
 }
@@ -337,7 +386,7 @@ fn main() -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &json!({"schema":3,"with_generated_sphere_surface":with_surface,"adapter":adapter.get_info().name,"cases":cases,
+            &json!({"schema":4,"with_generated_sphere_surface":with_surface,"adapter":adapter.get_info().name,"cases":cases,
         "scope":"resident corrected thin plane textures; complete immutable source composition, uniforms, status readback, previous-front retention, old-front drop and retirement fence; individually fenced 16-row sequences; source/plane/pipeline preparation separate; verification readback and native input/presentation excluded",
         "verification":"all pixels finite monochrome [0,1] with opaque alpha; full and complete row images bit-equal; independent f64 optical/plane/known-face references are exercised by section_volume GPU tests; admission sampled after both images before verification staging",
         "admission_before":before,"admission_after":after,"admission_is_rss_or_driver_memory":false})

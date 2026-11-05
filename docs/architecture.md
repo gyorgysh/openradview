@@ -148,6 +148,18 @@ use. Lazy probe-pipeline preparation, per-call admission and cancellable waits
 stay off the UI thread; probe failure leaves display available. This read-only
 backend grants no editing, export or disclosure authority.
 
+`probe_region` checks at most 4096 original-image pixels and 16 rows in one
+worker operation. Single clicks and rectangles share one compiled 8×8 entry
+point, avoiding differing arithmetic between entry points near a visibility
+decision. The one-pixel readback remains 56 bytes. Larger rectangles use separate
+aligned cell/depth/optical/color row pitches, with CPU working storage and GPU
+output/readback admitted before allocation. Each returned row-major sample keeps
+its original full-image coordinates and includes empty, obscured and ambiguous
+outcomes. Every sample passes the same color and independent f64 checks; an error
+or revoked scope returns no partial batch. The retained batch must match the live
+scene and requested rectangle before use. This is visibility proof infrastructure;
+it does not yet implement surface painting or grant mutation permission.
+
 The native workbench passes the completed GPU MPR images and each plane's display
 window/inversion to a separate coalescing worker. Its optional region uses the
 exact current manual or supplied map, including a physical edit proposal. Shared
