@@ -2,7 +2,7 @@
 use super::*;
 use std::{cell::Cell, collections::BTreeSet};
 
-fn positive_root(a: i64, b: i64, c: i64) -> AlgebraicRoot {
+pub(super) fn positive_root(a: i64, b: i64, c: i64) -> AlgebraicRoot {
     let Roots::Finite(values) = roots(SectionDeterminant {
         quadratic: a,
         linear: b,
@@ -17,7 +17,11 @@ fn positive_root(a: i64, b: i64, c: i64) -> AlgebraicRoot {
         .find(|r| r.sign_linear(0, 1) > 0)
         .unwrap()
 }
-fn coord(root: AlgebraicRoot, numerator: [i32; 2], denominator: [i32; 2]) -> ExactCoordinate {
+pub(super) fn coord(
+    root: AlgebraicRoot,
+    numerator: [i32; 2],
+    denominator: [i32; 2],
+) -> ExactCoordinate {
     ExactCoordinate::unit(
         root,
         Linear {
@@ -32,7 +36,7 @@ fn coord(root: AlgebraicRoot, numerator: [i32; 2], denominator: [i32; 2]) -> Exa
     .unwrap()
     .unwrap()
 }
-fn rational(n: i64, d: i128) -> ExactCoordinate {
+pub(super) fn rational(n: i64, d: i128) -> ExactCoordinate {
     ExactCoordinate::parameter(AlgebraicRoot(Root::Rational(
         Rational::new(i128::from(n), d).unwrap(),
     )))

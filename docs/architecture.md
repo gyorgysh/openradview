@@ -552,6 +552,15 @@ face contours, singular families and triangulation remain separate work. Future
 mesh owners must retain source/map/ID/revision and admit aggregate geometry;
 unit-cell graphs grant no edit or disclosure authority.
 
+`ExactCoordinate::compare` also orders coordinates from unrelated quadratic
+fields in neighboring cells. Compatible fields retain the common-radical fast
+path. Otherwise, rationalization gives a positive denominator and the difference
+has two radicals. Sign-aware isolation reduces that comparison to one radical;
+fixed checked 1024-bit signed arithmetic preserves the squared products without
+truncation or allocation. Floating coordinates never select equality or order.
+This comparison is a prerequisite for shared insertion unions, not an assembled
+face contour or a seam-free mesh by itself.
+
 `InterfaceRay` is a separate f64 membership reference for known cell interfaces.
 It walks bounded source-cell intervals without allocating or scanning derived
 faces. Only eligible positive cells against known valid negatives or marked grid

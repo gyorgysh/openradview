@@ -3,6 +3,7 @@
 //! diagnostics still require resolution before contour assembly or triangulation.
 use super::*;
 use std::cmp::Ordering;
+mod compare;
 mod wide;
 use wide::radical_sign;
 const MAX_FORM: u32 = 2040;
@@ -11,7 +12,7 @@ const MAX_NODES: usize = 18;
 const MAX_EDGES: usize = MAX_LINES * (MAX_NODES - 1);
 type RadicalForm = (i128, i128);
 
-/// A unit-cell coordinate. Numerical equality requires `compare_same_field`;
+/// A unit-cell coordinate. Numerical equality requires `compare`;
 /// different fractional expressions deliberately have no representation-based Eq.
 #[derive(Clone, Copy, Debug)]
 pub struct ExactCoordinate {
