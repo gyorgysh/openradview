@@ -561,6 +561,32 @@ truncation or allocation. Floating coordinates never select equality or order.
 This comparison is a prerequisite for shared insertion unions, not an assembled
 face contour or a seam-free mesh by itself.
 
+`Bilinear::arrangement` joins its exact boundary zeros and a bounded union of
+inserted points. It retains isolated zero corners, entire zero edges, singular
+crosses and whole zero faces. Hyperbola branches are separated by their exact
+asymptote side and ordered monotonically; factorized crosses split at their
+actual centre. Segments follow the zero curve between endpoints, without
+claiming that a curved branch equals its straight chord. Canonical numerical
+node ordering is independent of insertion order. Directed segments keep F>0 on
+the right in ascending face coordinates; cell-face orientation accounts for
+the outward side and axis parity.
+After exact equality is proved, duplicate points retain a deterministic supplied
+expression per coordinate; rational values reduce to one identity expression.
+This also keeps their later floating approximations independent of which cell
+was visited first. Representation ordering never decides numerical equality.
+
+Every insertion must satisfy the exact bilinear equation. Its sign evaluation
+handles products of coordinates from unrelated quadratic fields using fixed
+checked arithmetic; the final comparison fits 592 bits. Storage bounds 64 raw
+insertions, 69 nodes and 69 segments, without per-face heap allocation. Whole
+zero faces remain two-dimensional, with retained points and no invented contour.
+Cancellation or a capacity/input failure returns no partial arrangement.
+`CriticalGraph::face_arrangement` validates matching opposite face samples and
+collects both incident graphs' points. The owning extractor must still prove
+source adjacency and supply all insertions from the four cells around entire
+zero lattice edges. This local face construction does not settle cell-interior
+families, finite-grid closure, chunk ownership, triangulation or mesh admission.
+
 `InterfaceRay` is a separate f64 membership reference for known cell interfaces.
 It walks bounded source-cell intervals without allocating or scanning derived
 faces. Only eligible positive cells against known valid negatives or marked grid

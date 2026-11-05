@@ -8,8 +8,9 @@ use crate::{
     volume::Volume,
 };
 pub use critical::{
-    AlgebraicRoot, AnchorLine, CriticalGraph, ExactCoordinate, FaceInteriorLimit, GraphEdge,
-    GraphNode, LimitContours, ProjectionAnalysis, ProjectionPoint, WholeSection,
+    AlgebraicRoot, AnchorLine, ContourNode, ContourSegment, CriticalGraph, ExactCoordinate,
+    FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode, LimitContours, ProjectionAnalysis,
+    ProjectionPoint, WholeSection,
 };
 use std::sync::Arc;
 
@@ -18,6 +19,8 @@ pub enum FieldError {
     Selection,
     Bounds,
     Value,
+    Contour,
+    Capacity,
     Arithmetic,
     Cancelled,
 }
@@ -27,6 +30,8 @@ impl std::fmt::Display for FieldError {
             Self::Selection => "Choose an existing nonzero mask ID",
             Self::Bounds => "Interpolation cell is outside the source-centre lattice",
             Self::Value => "Mask field values must be between -255 and 255",
+            Self::Contour => "Contour inputs do not agree with the face field",
+            Self::Capacity => "Face contour point limit exceeded",
             Self::Arithmetic => "Mask field arithmetic cannot be represented",
             Self::Cancelled => "Cancelled",
         })

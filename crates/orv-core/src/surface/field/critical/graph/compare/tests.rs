@@ -198,6 +198,69 @@ fn shared_face_anchor_points_from_both_incident_cells_have_one_exact_order() {
 }
 
 #[test]
+fn biquadratic_sign_keeps_exact_products_and_cancellation_between_fields() {
+    let root = positive_root(2, 0, -1);
+    let u = coord(root, [0, 1], [1, 0]);
+    let scaled = coord(positive_root(8, 0, -1), [0, 2], [1, 0]);
+    assert_eq!(bilinear_sign([-1, 0, 0, 2], [u, scaled]), Ok(0));
+    let other = coord(positive_root(3, 0, -1), [0, 1], [1, 0]);
+    assert_eq!(bilinear_sign([-1, 0, 0, 2], [u, other]), Ok(-1));
+    assert_eq!(bilinear_sign([-1, 1, 1, 1], [u, other]), Ok(1));
+    let complement = coord(root, [1, -1], [1, 0]);
+    assert_eq!(bilinear_sign([-1, 1, 1, 0], [u, complement]), Ok(0));
+    assert_eq!(
+        bilinear_sign([2041, 0, 0, 0], [u, other]),
+        Err(FieldError::Arithmetic)
+    );
+
+    let mut state = 719u64;
+    let mut next = || {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        state
+    };
+    let mut points = Vec::new();
+    while points.len() < 32 {
+        let a = 2 + (next() % ((1 << 20) - 2)) as i64;
+        let root = positive_root(a, 0, -1);
+        if root.rational().is_some() {
+            continue;
+        }
+        points.push(coord(root, [1000, 999], [2000, 1999]));
+    }
+    for u in points.iter().copied() {
+        for v in points.iter().copied() {
+            for _ in 0..8 {
+                let coefficients = std::array::from_fn(|_| (next() % 4081) as i32 - 2040);
+                let mut reference = None;
+                for depth in [8, 16, 24, 32, 40] {
+                    let [ul, uh] = coordinate_bounds(u, depth).unwrap();
+                    let [vl, vh] = coordinate_bounds(v, depth).unwrap();
+                    let signs =
+                        [(ul, vl), (ul, vh), (uh, vl), (uh, vh)].map(|((u, uq), (v, vq))| {
+                            let [a, b, c, d] = coefficients.map(i128::from);
+                            (a * uq * vq + b * u * vq + c * v * uq + d * u * v).signum() as i8
+                        });
+                    if signs.iter().all(|s| *s == signs[0]) {
+                        reference = Some(signs[0]);
+                        break;
+                    }
+                }
+                let expected = reference.expect(
+                    "Independent bilinear interval bounds must separate this generated value",
+                );
+                assert_eq!(bilinear_sign(coefficients, [u, v]), Ok(expected));
+                assert_eq!(
+                    bilinear_sign(coefficients.map(|v| -v), [u, v]),
+                    Ok(-expected)
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn generated_cross_field_order_matches_independent_polynomial_enclosures() {
     let mut state = 91u64;
     let mut next = || {

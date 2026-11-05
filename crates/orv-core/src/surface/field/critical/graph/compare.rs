@@ -108,5 +108,59 @@ fn two_radical_sign(a: Integer, b: Integer, d: u64, c: Integer, e: u64) -> Resul
     })
 }
 
+// Exact sign of A+B*u+C*v+D*u*v, even when the two coordinates belong to
+// unrelated fields. With positive denominators its numerator is
+// (L+M*sqrt(d))+(N+O*sqrt(d))*sqrt(e). Squaring opposing terms leaves one radical.
+pub(super) fn bilinear_sign(
+    coefficients: [i32; 4],
+    point: [ExactCoordinate; 2],
+) -> Result<i8, FieldError> {
+    if coefficients
+        .into_iter()
+        .any(|v| v.unsigned_abs() > MAX_FORM)
+    {
+        return Err(FieldError::Arithmetic);
+    }
+    let [left, right] = point;
+    let lr = left.rational_value();
+    let rr = right.rational_value();
+    let d = left.radicand(lr.is_some());
+    let e = right.radicand(rr.is_some());
+    let (p, q, r) = left.rationalized(lr, d)?;
+    let (s, t, u) = right.rationalized(rr, e)?;
+    let [a, b, c, f] = coefficients.map(|v| Integer::new(i128::from(v)));
+    let [p, q, r, s, t, u] = [p, q, r, s, t, u].map(Integer::new);
+    let l = a
+        .product(r)?
+        .product(u)?
+        .sum(b.product(p)?.product(u)?)?
+        .sum(c.product(s)?.product(r)?)?
+        .sum(f.product(p)?.product(s)?)?;
+    let m = b.product(q)?.product(u)?.sum(f.product(q)?.product(s)?)?;
+    let n = c.product(t)?.product(r)?.sum(f.product(p)?.product(t)?)?;
+    let o = f.product(q)?.product(t)?;
+    let x = radical_sign(l, m, d)?;
+    let y = if e == 0 { 0 } else { radical_sign(n, o, d)? };
+    if x == 0 {
+        return Ok(y);
+    }
+    if y == 0 || x == y {
+        return Ok(x);
+    }
+    let p = l
+        .product(l)?
+        .sum(m.product(m)?.times(d)?)?
+        .difference(n.product(n)?.sum(o.product(o)?.times(d)?)?.times(e)?)?;
+    let q = l
+        .product(m)?
+        .difference(n.product(o)?.times(e)?)?
+        .times(2)?;
+    Ok(match radical_sign(p, q, d)? {
+        1 => x,
+        -1 => y,
+        _ => 0,
+    })
+}
+
 #[cfg(test)]
 mod tests;

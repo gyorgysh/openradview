@@ -9,6 +9,11 @@ const LIMBS: usize = 16;
 // |A|<2^135, |B|,|C|<2^112. The final sign test squares a term <2^272,
 // fitting in 544 bits. 1024 bits also cover unreduced rational inputs
 // (i64/u64) and leave arithmetic failure explicit instead of truncating it.
+// A bilinear sign with coefficients <2^11 has numerator
+// (L+M sqrt(d))+(N+O sqrt(d))*sqrt(e), where |L|<2^147,
+// |M|,|N|<2^124, |O|<2^101. Opposing-term squaring gives a rational
+// coefficient <2^296 and a radical coefficient <2^273. The final squared
+// comparison fits592bits, also within this fixed width.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Integer {
     limbs: [u64; LIMBS],
