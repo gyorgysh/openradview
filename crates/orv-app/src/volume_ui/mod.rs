@@ -5,6 +5,7 @@ mod controls;
 mod input;
 mod material;
 mod regions;
+mod sections;
 mod sharing;
 #[cfg(all(test, feature = "gpu-tests"))]
 mod tests;
@@ -43,6 +44,7 @@ pub struct VolumeSession {
     regions: regions::Regions,
     settings_open: bool,
     cursor_visible: bool,
+    cuts: sections::Cuts,
 }
 impl VolumeSession {
     pub(crate) fn controls_open(&self) -> bool {
@@ -86,6 +88,7 @@ impl VolumeSession {
             regions: Default::default(),
             settings_open: false,
             cursor_visible: true,
+            cuts: Default::default(),
             volume: None,
             gpu: None,
             state: None,
@@ -227,7 +230,7 @@ impl VolumeSession {
             ),
             egui::Sense::click_and_drag(),
         );
-        self.paint_viewport(ui, rect, &response, region_selection, false);
+        self.paint_viewport(ui, rect, &response, region_selection, None);
         if !compact {
             ui.label(RichText::new("Drag: orbit · Space / right / middle drag: move · Scroll/pinch: zoom · LPS coordinates · Experimental research projection").small().color(crate::theme::SILVER));
         }
@@ -238,7 +241,7 @@ impl VolumeSession {
         rect: egui::Rect,
         response: &egui::Response,
         region_selection: Option<crate::labels::RegionSelection>,
-        embedded: bool,
+        linked_point: Option<[f64; 3]>,
     ) -> Option<(ViewState, VolumeView, [u32; 2])> {
         let (Some(volume), Some(state), Some(gpu)) = (&self.volume, &mut self.state, &self.gpu)
         else {
@@ -256,6 +259,31 @@ impl VolumeSession {
             }
             self.needs_fit = false;
         }
+        let mut rendered_state = state.clone();
+        if let Some(point) = linked_point {
+            match self.cuts.clip(volume, point, state.clip.as_ref()) {
+                Ok(clip) => rendered_state.clip = clip,
+                Err(error) => {
+                    self.regions.suspend();
+                    let painter = ui.painter_at(rect);
+                    painter.rect_filled(rect, 0., egui::Color32::BLACK);
+                    let text = painter.layout(
+                        error.message().into(),
+                        egui::FontId::proportional(12.),
+                        crate::theme::PAPER,
+                        (rect.width() - 16.).max(20.),
+                    );
+                    painter.galley(rect.center() - text.size() * 0.5, text, crate::theme::PAPER);
+                    ui.small(match error {
+                        sections::CutError::Empty => "Linked cut · empty",
+                        sections::CutError::Unsupported(_) => "Linked cut unavailable",
+                    });
+                    return None;
+                }
+            }
+        }
+        let embedded = linked_point.is_some();
+        let state = &rendered_state;
         let pixels = rect.size() * ui.ctx().pixels_per_point();
         let material = self
             .material_enabled

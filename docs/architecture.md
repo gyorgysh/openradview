@@ -89,6 +89,18 @@ Combined views are local: entering this layout revokes single-view approvals,
 denies queued connections and withholds source-substitute exports. Canonical
 single-view reconstruction and sharing contracts do not describe a workbench.
 
+Linked cuts select a lower or higher LPS halfspace through the completed MPR
+point on each anatomical axis. They live separately from manual clipping and
+intersect it only in the rendered `VolumeView` clone, shared by source, mask,
+cell-face and probe paths. Unselected axes enclose all eight affine half-cell
+corners with a source-cell margin, preserving outer mask faces under shear and
+reflection. Empty ordered bounds and unsupported numerical ranges show an
+explicit empty/unavailable scene and suspend region work, revoking pending probe
+authority. They never substitute an uncut source or construct a cap. Resetting
+linked cuts preserves manual bounds; neither operation changes MPR sampling,
+source/label data, counts or the physical brush extent. These are clipping
+halfspaces, without textured source-plane geometry or independent plane poses.
+
 The workbench's physical label tool proposes a sphere or thick disk at the
 completed thin MPR point, or a continuous sweep drawn on one thin plane. The
 disk normal follows the active anatomical plane;

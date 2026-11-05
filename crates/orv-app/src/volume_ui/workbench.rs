@@ -94,6 +94,7 @@ impl VolumeSession {
                 }
                 ui.weak("3D camera and appearance are independent of the MPR display.");
                 self.show_controls(ui, labels, selected, false);
+                self.cuts.ui(ui, point);
                 ui.checkbox(&mut self.cursor_visible, "Projected MPR cursor");
                 ui.weak("The cursor and its three source axes are projected through the volume. These guides have no depth test and cannot select or edit a region.");
                 ui.weak("This combined view stays local. Choose a single MPR pane or 3D mode for the supported picture and sharing views.");
@@ -114,11 +115,16 @@ impl VolumeSession {
             Vec2::new(ui.available_width(), (ui.available_height() - 28.).max(32.)),
             egui::Sense::click_and_drag(),
         );
-        let shown = self.paint_viewport(ui, rect, &response, selection, true);
-        if labels.physical_preview_visible() {
+        let shown = self.paint_viewport(ui, rect, &response, selection, Some(point));
+        if shown.is_some() && (labels.physical_preview_visible() || self.cuts.active()) {
             let painter = ui.painter_at(rect);
             let text = painter.layout_no_wrap(
-                "PHYSICAL PREVIEW ONLY".into(),
+                match (labels.physical_preview_visible(), self.cuts.active()) {
+                    (true, true) => "PREVIEW ONLY · CUT",
+                    (true, false) => "PHYSICAL PREVIEW ONLY",
+                    _ => "LINKED CUT",
+                }
+                .into(),
                 egui::FontId::monospace(10.),
                 crate::theme::PAPER,
             );

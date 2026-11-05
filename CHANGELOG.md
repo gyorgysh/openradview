@@ -7,6 +7,11 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 
+- **Linked 3D cuts.** In MPR + 3D, keep either side of each completed MPR plane
+  through **3D settings → Cut at linked MPR planes**. Cuts follow the point and
+  intersect the separate manual clipping bounds. Resetting linked cuts preserves
+  those bounds. Source images, labels and brush scope are unchanged; cut surfaces
+  stay open. Conflicting bounds show an explicit empty view.
 - **Physical label edits.** In MPR + 3D, preview a sphere or a disk with a chosen
   radius and thickness in millimetres at the linked point, or draw a continuous
   physical sweep on one thin plane. The proposal appears

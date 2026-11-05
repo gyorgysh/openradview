@@ -241,7 +241,7 @@ mod tests {
 
     #[cfg(feature = "gpu-tests")]
     #[test]
-    fn newer_mpr_navigation_cancels_a_probe_without_resubmitting_unchanged_3d() {
+    fn linked_navigation_keeps_the_scene_but_empty_scene_suspension_revokes_pending_probes() {
         use crate::volume_ui::regions::tests::gpu;
         use orv_core::labels::Labels;
         use std::time::{Duration, Instant};
@@ -298,6 +298,14 @@ mod tests {
         );
         assert!(Arc::ptr_eq(&retained, &view.front.as_ref().unwrap().image));
         assert!(view.probe.as_ref().unwrap().pending.is_none());
+        regions.picked_point = Some([1., 2., 3.]);
+        regions.suspend();
+        assert!(
+            !scope.is_active(),
+            "A hidden empty scene must revoke its originating pick scope"
+        );
+        assert!(regions.take_point().is_none());
+        assert!(regions.view.as_ref().unwrap().front.is_none());
         drop(blocked);
         drop(regions);
         drop(engine);

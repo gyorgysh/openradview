@@ -327,6 +327,12 @@ pub(super) struct Regions {
     link_epoch: Option<u64>,
 }
 impl Regions {
+    pub fn suspend(&mut self) {
+        self.picked_point = None;
+        if let Some(view) = &mut self.view {
+            view.suspend();
+        }
+    }
     pub fn select_manual(&mut self) {
         self.settings.select_manual();
     }
