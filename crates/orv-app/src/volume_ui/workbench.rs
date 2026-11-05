@@ -4,7 +4,15 @@ use super::*;
 use orv_render::volume_source::GpuVolumeSource;
 
 impl VolumeSession {
+    fn surface_editor_available(&self, labels: &crate::labels::LabelUi, selected: usize) -> bool {
+        self.material_editor.is_some()
+            && self
+                .volume
+                .as_ref()
+                .is_some_and(|volume| labels.can_start_surface_erase(selected, volume))
+    }
     fn open_physical_editor(&mut self, labels: &mut crate::labels::LabelUi) {
+        self.plane_settings.erase = false;
         labels.open_physical_tools();
         self.regions.select_manual();
         self.material_enabled = true;
@@ -56,6 +64,8 @@ impl VolumeSession {
             crate::theme::eyebrow(ui, "3D · LOCAL");
         }
         let mut edit_requested = false;
+        let mut surface_requested = false;
+        let mut read_only_pick_requested = false;
         ui.horizontal_wrapped(|ui| {
             if !narrow {
                 crate::theme::eyebrow(ui, "3D · LOCAL");
@@ -78,6 +88,19 @@ impl VolumeSession {
             if !narrow && ui.button("Physical edit…").clicked() {
                 self.open_physical_editor(labels);
             }
+            if !narrow
+                && ui
+                    .add_enabled(
+                        self.surface_editor_available(labels, selected),
+                        egui::Button::new("Surface stamp…"),
+                    )
+                    .on_hover_text(
+                        "Requires Material view support and an applied manual label map. Show the selected ID in Labels before editing.",
+                    )
+                    .clicked()
+            {
+                surface_requested = true;
+            }
         });
         if let Some(error) = &self.error {
             ui.label(error);
@@ -96,12 +119,17 @@ impl VolumeSession {
                 if ui.button("Physical label edit…").clicked() {
                     edit_requested = true;
                 }
+                if ui.add_enabled(self.surface_editor_available(labels,selected),egui::Button::new("Surface erase stamp…")).on_hover_text("Requires Material view support and an applied manual label map. Show the selected ID in Labels before editing.").clicked() {surface_requested=true;}
                 ui.weak("3D camera and appearance are independent of the MPR display.");
                 if ui.add_enabled_ui(self.material_editor.is_some(),|ui|self.plane_settings.ui(ui)).inner {self.material_enabled=true;}
                 if self.material_editor.is_none() {ui.small("Source planes are unavailable for this volume.");}
                 self.regions.set_section_mode(self.plane_settings.active());
                 self.show_controls(ui, labels, selected, false);
-                if !self.material_enabled {self.plane_settings.enabled=false;}
+                if self.plane_settings.erase && self.regions.section_pick() {
+                    self.plane_settings.erase=false;
+                    read_only_pick_requested=true;
+                }
+                if !self.material_enabled {self.plane_settings.enabled=false;self.plane_settings.erase=false;}
                 self.cuts.ui(ui, point);
                 ui.checkbox(&mut self.cursor_visible, "Projected MPR cursor");
                 ui.weak("The cursor and its three source axes are projected through the volume. These guides have no depth test and cannot select or edit a region.");
@@ -110,11 +138,29 @@ impl VolumeSession {
             });
         self.settings_open = open && !edit_requested;
         self.regions.set_section_mode(self.plane_settings.active());
+        if read_only_pick_requested {
+            self.regions.select_face_pick();
+        }
         if !self.plane_settings.active() {
             self.plane_view = None;
         }
         if edit_requested {
+            self.plane_settings.erase = false;
             self.open_physical_editor(labels);
+        }
+        if surface_requested {
+            if self.surface_editor_available(labels, selected) {
+                labels.begin_surface_erase();
+                self.regions.select_manual();
+                self.material_enabled = true;
+                self.plane_settings.erase = true;
+                self.settings_open = false;
+                if let Some(view) = &mut self.plane_view {
+                    view.open_correction_panel();
+                }
+            } else {
+                labels.open = true;
+            }
         }
         if let Some(editor) = &mut self.material_editor {
             editor.window(ui.ctx());
@@ -123,11 +169,37 @@ impl VolumeSession {
             .volume
             .as_ref()
             .and_then(|volume| self.regions.selection(labels, selected, volume));
+        if let (Some(view), Some(volume)) = (&mut self.plane_view, &self.volume) {
+            view.sync_correction(
+                labels.surface_erase_base(selected, volume),
+                selected,
+                link_epoch,
+            );
+        }
         let (rect, response) = ui.allocate_exact_size(
             Vec2::new(ui.available_width(), (ui.available_height() - 28.).max(32.)),
             egui::Sense::click_and_drag(),
         );
         let shown = self.paint_viewport(ui, rect, &response, selection, Some(point), planes);
+        if let (Some(view), Some(volume)) = (&mut self.plane_view, &self.volume) {
+            view.sync_correction(
+                labels.surface_erase_base(selected, volume),
+                selected,
+                link_epoch,
+            );
+            if let Some(apply) = view.correction_window(ui.ctx(), &mut self.plane_settings.erase) {
+                match labels.apply_surface_erase(
+                    apply.proposal,
+                    &apply.current,
+                    &apply.brush,
+                    selected,
+                    volume,
+                ) {
+                    Ok(()) => (),
+                    Err(error) => view.correction_notice(error),
+                }
+            }
+        }
         if shown.is_some() && (labels.physical_preview_visible() || self.cuts.active()) {
             let painter = ui.painter_at(rect);
             let text = painter.layout_no_wrap(

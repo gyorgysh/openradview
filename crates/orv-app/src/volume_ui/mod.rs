@@ -54,6 +54,7 @@ pub struct VolumeSession {
 impl VolumeSession {
     pub(crate) fn controls_open(&self) -> bool {
         self.settings_open
+            || self.plane_settings.erase
             || self
                 .material_editor
                 .as_ref()
@@ -350,6 +351,7 @@ impl VolumeSession {
             let (luminance, surface_lighting) = self.regions.section_style();
             let scene = source_planes::Scene {
                 pick: self.regions.section_pick(),
+                erase: self.plane_settings.erase,
                 planes,
                 selection: region_selection,
                 display,

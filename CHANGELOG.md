@@ -7,6 +7,12 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 
+- **Surface erase stamps.** In MPR + 3D, choose a physical radius and click a
+  visible face of an applied manual label. Review a separate preview before
+  Apply or Cancel; each applied change adds one Undo step. Only the original
+  visible cell layer inside the radius can change. Covering planes, foreground
+  opacity and ambiguous hits can block editing. Hidden IDs and supplied masks
+  cannot be edited with this tool.
 - **Source planes in 3D.** Show the completed thin axial, coronal and sagittal
   images inside the linked 3D material view, with individual visibility controls
   and the same MPR contrast and inversion. Source planes and one region's cell
@@ -40,8 +46,8 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 - **Regions in 3D.** Display one manual label or supplied mask ID over a scalar
   material view. GPU preparation runs on a background worker and shows complete
-  frames. Fractional masks use half their declared maximum; painting stays in
-  2D. This view stays local and has no picture export or agent sharing yet.
+  frames. Fractional masks use half their declared maximum. This view stays local
+  and has no picture export or agent sharing yet.
 - **3D materials and lighting.** For scalar volumes, map intensity points to
   brightness and opacity per millimetre, with optional lighting for depth cues.
   The material view uses a larger interaction image and refines in bounded tiles.

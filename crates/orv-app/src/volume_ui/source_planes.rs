@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Local completed-plane actors and checked read-only region probes.
+mod correction;
 mod picking;
 use super::{material::OpticalStyle, regions::surface::Faces};
 use crate::{jobs::Worker, labels::RegionSelection};
@@ -32,19 +33,21 @@ pub(crate) struct LinkedPlanes<'a> {
 }
 pub(super) struct Settings {
     pub enabled: bool,
+    pub erase: bool,
     visible: [bool; 3],
 }
 impl Default for Settings {
     fn default() -> Self {
         Self {
             enabled: false,
+            erase: false,
             visible: [true; 3],
         }
     }
 }
 impl Settings {
     pub fn active(&self) -> bool {
-        self.enabled && self.visible.into_iter().any(|v| v)
+        self.erase || (self.enabled && self.visible.into_iter().any(|v| v))
     }
     pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         let was_active = self.active();
@@ -67,6 +70,9 @@ impl Settings {
         &self,
         input: Option<LinkedPlanes<'_>>,
     ) -> Result<[Option<SectionPlane>; 3], &'static str> {
+        if !self.enabled || !self.visible.into_iter().any(|v| v) {
+            return Ok([None, None, None]);
+        }
         let input = input.ok_or("Source planes are unavailable for these images")?;
         let mut planes = std::array::from_fn(|_| None);
         for (i, plane) in planes.iter_mut().enumerate() {
@@ -91,6 +97,7 @@ impl Settings {
 #[derive(Clone)]
 pub(super) struct Scene {
     pub pick: bool,
+    pub erase: bool,
     pub planes: [Option<SectionPlane>; 3],
     pub selection: Option<RegionSelection>,
     pub display: ViewState,
@@ -110,6 +117,7 @@ impl Scene {
     }
     fn same(&self, other: &Self) -> bool {
         self.pick == other.pick
+            && self.erase == other.erase
             && self.same_data(other)
             && self
                 .planes
@@ -215,11 +223,18 @@ impl Engine {
             lighting: scene.style.lighting,
             size: scene.size,
         };
+        self.compose_prepared(&input, cancel)
+    }
+    fn compose_prepared(
+        &mut self,
+        input: &SectionScene,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<Arc<SectionImage>, String> {
         let mut complete = None;
-        for y in (0..scene.size[1]).step_by(16) {
+        for y in (0..input.size[1]).step_by(16) {
             complete = self
                 .renderer
-                .render_rows(&input, 0, y..(y + 16).min(scene.size[1]), cancel)
+                .render_rows(input, 0, y..(y + 16).min(input.size[1]), cancel)
                 .map_err(str::to_owned)?;
             if complete.is_none() {
                 self.source.wait_submitted(cancel).map_err(str::to_owned)?;
@@ -269,6 +284,9 @@ fn run(input: Request, cancel: &dyn Fn() -> bool) -> Result<Complete, String> {
 pub(super) struct View {
     scope: Option<Arc<PickScope>>,
     probe: Option<picking::Probe>,
+    correction: Option<correction::Correction>,
+    edit_input: Option<correction::Input>,
+    source_current: bool,
     picked_point: Option<[f64; 3]>,
     link_epoch: Option<u64>,
     viewport: Option<(egui::Id, egui::LayerId, egui::Rect, egui::Rect)>,
@@ -298,6 +316,9 @@ impl View {
         Ok(Self {
             scope: None,
             probe: None,
+            correction: None,
+            edit_input: None,
+            source_current: false,
             picked_point: None,
             link_epoch: None,
             viewport: None,
@@ -331,6 +352,9 @@ impl View {
         if let Some(probe) = &mut self.probe {
             probe.clear();
         }
+        if let Some(correction) = &mut self.correction {
+            correction.clear();
+        }
         self.picked_point = None;
     }
     pub fn set_link_epoch(&mut self, epoch: u64) {
@@ -338,6 +362,9 @@ impl View {
             self.link_epoch = Some(epoch);
             if let Some(probe) = &mut self.probe {
                 probe.clear();
+            }
+            if let Some(correction) = &mut self.correction {
+                correction.clear();
             }
             self.picked_point = None;
         }
@@ -348,7 +375,7 @@ impl View {
     fn current_front(&self, scene: &Scene) -> bool {
         self.front.as_ref().is_some_and(|front| {
             front.scene.same(scene)
-                && (!scene.pick
+                && (!(scene.pick || scene.erase)
                     || matches!((&self.scope,&front.scope),
                 (Some(a),Some(b)) if a.is_active() && Arc::ptr_eq(a,b)))
         })
@@ -356,7 +383,7 @@ impl View {
     fn update(&mut self, scene: &Scene) {
         if self.desired.as_ref().is_none_or(|old| !old.same(scene)) {
             self.clear_probe();
-            if scene.pick {
+            if scene.pick || scene.erase {
                 match PickScope::new() {
                     Ok(scope) => self.scope = Some(scope),
                     Err(error) => {
@@ -368,6 +395,7 @@ impl View {
                 }
             } else {
                 self.probe = None;
+                self.correction = None;
             }
 
             if self.data_cancel.load(Ordering::Acquire)
@@ -410,6 +438,7 @@ impl View {
         self.pending = None;
         self.front = None;
         self.error = None;
+        self.source_current = false;
     }
     pub fn show(
         &mut self,
@@ -428,7 +457,7 @@ impl View {
         }
         self.picked_point = None;
         self.update(&scene);
-        if scene.pick && self.probe.is_none() {
+        if scene.pick && !scene.erase && self.probe.is_none() {
             match picking::Probe::new(ui.ctx().clone()) {
                 Ok(probe) => self.probe = Some(probe),
                 Err(error) => {
@@ -436,7 +465,23 @@ impl View {
                 }
             }
         }
+        if !scene.pick || scene.erase {
+            self.probe = None;
+        }
+        if scene.erase && self.correction.is_none() {
+            match correction::Correction::new(ui.ctx().clone()) {
+                Ok(mut correction) => {
+                    correction.sync(self.edit_input.clone());
+                    self.correction = Some(correction);
+                }
+                Err(error) => self.error = Some(error),
+            }
+        }
+        if !scene.erase {
+            self.correction = None;
+        }
         let current = self.error.is_none() && self.current_front(&scene);
+        self.source_current = source_current && current;
         if let Some(error) = &self.error {
             message(ui, rect, error);
         } else if let Some(front) = &self.front {
@@ -451,18 +496,24 @@ impl View {
             message(ui, rect, "Preparing source planes…");
         }
         if self.error.is_some() {
-            if ui.button("Retry planes").clicked() {
+            if ui.button("Retry view").clicked() {
                 self.error = None;
                 self.desired = None;
             }
         } else {
-            ui.small(if self.pending.is_some() {
-                "Planes · updating"
-            } else if scene.state.quality == Quality::Refined {
-                "Planes · full detail"
+            let actor = if scene.planes.iter().all(Option::is_none) {
+                "Region"
             } else {
-                "Planes · preview"
-            });
+                "Planes"
+            };
+            let status = if self.pending.is_some() {
+                "updating"
+            } else if scene.state.quality == Quality::Refined {
+                "full detail"
+            } else {
+                "preview"
+            };
+            ui.small(format!("{actor} · {status}"));
         }
         let live = if current && source_current {
             self.front
@@ -471,6 +522,15 @@ impl View {
         } else {
             None
         };
+        if let Some(correction) = &mut self.correction {
+            correction.show(
+                ui,
+                response,
+                live.clone(),
+                self.engine.clone(),
+                interacting || !source_current,
+            );
+        }
         if let Some(probe) = &mut self.probe {
             self.picked_point = probe.show(
                 ui,
@@ -490,6 +550,50 @@ impl View {
             })
         } else {
             None
+        }
+    }
+    pub fn sync_correction(
+        &mut self,
+        input: Option<(Arc<orv_core::labels::Labels>, u8)>,
+        series: usize,
+        link_epoch: u64,
+    ) {
+        self.edit_input = input.map(|(base, number)| correction::Input {
+            base,
+            number,
+            series,
+            link_epoch,
+        });
+        if let Some(correction) = &mut self.correction {
+            correction.sync(self.edit_input.clone());
+        }
+    }
+    pub fn open_correction_panel(&mut self) {
+        if let Some(correction) = &mut self.correction {
+            correction.open_panel();
+        }
+    }
+    pub fn correction_window(
+        &mut self,
+        ctx: &egui::Context,
+        enabled: &mut bool,
+    ) -> Option<correction::Apply> {
+        let live = self
+            .source_current
+            .then(|| {
+                self.front
+                    .as_ref()
+                    .zip(self.desired.as_ref())
+                    .and_then(|(front, scene)| picking::current(front, scene))
+            })
+            .flatten();
+        self.correction
+            .as_mut()
+            .and_then(|correction| correction.window(ctx, enabled, live))
+    }
+    pub fn correction_notice(&mut self, notice: String) {
+        if let Some(correction) = &mut self.correction {
+            correction.notice(notice);
         }
     }
 }

@@ -2,6 +2,23 @@
 #[cfg(feature = "gpu-tests")]
 use super::*;
 
+#[test]
+fn explicit_read_only_face_pick_survives_leaving_the_erase_section_mode() {
+    use super::{Geometry, Regions};
+    let mut regions = Regions::default();
+    regions.select_manual();
+    regions.set_section_mode(true);
+    regions.settings.pick = true;
+    regions.set_section_mode(false);
+    assert!(!regions.section_pick());
+    regions.select_face_pick();
+    assert!(regions.section_pick());
+    assert!(regions.settings.geometry == Geometry::Faces);
+    assert!(!regions.settings.source_planes);
+    regions.set_section_mode(false);
+    assert!(regions.section_pick());
+}
+
 #[cfg(feature = "mcp")]
 impl super::super::VolumeSession {
     pub(crate) fn enable_test_region(&mut self) {

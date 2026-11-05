@@ -333,6 +333,13 @@ impl Regions {
     pub fn section_pick(&self) -> bool {
         self.settings.enabled && self.settings.pick
     }
+    pub fn select_face_pick(&mut self) {
+        self.picked_point = None;
+        self.view = None;
+        self.settings.enabled = true;
+        self.settings.geometry = Geometry::Faces;
+        self.settings.pick = true;
+    }
     pub fn section_style(&self) -> (f32, bool) {
         (self.settings.luminance, self.settings.surface_lighting)
     }

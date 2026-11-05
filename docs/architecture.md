@@ -185,8 +185,8 @@ or a ray. The original raster is partitioned into at most 256×16 rectangles, ea
 using the existing color/optical/independent geometry checks. The total cap stays
 65,536 pixels; oversize requests ask for a smaller radius or zoom out rather than
 reducing resolution. The transient batch directory is admitted before allocation.
-Cancellation/revocation releases all unpublished batches and edits. This remains
-a worker backend for a one-click stamp, without a native surface-editing control.
+Cancellation/revocation releases all unpublished batches and edits. The native
+one-click erase control uses this worker operation without lowering resolution.
 
 The native workbench passes the completed GPU MPR images and each plane's display
 window/inversion to a separate coalescing worker. Its optional region uses the
@@ -206,8 +206,23 @@ The immutable projector pipeline and initial uploaded/projected owners are share
 subsequent geometry, upload and projection changes replace only the fork's cache.
 Section composition accepts that private projection without replacing the main
 face cache or completed front. Original visibility witnesses remain bound to the
-base image, and dropping/cancelling a fork releases unpublished map owners. This
-preparation path does not itself enable a native surface-editing control.
+base image, and dropping/cancelling a fork releases unpublished map owners.
+
+**Surface erase stamp** is a separate native manual-label tool in MPR + 3D. It
+requires the applied scalar-source map, selected nonzero visible ID and no busy
+or competing label operation. Choosing a face arms one primary click; secondary
+navigation and Space overrides keep their existing behavior. The job binds the
+exact base/ID/series, linked-input epoch, viewport id/layer/rect/clip, originating
+scene/scope and physical radius. Navigation, focus loss, popups, Escape and changed
+inputs discard unpublished work. The original scene stays in the main viewport;
+a separate window renders the private mask using the same camera, image size,
+planes, clipping and optics. Apply rechecks the latest live view and label owner
+at publication, then uses the existing one-step history transaction. No-op Apply
+preserves history. Cancel releases the proposal; selecting read-only Pick surface
+creates a fresh inspection scope. Erase mode can use section composition with no
+visible source-plane actors; ordinary inactive-plane rendering stays unchanged.
+The stamp never moves the linked point. Continuous surface paths, surface Add and
+derived smooth geometry remain separate capabilities.
 
 Source-plane mode retires the previous region renderer and revokes its pick
 scope. Mask-cell mode is disabled while planes are active. **Pick surface** uses

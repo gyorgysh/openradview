@@ -59,6 +59,7 @@ pub(super) fn scene(source: Arc<GpuVolumeSource>) -> Scene {
         .unwrap();
     Scene {
         pick: false,
+        erase: false,
         planes: images.map(|image| {
             image.map(|image| SectionPlane {
                 image,

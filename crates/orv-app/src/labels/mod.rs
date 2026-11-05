@@ -13,6 +13,7 @@ mod physical;
 pub(crate) use physical::PhysicalContext;
 mod regions;
 mod supplied;
+mod surface;
 pub(crate) use canvas::overlay_mesh;
 pub(crate) use overlay::OverlayView;
 #[cfg(test)]

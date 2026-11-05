@@ -160,7 +160,7 @@ pub(super) fn current(
     front: &Complete,
     scene: &Scene,
 ) -> Option<(SectionPickFrame, SectionPickState)> {
-    if !scene.pick || !front.scene.same(scene) {
+    if !(scene.pick || scene.erase) || !front.scene.same(scene) {
         return None;
     }
     let selection = scene.selection.as_ref()?;
