@@ -8,7 +8,8 @@ Versions follow [Semantic Versioning](https://semver.org).
 ### Added
 
 - **Physical label edits.** In MPR + 3D, preview a sphere or a disk with a chosen
-  radius and thickness in millimetres at the linked point. The proposal appears
+  radius and thickness in millimetres at the linked point, or draw a continuous
+  physical sweep on one thin plane. The proposal appears
   on the planes and manual 3D region before Apply; Undo and Redo keep the same
   map revisions. Hidden IDs, other labels and missing source samples are
   preserved. Moving the point or leaving the layout discards an unapplied edit.

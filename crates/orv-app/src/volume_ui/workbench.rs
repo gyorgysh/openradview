@@ -4,6 +4,12 @@ use super::*;
 use orv_render::volume_source::GpuVolumeSource;
 
 impl VolumeSession {
+    fn open_physical_editor(&mut self, labels: &mut crate::labels::LabelUi) {
+        labels.open_physical_tools();
+        self.regions.select_manual();
+        self.material_enabled = true;
+        self.settings_open = false;
+    }
     pub(crate) fn from_mpr(
         volume: Arc<Volume>,
         source: Option<Arc<GpuVolumeSource>>,
@@ -66,7 +72,7 @@ impl VolumeSession {
                 self.needs_fit = true;
             }
             if !narrow && ui.button("Physical edit…").clicked() {
-                edit_requested = true;
+                self.open_physical_editor(labels);
             }
         });
         if let Some(error) = &self.error {
@@ -95,9 +101,7 @@ impl VolumeSession {
             });
         self.settings_open = open && !edit_requested;
         if edit_requested {
-            labels.open_physical_tools();
-            self.regions.select_manual();
-            self.material_enabled = true;
+            self.open_physical_editor(labels);
         }
         if let Some(editor) = &mut self.material_editor {
             editor.window(ui.ctx());
@@ -187,6 +191,44 @@ fn paint_cursor(
 mod tests {
     use super::*;
     use orv_core::volume_view::Camera;
+
+    #[test]
+    fn physical_editor_click_is_retained_while_the_3d_source_is_still_preparing() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut session = VolumeSession::new(false);
+        let mut labels = crate::labels::LabelUi::default();
+        let mut draw = |events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900., 600.),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    session.embedded_ui(ui, &mut labels, 0, [0.; 3], 1);
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let output = draw(vec![]);
+        let position = crate::controls::tests::text_rect(&output, "Physical edit…").center();
+        let _ = draw(vec![egui::Event::PointerMoved(position)]);
+        for pressed in [true, false] {
+            let _ = draw(vec![egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+        }
+        assert!(session.volume.is_none());
+        assert!(labels.physical_dialog_open());
+    }
 
     #[test]
     fn projected_cursor_matches_camera_rays_with_pan_zoom_roll_and_depth() {

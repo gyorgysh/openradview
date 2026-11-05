@@ -23,6 +23,8 @@ impl MprSession {
         index: usize,
         rect: Rect,
         snapshot: &MprSnapshot,
+        labels: &mut crate::labels::LabelUi,
+        selected: usize,
     ) -> PlanePaint {
         let mut ui = parent.new_child(
             egui::UiBuilder::new()
@@ -43,7 +45,10 @@ impl MprSession {
         theme::eyebrow(&mut ui, &heading);
         let size = Vec2::new(ui.available_width(), (ui.available_height() - 32.).max(30.));
         let (_, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
-        if response.hovered()
+        if labels
+            .physical_drawing_plane()
+            .is_none_or(|plane| plane == index)
+            && response.hovered()
             && ui.input(|input| {
                 input.pointer.delta() != egui::Vec2::ZERO || input.pointer.any_pressed()
             })
@@ -84,7 +89,12 @@ impl MprSession {
             self.request(&snapshot.volume, next);
         }
         let image = snapshot.images[index].clone();
-        if self.tool == Tool::Crosshair
+        if labels.physical_drawing() {
+            labels.sync_physical(&self.physical_context(snapshot, selected));
+            labels.physical_pointer(&ui, &response, &image, &self.views[index], index);
+        }
+        if !labels.physical_drawing()
+            && self.tool == Tool::Crosshair
             && !viewport::navigation_override(&ui, &response)
             && (response.clicked_by(egui::PointerButton::Primary)
                 || response.dragged_by(egui::PointerButton::Primary))
@@ -157,6 +167,7 @@ impl MprSession {
         );
         viewport::draw(ui, frame, response.rect, display, view, index + 1, "");
         labels.draw_plane(ui, response, image, view, index);
+        labels.physical_pointer_guide(ui, response, image, view);
         let painter = ui.painter_at(response.rect);
         if self.active_index() == index {
             painter.rect_stroke(
@@ -187,7 +198,7 @@ impl MprSession {
             );
         }
         crate::image_overlay::draw(ui, response, image, view);
-        if self.is_settled() {
+        if self.is_settled() && !labels.physical_drawing() {
             self.annotations[index].show(ui, response, image, view, self.tool);
             self.annotations[index].status_overlay(ui, response.rect, self.tool);
         } else {

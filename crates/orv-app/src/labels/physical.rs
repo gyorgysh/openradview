@@ -7,6 +7,8 @@ use orv_core::{
     volume::Volume,
 };
 use std::sync::Arc;
+mod gesture;
+pub(super) use gesture::{InputPath, Path};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Shape {
@@ -45,6 +47,10 @@ pub(super) struct Physical {
     epoch: u64,
     pub pending: bool,
     preview: Option<Preview>,
+    path: Option<Arc<Path>>,
+    drawing: bool,
+    draw_requested: bool,
+    gesture: Option<gesture::Capture>,
 }
 impl Default for Physical {
     fn default() -> Self {
@@ -58,6 +64,10 @@ impl Default for Physical {
             epoch: 0,
             pending: false,
             preview: None,
+            path: None,
+            drawing: false,
+            draw_requested: false,
+            gesture: None,
         }
     }
 }
@@ -70,8 +80,15 @@ impl Physical {
         self.epoch == preview.epoch
             && self.input.as_ref().is_some_and(|input| {
                 Arc::ptr_eq(&input.base, map)
-                    && preview.stroke.is_current(map, &input.brush, &[input.point])
+                    && preview
+                        .stroke
+                        .is_current(map, &input.brush, self.points(input))
             })
+    }
+    fn points<'a>(&'a self, input: &'a Input) -> &'a [[f64; 3]] {
+        self.path
+            .as_ref()
+            .map_or_else(|| std::slice::from_ref(&input.point), |path| path.points())
     }
     pub fn completed(&mut self, preview: Preview, map: Option<&Arc<Labels>>) -> bool {
         if map.is_some_and(|map| self.accept(&preview, map)) {
@@ -116,8 +133,15 @@ impl LabelUi {
         self.invalidate_physical();
         self.physical.open = false;
         self.physical.input = None;
+        self.physical.drawing = false;
+        self.physical.draw_requested = false;
     }
     pub(super) fn invalidate_physical(&mut self) {
+        self.physical.path = None;
+        self.physical.gesture = None;
+        self.invalidate_physical_proposal();
+    }
+    fn invalidate_physical_proposal(&mut self) {
         if self.physical.pending {
             self.cancel();
         }
@@ -161,7 +185,11 @@ impl LabelUi {
                         }
                     },
                     clip: None,
-                    protected_ids: self.display.visible_ids.map(|visible| !visible),
+                    // Background has no overlay visibility; hiding all displayed
+                    // IDs must not turn empty source cells into a protected ID.
+                    protected_ids: std::array::from_fn(|id| {
+                        id != 0 && !self.display.visible_ids[id]
+                    }),
                 },
             });
         let unchanged = match (&self.physical.input, &input) {
@@ -185,6 +213,10 @@ impl LabelUi {
             .unwrap_or_else(|| self.regions.displayed(map))
     }
     fn preview_physical(&mut self, ctx: &egui::Context) {
+        self.invalidate_physical();
+        self.submit_physical(ctx);
+    }
+    fn submit_physical(&mut self, ctx: &egui::Context) {
         if self.busy() {
             return;
         }
@@ -194,14 +226,17 @@ impl LabelUi {
         if input.brush.protected_ids[self.label as usize] {
             return;
         }
-        self.invalidate_physical();
+        self.invalidate_physical_proposal();
         self.visible = true;
         self.physical.pending = true;
         self.start(
             Operation::Physical(
                 input.base,
                 Box::new(input.brush),
-                input.point,
+                self.physical.path.clone().map_or(
+                    gesture::InputPath::Point(input.point),
+                    gesture::InputPath::Trace,
+                ),
                 self.physical.epoch,
             ),
             ctx,
@@ -226,7 +261,7 @@ impl LabelUi {
         };
         match preview
             .stroke
-            .apply(&map, &input.brush, &[input.point], || false)
+            .apply(&map, &input.brush, self.physical.points(input), || false)
         {
             Ok(labels) => self.commit_change(labels),
             Err(error) => self.message = error.into(),
@@ -235,9 +270,10 @@ impl LabelUi {
     pub fn physical_window(&mut self, ctx: &egui::Context, context: &PhysicalContext<'_>) {
         self.sync_physical(context);
         let mut open = self.physical.open;
+        let mut draw = false;
         crate::dialogs::escape(ctx, &mut open);
         crate::dialogs::window("Physical label edit", ctx).open(&mut open).default_width(440.).show(ctx, |ui| {
-            ui.label("Preview a sphere or a thick disk at the linked MPR point. This explicit volume tool can reach hidden cells; it is not a visible-surface brush.");
+            ui.label("Preview a sphere or a thick disk at the linked MPR point, or sweep it along a drawn MPR path. This explicit volume tool can reach hidden cells; it is not a visible-surface brush.");
             if self.current.is_none() {
                 ui.label("Create manual labels for this volume. Supplied masks remain read-only.");
                 if ui.add_enabled(!self.busy(), egui::Button::new("Create blank workbench labels")).clicked() {
@@ -266,7 +302,13 @@ impl LabelUi {
                     self.sync_physical(context);
                     if !context.ready { ui.label("Wait for completed thin MPR planes. Slab projections cannot position this tool."); }
                     if !self.display.visible_ids[self.label as usize] { ui.label("The selected ID is hidden and protected. Show it in Labels… before editing."); }
-                    if ui.add_enabled(self.physical.input.is_some() && self.display.visible_ids[self.label as usize], egui::Button::new("Preview physical edit")).clicked() { self.preview_physical(ctx); }
+                    if let Some(path) = &self.physical.path {
+                        ui.small(format!("Drawn path: {} input points joined by a continuous physical sweep.", path.points().len()));
+                    }
+                    let point_action = if self.physical.path.is_some() { "Preview linked point instead" } else { "Preview physical edit" };
+                    if ui.add_enabled(self.physical.input.is_some() && self.display.visible_ids[self.label as usize], egui::Button::new(point_action)).clicked() { self.preview_physical(ctx); }
+                    if ui.add_enabled(self.physical.input.is_some() && self.display.visible_ids[self.label as usize], egui::Button::new("Draw physical path on MPR")).clicked() { draw = true; }
+                    ui.small("Draw across one thin MPR plane, then release to preview the continuous physical footprint. Right / Space drag navigates; Escape stops drawing.");
                     if let Some(preview) = &self.physical.preview {
                         let summary = preview.stroke.summary();
                         ui.label(format!("PREVIEW ONLY · {} cells would change in {} tiles.", summary.changed_voxels, summary.changed_tiles));
@@ -287,7 +329,12 @@ impl LabelUi {
             ui.small("Moving the MPR point, changing edit inputs or leaving this layout discards the proposal. Closing this window keeps it available for inspection.");
             crate::dialogs::reveal_focus(ui);
         });
-        self.physical.open = open;
+        self.physical.open = open && !draw;
+        if draw {
+            self.invalidate_physical();
+            self.physical.drawing = true;
+            self.physical.draw_requested = true;
+        }
         self.sync_physical(context);
     }
 }

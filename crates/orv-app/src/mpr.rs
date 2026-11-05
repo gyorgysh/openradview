@@ -345,6 +345,12 @@ impl MprSession {
             self.request(&snapshot.volume, point);
         }
         let pending = self.worker.generation() != snapshot.generation || snapshot.preview;
+        if self.tool != Tool::Crosshair
+            || (!labels.physical_dialog_open()
+                && ui.input(|input| input.key_pressed(egui::Key::Escape)))
+        {
+            labels.stop_physical_drawing();
+        }
         let elapsed = self.last_input.elapsed();
         update_status(
             ui,
@@ -378,13 +384,13 @@ impl MprSession {
                         area.min + Vec2::new(i as f32 * (width + gap), 0.),
                         Vec2::new(width, area.height()),
                     );
-                    paints.push(self.prepare_plane(ui, i, rect, &snapshot));
+                    paints.push(self.prepare_plane(ui, i, rect, &snapshot, labels, selected));
                 }
             }
             Layout::Workbench => {
                 let rects = workbench_rects(area);
                 for (index, rect) in rects[..3].iter().enumerate() {
-                    paints.push(self.prepare_plane(ui, index, *rect, &snapshot));
+                    paints.push(self.prepare_plane(ui, index, *rect, &snapshot, labels, selected));
                 }
                 labels.sync_physical(&self.physical_context(&snapshot, selected));
                 let rect = rects[3];
@@ -408,6 +414,8 @@ impl MprSession {
                         i,
                         Rect::from_min_size(area.min + offset, cell),
                         &snapshot,
+                        labels,
+                        selected,
                     ));
                 }
                 let rect = Rect::from_min_size(area.min + cell + Vec2::splat(gap), cell);
@@ -422,7 +430,7 @@ impl MprSession {
                     Layout::Sagittal => 2,
                     _ => 0,
                 };
-                paints.push(self.prepare_plane(ui, index, area, &snapshot));
+                paints.push(self.prepare_plane(ui, index, area, &snapshot, labels, selected));
             }
         }
         // Apply the final shared display state after handling all panes' input.
@@ -449,9 +457,12 @@ impl MprSession {
         }
         if self.is_workbench() {
             labels.physical_window(ui.ctx(), &self.physical_context(&snapshot, selected));
+            if labels.take_physical_draw_request() {
+                self.tool = Tool::Crosshair;
+            }
         }
     }
-    fn physical_context<'a>(
+    pub(super) fn physical_context<'a>(
         &self,
         snapshot: &'a MprSnapshot,
         selected: usize,

@@ -52,7 +52,7 @@ impl Settings {
         let mut result = None;
         crate::toolbar::row(ui, |ui| {
             if ui.checkbox(&mut self.enabled, "Region in 3D")
-                .on_hover_text("One opaque region. Fractional masks use half the maximum. Painting stays in 2D.")
+                .on_hover_text("One opaque region. Fractional masks use half the maximum. Physical label tools are in MPR + 3D.")
                 .changed() && self.enabled {
                 *material = true;
                 if matches!(&maps.manual, Ok(None)) && matches!(&maps.supplied, Ok(Some(_))) {
@@ -100,7 +100,7 @@ impl Settings {
         });
         if self.enabled && ui.ctx().content_rect().height() >= 700. {
             ui.small(
-                "One opaque region. Fractional masks use half the maximum. Painting stays in 2D.",
+                "One opaque region. Fractional masks use half the maximum. Physical label tools are in MPR + 3D.",
             );
         }
         let waiting = self.enabled

@@ -19,7 +19,12 @@ pub enum Operation {
     Paint(Arc<Labels>, usize, Vec<[f64; 2]>, u32, u8),
     Threshold(Arc<Labels>, Option<usize>, [f32; 2], u8),
     Preview(Arc<Labels>, SelectionRequest, u64),
-    Physical(Arc<Labels>, Box<PhysicalBrush>, [f64; 3], u64),
+    Physical(
+        Arc<Labels>,
+        Box<PhysicalBrush>,
+        super::physical::InputPath,
+        u64,
+    ),
 }
 pub enum Output {
     Start(Arc<Labels>),
@@ -149,8 +154,8 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
                 epoch,
             }))
         }
-        Operation::Physical(current, settings, point, epoch) => {
-            let stroke = current.propose_physical_stroke(&settings, &[point], cancelled)?;
+        Operation::Physical(current, settings, path, epoch) => {
+            let stroke = current.propose_physical_stroke(&settings, path.points(), cancelled)?;
             Output::Physical(Box::new(super::physical::Preview { stroke, epoch }))
         }
     };

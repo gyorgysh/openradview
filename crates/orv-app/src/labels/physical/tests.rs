@@ -3,7 +3,7 @@ use super::*;
 use crate::labels::{tests::labels, worker};
 use std::sync::atomic::AtomicBool;
 
-fn state() -> LabelUi {
+pub(super) fn state() -> LabelUi {
     let mut state = LabelUi {
         current: Some(labels()),
         ..Default::default()
@@ -13,7 +13,7 @@ fn state() -> LabelUi {
     state.mark_saved();
     state
 }
-fn context(source: &Arc<Volume>) -> PhysicalContext<'_> {
+pub(super) fn context(source: &Arc<Volume>) -> PhysicalContext<'_> {
     PhysicalContext {
         source,
         selected: 0,
@@ -29,7 +29,7 @@ fn prepared(state: &LabelUi) -> Preview {
         Operation::Physical(
             input.base.clone(),
             Box::new(input.brush.clone()),
-            input.point,
+            input.point.into(),
             state.physical.epoch,
         ),
         &AtomicBool::new(false),
@@ -155,7 +155,7 @@ fn disk_orientation_thickness_erase_protection_and_noop_are_explicit() {
             Operation::Physical(
                 input.base.clone(),
                 Box::new(input.brush.clone()),
-                input.point,
+                input.point.into(),
                 state.physical.epoch
             ),
             &AtomicBool::new(false),
@@ -201,4 +201,16 @@ fn navigation_cancels_worker_and_blank_creation_uses_exact_workbench_source() {
         panic!("Expected blank labels")
     };
     assert!(Arc::ptr_eq(&blank.source_arc(), &source));
+}
+
+#[test]
+fn hidden_background_display_bit_does_not_protect_empty_source_cells() {
+    let mut state = state();
+    let source = state.current.as_ref().unwrap().source_arc();
+    state.display.visible_ids.fill(false);
+    state.display.visible_ids[1] = true;
+    state.sync_physical(&context(&source));
+    let preview = prepared(&state);
+    assert_eq!(preview.stroke.summary().changed_voxels, 7);
+    assert_eq!(preview.stroke.value([3, 3, 1]), Some(1));
 }
