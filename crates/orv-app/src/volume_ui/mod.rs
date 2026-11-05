@@ -8,6 +8,7 @@ mod regions;
 mod sharing;
 #[cfg(all(test, feature = "gpu-tests"))]
 mod tests;
+mod workbench;
 mod worker;
 use callback::{Callback, Gpu};
 use eframe::egui::{self, RichText, Vec2};
@@ -40,8 +41,17 @@ pub struct VolumeSession {
     material_editor: Option<material::MaterialEditor>,
     material_error: Option<&'static str>,
     regions: regions::Regions,
+    settings_open: bool,
+    cursor_visible: bool,
 }
 impl VolumeSession {
+    pub(crate) fn controls_open(&self) -> bool {
+        self.settings_open
+            || self
+                .material_editor
+                .as_ref()
+                .is_some_and(|editor| editor.open)
+    }
     pub(crate) fn local_scene(&self) -> bool {
         self.material_enabled || self.regions.enabled()
     }
@@ -57,11 +67,16 @@ impl VolumeSession {
     pub fn start(frames: impl Into<crate::frame_source::FrameSource>) -> Self {
         let frames = frames.into();
         let prefer_source = matches!(&frames,crate::frame_source::FrameSource::Indexed(series) if series.modality!="CT");
+        let mut session = Self::new(prefer_source);
+        session.pending_frames = Some(frames);
+        session
+    }
+    fn new(prefer_source: bool) -> Self {
         let initial_display = TransferPreset::Bone.values();
         let window = initial_display.0;
         Self {
             upload: None,
-            pending_frames: Some(frames),
+            pending_frames: None,
             prefer_source,
             source_range: None,
             initial_display,
@@ -69,6 +84,8 @@ impl VolumeSession {
             material_editor: None,
             material_error: None,
             regions: Default::default(),
+            settings_open: false,
+            cursor_visible: true,
             volume: None,
             gpu: None,
             state: None,
@@ -178,64 +195,21 @@ impl VolumeSession {
             ui.label("The source images remain available in 2D/MPR.");
             return;
         }
-        let (Some(volume), Some(state), Some(gpu)) = (&self.volume, &mut self.state, &self.gpu)
-        else {
+        let Some(volume) = &self.volume else {
             ui.add_space(30.);
             ui.label("Checking geometry and uploading image data on a background worker…");
             ui.label("Images stay on this device. Choose 2D/MPR to cancel.");
             return;
         };
         crate::view_context::show(ui, &volume.frames()[0]);
-        let was_material = self.material_enabled;
-        if self.material_enabled {
-            state.projection = Projection::Composite;
-            if let Some(editor) = &mut self.material_editor {
-                self.needs_fit |= editor.ui(
-                    ui,
-                    state,
-                    &mut self.display,
-                    volume.bounds(),
-                    &mut self.material_enabled,
-                );
-            }
-        } else if controls::show(
-            ui,
-            state,
-            &mut self.display,
-            &mut self.preset,
-            controls::Context {
-                source_range: self.source_range.as_ref(),
-                initial: &self.initial_display,
-                color: volume.is_color(),
-                choices: volume.frames()[0]
-                    .scalar
-                    .as_ref()
-                    .map(|data| &**data.choices()),
-                bounds: volume.bounds(),
-                material_selection: self
-                    .material_editor
-                    .as_ref()
-                    .map(|_| &mut self.material_enabled),
-            },
-        ) {
-            self.needs_fit = true;
+        self.show_controls(ui, labels, selected, true);
+        if let Some(editor) = &mut self.material_editor {
+            editor.window(ui.ctx());
         }
-        if was_material && !self.material_enabled {
-            self.regions.disable();
-        }
-        let region_selection = if self.material_editor.is_some() {
-            self.regions
-                .controls(ui, labels, selected, volume, &mut self.material_enabled)
-        } else {
-            self.regions.disable();
-            None
+        let Some(volume) = self.volume.as_ref() else {
+            return;
         };
-        if self.material_enabled {
-            state.projection = Projection::Composite;
-        }
-        if let Some(error) = self.material_error {
-            ui.label(format!("Material view unavailable: {error}"));
-        }
+        let region_selection = self.regions.selection(labels, selected, volume);
         if crate::actions::pressed(ui, crate::actions::Action::Fit) {
             self.display.zoom = 1.;
             self.display.pan = [0.; 2];
@@ -253,7 +227,24 @@ impl VolumeSession {
             ),
             egui::Sense::click_and_drag(),
         );
-        let (interacting, fit) = input::interact(ui, &response, state, &mut self.display);
+        self.paint_viewport(ui, rect, &response, region_selection, false);
+        if !compact {
+            ui.label(RichText::new("Drag: orbit · Space / right / middle drag: move · Scroll/pinch: zoom · LPS coordinates · Experimental research projection").small().color(crate::theme::SILVER));
+        }
+    }
+    fn paint_viewport(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        response: &egui::Response,
+        region_selection: Option<crate::labels::RegionSelection>,
+        embedded: bool,
+    ) -> Option<(ViewState, VolumeView, [u32; 2])> {
+        let (Some(volume), Some(state), Some(gpu)) = (&self.volume, &mut self.state, &self.gpu)
+        else {
+            return None;
+        };
+        let (interacting, fit) = input::interact(ui, response, state, &mut self.display);
         self.needs_fit |= fit;
         if self.needs_fit {
             if let Err(error) = state
@@ -261,7 +252,7 @@ impl VolumeSession {
                 .fit_to_volume(volume, f64::from(rect.width() / rect.height()))
             {
                 self.error = Some(error.into());
-                return;
+                return None;
             }
             self.needs_fit = false;
         }
@@ -302,6 +293,28 @@ impl VolumeSession {
                     },
                 ));
         }
+        let mut shown = if painted {
+            self.regions.displayed()
+        } else {
+            None
+        };
+        if !painted && let Ok(gpu) = gpu.try_lock() {
+            shown = gpu.displayed().filter(|(display, camera, size)| {
+                *display == self.display
+                    && *camera == *state
+                    && *size
+                        == callback::resolution(
+                            pixels,
+                            if gpu.refined {
+                                if material.is_some() { 2048. } else { 768. }
+                            } else if material.is_some() {
+                                512.
+                            } else {
+                                256.
+                            },
+                        )
+            });
+        }
         if !region_mode && let Ok(gpu) = gpu.try_lock() {
             if let Some(error) = gpu.error {
                 ui.label(error);
@@ -322,17 +335,81 @@ impl VolumeSession {
                     ""
                 };
                 ui.label(
-                    RichText::new(format!(
-                        "{style}{status} · {x} × {y} × {z} source samples · {}%",
-                        (self.display.zoom * 100.).round()
-                    ))
+                    RichText::new(if embedded {
+                        format!("{style}{status}")
+                    } else {
+                        format!(
+                            "{style}{status} · {x} × {y} × {z} source samples · {}%",
+                            (self.display.zoom * 100.).round()
+                        )
+                    })
                     .small()
                     .color(crate::theme::SILVER),
                 );
             }
         }
-        if !compact {
-            ui.label(RichText::new("Drag: orbit · Space / right / middle drag: move · Scroll/pinch: zoom · LPS coordinates · Experimental research projection").small().color(crate::theme::SILVER));
+        shown
+    }
+    fn show_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        labels: &mut crate::labels::LabelUi,
+        selected: usize,
+        shortcuts: bool,
+    ) {
+        let (Some(volume), Some(state)) = (&self.volume, &mut self.state) else {
+            return;
+        };
+        let was_material = self.material_enabled;
+        if self.material_enabled {
+            state.projection = Projection::Composite;
+            if let Some(editor) = &mut self.material_editor {
+                self.needs_fit |= editor.controls(
+                    ui,
+                    state,
+                    &mut self.display,
+                    volume.bounds(),
+                    &mut self.material_enabled,
+                    shortcuts,
+                );
+            }
+        } else if controls::show(
+            ui,
+            state,
+            &mut self.display,
+            &mut self.preset,
+            controls::Context {
+                shortcuts,
+                source_range: self.source_range.as_ref(),
+                initial: &self.initial_display,
+                color: volume.is_color(),
+                choices: volume.frames()[0]
+                    .scalar
+                    .as_ref()
+                    .map(|data| &**data.choices()),
+                bounds: volume.bounds(),
+                material_selection: self
+                    .material_editor
+                    .as_ref()
+                    .map(|_| &mut self.material_enabled),
+            },
+        ) {
+            self.needs_fit = true;
+        }
+        if was_material && !self.material_enabled {
+            self.regions.disable();
+        }
+        if self.material_editor.is_some() {
+            self.regions
+                .controls(ui, labels, selected, volume, &mut self.material_enabled);
+        } else {
+            self.regions.disable();
+        }
+        if self.material_enabled {
+            state.projection = Projection::Composite;
+        }
+        if let Some(error) = self.material_error {
+            ui.label(format!("Material view unavailable: {error}"));
         }
     }
 }

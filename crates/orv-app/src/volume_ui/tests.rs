@@ -14,6 +14,72 @@ fn device() -> (wgpu::Device, wgpu::Queue) {
     pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter))).unwrap()
 }
 
+#[test]
+fn workbench_upload_reuses_completed_mpr_source_and_cpu_fallback_keeps_exact_owner() {
+    use orv_render::{reslice::GpuReslicer, volume_source::GpuVolumeSource};
+    let (device, queue) = device();
+    let ctx = egui::Context::default();
+    let mut frames = demo_study().series.remove(0).frames;
+    frames.truncate(2);
+    let volume = Arc::new(Volume::new(frames).unwrap());
+    let source = GpuVolumeSource::new(&device, &queue, volume.clone(), || false).unwrap();
+    let weak = Arc::downgrade(&source);
+    let mut reslicer = GpuReslicer::new(source.clone()).unwrap();
+    let grids = crate::mpr_worker::PLANES
+        .map(|plane| volume.reformat_grid(plane, volume.center(), 64).unwrap());
+    let planes = reslicer
+        .render_frames(grids.each_ref().map(Some), || false)
+        .unwrap();
+    for plane in planes.iter().flatten() {
+        assert!(Arc::ptr_eq(plane.source(), &source));
+    }
+    let mut shared = Upload::from_source(
+        planes[0].as_ref().unwrap().source().clone(),
+        wgpu::TextureFormat::Rgba8Unorm,
+        ctx.clone(),
+    );
+    let ready = shared
+        .receiver
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap()
+        .unwrap();
+    assert!(
+        Arc::ptr_eq(&ready.source, &source),
+        "3D must retain the MPR upload, not recreate it"
+    );
+    assert!(Arc::ptr_eq(&ready.volume, &volume));
+    shared.worker.take().unwrap().join().unwrap();
+    let mut session = VolumeSession::new(true);
+    session.upload = Some(Upload::from_volume(
+        volume.clone(),
+        device.clone(),
+        queue.clone(),
+        wgpu::TextureFormat::Rgba8Unorm,
+        ctx.clone(),
+    ));
+    let handle = session.upload.as_mut().unwrap().worker.take().unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    while session.gpu.is_none() && session.error.is_none() {
+        session.prepare_test_frame(&device, &queue, &ctx);
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(session.error.is_none(), "{:?}", session.error);
+    assert!(Arc::ptr_eq(session.volume.as_ref().unwrap(), &volume));
+    handle.join().unwrap();
+    drop((ready, shared, planes, reslicer, source, session));
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(30)),
+        })
+        .unwrap();
+    assert!(
+        weak.upgrade().is_none(),
+        "Closed workbench retained its GPU source"
+    );
+}
+
 impl VolumeSession {
     pub(crate) fn prepare_test_frame(
         &mut self,

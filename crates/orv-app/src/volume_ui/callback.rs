@@ -62,6 +62,21 @@ impl Gpu {
             })
             && (state.quality == Quality::Interactive || self.refined)
     }
+    pub fn displayed(&self) -> Option<(ViewState, VolumeView, [u32; 2])> {
+        if self.error.is_some() {
+            return None;
+        }
+        let key = self.key.as_ref()?;
+        Some((
+            key.display.clone(),
+            key.state.clone(),
+            if self.refined {
+                key.refined
+            } else {
+                key.interactive
+            },
+        ))
+    }
     fn render(
         &mut self,
         device: &wgpu::Device,

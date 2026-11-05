@@ -195,8 +195,16 @@ impl Workspace {
             }
         }
     }
+    fn view_controls_open(&self) -> bool {
+        self.mpr.as_ref().is_some_and(|mpr| mpr.controls_open())
+            || self
+                .volume
+                .as_ref()
+                .is_some_and(|volume| volume.controls_open())
+    }
     pub(crate) fn local_dialog_open(&self) -> bool {
-        self.image_info.is_open()
+        self.view_controls_open()
+            || self.image_info.is_open()
             || self.export.is_open()
             || self.labels.open
             || self.labels.discard_question
@@ -478,7 +486,11 @@ impl Workspace {
         }
         crate::actions::view_input_enabled(
             ui.ctx(),
-            !blocked && !self.labels.open && !self.show_demo_credits && self.loading.is_none(),
+            !blocked
+                && !self.labels.open
+                && !self.show_demo_credits
+                && !self.view_controls_open()
+                && self.loading.is_none(),
         );
         ui.add_enabled_ui(!blocked, |ui| {
             self.content_ui(ui, frame, seconds, reduce_motion)

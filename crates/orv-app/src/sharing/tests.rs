@@ -478,3 +478,44 @@ fn assert_local_scene_refuses_disclosure(region: bool) {
     wait_for_server(&monitor);
     super::preview::finish_test_workers();
 }
+
+#[test]
+fn combined_workbench_revokes_single_pane_approval_and_refuses_substitute_capture() {
+    use crate::{mpr::MprSession, workspace::ViewMode};
+    let ctx = egui::Context::default();
+    let mut workspace = workspace();
+    workspace.mode = ViewMode::Mpr;
+    workspace.mpr = Some(MprSession::start(
+        Arc::new(workspace.study.as_ref().unwrap().series[0].clone()),
+        workspace.view.window,
+        ctx.clone(),
+    ));
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        let mpr = workspace.mpr.as_mut().unwrap();
+        mpr.poll();
+        if mpr.is_settled() {
+            break;
+        }
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    open(&mut workspace, &ctx);
+    approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
+    let session = workspace.sharing.live.as_ref().unwrap().session.clone();
+    let scene = session.current().unwrap();
+    session.request_view(scene.clone()).unwrap();
+    workspace.mpr.as_mut().unwrap().enable_test_workbench();
+    assert!(!workspace.picture_ready());
+    assert!(workspace.canonical_rendered_view().is_none());
+    workspace.sharing_after_ui(&ctx);
+    assert!(session.is_revoked());
+    workspace.sharing_before_ui(&ctx, false);
+    workspace.apply_shared_scene(&scene, &ctx);
+    assert!(workspace.mpr.as_ref().unwrap().is_workbench());
+    assert!(!workspace.sharing.is_active() && workspace.sharing.draft.is_none());
+    workspace.close();
+    wait_for_server(&monitor);
+    super::preview::finish_test_workers();
+}

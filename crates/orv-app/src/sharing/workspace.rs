@@ -12,11 +12,12 @@ use std::sync::Arc;
 
 impl Workspace {
     fn local_scene_view(&self) -> bool {
-        self.mode == ViewMode::Volume
-            && self
-                .volume
-                .as_ref()
-                .is_some_and(|volume| volume.local_scene())
+        (self.mode == ViewMode::Mpr && self.mpr.as_ref().is_some_and(|mpr| mpr.is_workbench()))
+            || (self.mode == ViewMode::Volume
+                && self
+                    .volume
+                    .as_ref()
+                    .is_some_and(|volume| volume.local_scene()))
     }
     pub(crate) fn sharing_before_ui(&mut self, ctx: &egui::Context, external_dialog_open: bool) {
         if self.local_scene_view() {
@@ -24,19 +25,21 @@ impl Workspace {
             self.sharing.panel_open = false;
         }
         self.sharing.poll(ctx);
-        let canonical = self.sharing.panel_open
-            || self.sharing.modal_open()
-            || self.sharing.is_active()
-            || self
-                .sharing
-                .broker
-                .as_ref()
-                .is_some_and(|b| b.has_unseen_request());
+        let canonical = !self.local_scene_view()
+            && (self.sharing.panel_open
+                || self.sharing.modal_open()
+                || self.sharing.is_active()
+                || self
+                    .sharing
+                    .broker
+                    .as_ref()
+                    .is_some_and(|b| b.has_unseen_request()));
         if let Some(mpr) = &mut self.mpr {
             mpr.set_canonical(canonical);
             mpr.poll();
         }
         let mpr_pending = self.mode == ViewMode::Mpr
+            && !self.local_scene_view()
             && !self
                 .canonical_rendered_view()
                 .is_some_and(|(_, ready)| ready);

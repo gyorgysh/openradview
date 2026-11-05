@@ -65,6 +65,30 @@ and completed snapshot. Position, display settings and annotations stay in the
 session. Returning rebuilds from the same CPU volume on demand; inactive views
 do not reserve a second dense GPU source beside the active 3D view.
 
+The native `MPR + 3D` layout adds a fourth pane to the same session, using a
+2×2 grid in taller windows and four columns when less height is available.
+Optional MPR controls fold away; layout and active-plane selection stay visible.
+It prepares
+volume/material renderers on a worker from the exact `GpuVolumeSource` retained
+by completed MPR images, without uploading another dense scalar source. If MPR
+uses its CPU fallback, 3D uploads that same immutable CPU `Volume` owner; it does
+not materialize the series again. An older CPU snapshot is withheld from this
+binding while a newer GPU request is pending. Leaving the layout cancels and
+drops its 3D worker/renderers; leaving MPR also suspends the reformat worker.
+The shared label UI resolves the current source-bound map, revision and ID each
+frame, including while 3D settings are closed. Region work retains its existing
+one-opaque-ID subset and coherent immutable completion rules.
+
+The workbench projects the completed MPR point and source-axis lines through the
+3D camera, with that camera's pan/zoom/roll and target aspect. Immutable region
+fronts retain their actual camera even while a new camera is pending. The source
+volume guide is withheld if its current presentation does not match the desired
+camera. Guides are not depth tested and provide no picking/editing authority.
+3D orbit, display settings and fitting do not change MPR display or position.
+Combined views are local: entering this layout revokes single-view approvals,
+denies queued connections and withholds source-substitute exports. Canonical
+single-view reconstruction and sharing contracts do not describe a workbench.
+
 Agent panel/review/live sessions and unseen inbound requests select canonical CPU
 reconstruction. Backend changes increment the request generation, invalidate the
 plane cache and reject old-mode previews; the GPU source stays available for local

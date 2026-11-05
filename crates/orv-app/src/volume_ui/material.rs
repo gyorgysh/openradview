@@ -140,6 +140,7 @@ impl MaterialEditor {
             self.draft.remove(index);
         }
     }
+    #[cfg(test)]
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
@@ -147,6 +148,17 @@ impl MaterialEditor {
         display: &mut ViewState,
         bounds: [[f64; 3]; 2],
         enabled: &mut bool,
+    ) -> bool {
+        self.controls(ui, state, display, bounds, enabled, true)
+    }
+    pub fn controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        state: &mut VolumeView,
+        display: &mut ViewState,
+        bounds: [[f64; 3]; 2],
+        enabled: &mut bool,
+        shortcuts: bool,
     ) -> bool {
         let mut fit = false;
         crate::toolbar::row(ui, |ui| {
@@ -160,7 +172,11 @@ impl MaterialEditor {
             }
             if ui.selectable_label(true,"Material…").on_hover_text("Edit local optical appearance. Choose Volume or MIP for picture export or agent sharing.").clicked() {self.open=true;}
             if ui
-                .button(crate::actions::label(ui.ctx(), crate::actions::Action::Fit))
+                .button(if shortcuts {
+                    crate::actions::label(ui.ctx(), crate::actions::Action::Fit)
+                } else {
+                    "Fit".into()
+                })
                 .clicked()
             {
                 display.zoom = 1.;
@@ -197,15 +213,18 @@ impl MaterialEditor {
                 }
             });
         });
+        fit
+    }
+    pub fn window(&mut self, ctx: &egui::Context) {
         let mut open = self.open;
-        crate::dialogs::escape(ui.ctx(), &mut open);
-        crate::dialogs::window("Volume material", ui.ctx())
+        crate::dialogs::escape(ctx, &mut open);
+        crate::dialogs::window("Volume material", ctx)
             .open(&mut open)
             .default_width(600.)
-            .show(ui.ctx(), |ui| {
+            .show(ctx, |ui| {
                 ui.label("Map scalar values to linear brightness and opacity per millimetre. Changes adjust appearance; they do not change source values.");
                 egui::ScrollArea::vertical()
-                    .max_height((ui.ctx().content_rect().height() - 280.).clamp(120., 300.))
+                    .max_height((ctx.content_rect().height() - 280.).clamp(120., 300.))
                     .show(ui, |ui| {
                         self.point_table(ui);
                         crate::dialogs::reveal_focus(ui);
@@ -220,7 +239,6 @@ impl MaterialEditor {
                 crate::dialogs::reveal_focus(ui);
             });
         self.open = open;
-        fit
     }
 }
 fn validate_knots(material: &VolumeMaterial) -> Result<(), &'static str> {

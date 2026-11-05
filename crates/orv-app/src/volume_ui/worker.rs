@@ -24,6 +24,11 @@ pub(super) struct Upload {
     #[cfg(all(test, feature = "gpu-tests"))]
     pub(super) worker: Option<std::thread::JoinHandle<()>>,
 }
+enum Input {
+    Frames(crate::frame_source::FrameSource, wgpu::Device, wgpu::Queue),
+    Volume(Arc<Volume>, wgpu::Device, wgpu::Queue),
+    Shared(Arc<GpuVolumeSource>),
+}
 impl Upload {
     pub fn start(
         frames: impl Into<crate::frame_source::FrameSource>,
@@ -32,7 +37,25 @@ impl Upload {
         format: wgpu::TextureFormat,
         ctx: egui::Context,
     ) -> Self {
-        let frames = frames.into();
+        Self::prepare(Input::Frames(frames.into(), device, queue), format, ctx)
+    }
+    pub fn from_volume(
+        volume: Arc<Volume>,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        format: wgpu::TextureFormat,
+        ctx: egui::Context,
+    ) -> Self {
+        Self::prepare(Input::Volume(volume, device, queue), format, ctx)
+    }
+    pub fn from_source(
+        source: Arc<GpuVolumeSource>,
+        format: wgpu::TextureFormat,
+        ctx: egui::Context,
+    ) -> Self {
+        Self::prepare(Input::Shared(source), format, ctx)
+    }
+    fn prepare(input: Input, format: wgpu::TextureFormat, ctx: egui::Context) -> Self {
         let (tx, receiver) = sync_channel(1);
         let cancel = Arc::new(AtomicBool::new(false));
         let worker = cancel.clone();
@@ -42,13 +65,28 @@ impl Upload {
             .name("orv-volume-upload".into())
             .spawn(move || {
                 let result = (|| {
-                    orv_render::volume::check_limits(&device.limits()).map_err(str::to_owned)?;
-                    let volume = frames.volume(|| worker.load(Ordering::Acquire))?;
-                    let source_range = source_range(&volume, || worker.load(Ordering::Acquire))?;
-                    let source = GpuVolumeSource::new(&device, &queue, volume.clone(), || {
-                        worker.load(Ordering::Acquire)
-                    })
-                    .map_err(str::to_owned)?;
+                    let cancelled = || worker.load(Ordering::Acquire);
+                    if cancelled() {
+                        return Err("Cancelled".into());
+                    }
+                    let source = match input {
+                        Input::Shared(source) => source,
+                        Input::Frames(frames, device, queue) => {
+                            orv_render::volume::check_limits(&device.limits())
+                                .map_err(str::to_owned)?;
+                            let volume = frames.volume(cancelled)?;
+                            GpuVolumeSource::new(&device, &queue, volume, cancelled)
+                                .map_err(str::to_owned)?
+                        }
+                        Input::Volume(volume, device, queue) => {
+                            orv_render::volume::check_limits(&device.limits())
+                                .map_err(str::to_owned)?;
+                            GpuVolumeSource::new(&device, &queue, volume, cancelled)
+                                .map_err(str::to_owned)?
+                        }
+                    };
+                    let volume = source.volume().clone();
+                    let source_range = source_range(&volume, cancelled)?;
                     let renderer = VolumeRenderer::from_source(source.clone(), format, || {
                         worker.load(Ordering::Acquire)
                     })

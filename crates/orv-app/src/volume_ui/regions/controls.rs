@@ -91,6 +91,36 @@ impl Settings {
             };
         (result, waiting)
     }
+    pub fn current(
+        &mut self,
+        labels: &LabelUi,
+        maps: &RegionMaps,
+    ) -> (Option<RegionSelection>, bool) {
+        if !self.enabled {
+            return (None, false);
+        }
+        let result = match self.group {
+            Group::Manual => maps.manual.as_ref().map(|map| {
+                map.as_ref().and_then(|map| {
+                    RegionSelection::new(
+                        RegionMap::Manual(map.clone()),
+                        u16::from(labels.manual_region_number()),
+                    )
+                    .ok()
+                })
+            }),
+            Group::Supplied => maps.supplied.as_ref().map(|map| {
+                map.as_ref().and_then(|map| {
+                    if !map.infos().any(|info| info.number == self.supplied) {
+                        self.supplied = map.infos().next()?.number;
+                    }
+                    RegionSelection::new(RegionMap::Supplied(map.clone()), self.supplied).ok()
+                })
+            }),
+        };
+        let waiting = result.is_err();
+        (result.ok().flatten(), waiting)
+    }
     fn selection(
         &mut self,
         ui: &mut egui::Ui,
@@ -144,6 +174,55 @@ impl Settings {
 mod tests {
     use super::*;
     use orv_core::{labels::Labels, study::demo_study, volume_view::TransferPreset};
+
+    #[test]
+    fn selection_without_settings_ui_tracks_the_current_manual_id_revision_and_source() {
+        let mut frames = demo_study().series.remove(0).frames;
+        frames.truncate(2);
+        let source = Arc::new(Volume::new(frames).unwrap());
+        let mut labels = LabelUi::default();
+        let original = Arc::new(Labels::empty(source.clone()).unwrap());
+        labels.current = Some(original.clone());
+        let mut settings = Settings {
+            enabled: true,
+            ..Default::default()
+        };
+        let first = settings
+            .current(&labels, &labels.region_maps(0, &source))
+            .0
+            .unwrap();
+        labels.set_manual_region_number(7);
+        let selected = settings
+            .current(&labels, &labels.region_maps(0, &source))
+            .0
+            .unwrap();
+        assert_eq!(selected.number, 7);
+        assert!(!selected.same(&first));
+        let mut edited = original.try_clone(|| false).unwrap();
+        edited
+            .threshold(None, [-100_000., 100_000.], 7, || false)
+            .unwrap();
+        labels.current = Some(Arc::new(edited));
+        let changed = settings
+            .current(&labels, &labels.region_maps(0, &source))
+            .0
+            .unwrap();
+        assert!(!changed.same(&selected));
+        assert!(Arc::ptr_eq(&changed.map.source(), &source));
+        let copy = Arc::new(Volume::new(source.frames().to_vec()).unwrap());
+        assert!(
+            settings
+                .current(&labels, &labels.region_maps(0, &copy))
+                .0
+                .is_none()
+        );
+        assert!(
+            settings
+                .current(&labels, &labels.region_maps(1, &source))
+                .0
+                .is_none()
+        );
+    }
 
     #[test]
     fn minimum_window_region_controls_stay_visible_and_leave_room_for_the_image() {

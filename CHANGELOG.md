@@ -7,6 +7,12 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 
+- **MPR + 3D.** View the three linked planes beside a local 3D projection of the
+  same volume. The projected cursor follows their physical position; 3D keeps
+  separate camera and appearance controls. Manual and supplied region selection
+  uses the same labels panel. The guides have no depth test or editing action;
+  region display still shows one opaque ID. Combined views stay local.
+
 - **Regions in 3D.** Display one manual label or supplied mask ID over a scalar
   material view. GPU preparation runs on a background worker and shows complete
   frames. Fractional masks use half their declared maximum; painting stays in

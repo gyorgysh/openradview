@@ -244,7 +244,18 @@ impl Regions {
         source: &Arc<Volume>,
         material: &mut bool,
     ) -> Option<RegionSelection> {
-        let (selection, waiting) = self.settings.ui(ui, labels, selected, source, material);
+        self.settings.ui(ui, labels, selected, source, material);
+        self.selection(labels, selected, source)
+    }
+    pub fn selection(
+        &mut self,
+        labels: &LabelUi,
+        selected: usize,
+        source: &Arc<Volume>,
+    ) -> Option<RegionSelection> {
+        let (selection, waiting) = self
+            .settings
+            .current(labels, &labels.region_maps(selected, source));
         if selection.is_none() {
             if waiting {
                 if let Some(view) = &mut self.view {
@@ -255,6 +266,18 @@ impl Regions {
             }
         }
         selection
+    }
+    pub fn displayed(&self) -> Option<(ViewState, VolumeView, [u32; 2])> {
+        let front = self.view.as_ref()?.front.as_ref()?;
+        Some((
+            front.key.display.clone(),
+            front.key.state.clone(),
+            if front.refined {
+                front.key.refined
+            } else {
+                front.key.interactive
+            },
+        ))
     }
     pub fn show(
         &mut self,

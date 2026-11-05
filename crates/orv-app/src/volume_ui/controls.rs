@@ -6,6 +6,7 @@ use orv_core::{
 };
 
 pub(super) struct Context<'a> {
+    pub shortcuts: bool,
     pub source_range: Option<&'a super::DisplayRange>,
     pub initial: &'a super::DisplayRange,
     pub color: bool,
@@ -22,6 +23,7 @@ pub(super) fn show(
     context: Context<'_>,
 ) -> bool {
     let Context {
+        shortcuts,
         source_range,
         initial,
         color,
@@ -98,7 +100,11 @@ pub(super) fn show(
             }
         }
         if ui
-            .button(crate::actions::label(ui.ctx(), crate::actions::Action::Fit))
+            .button(if shortcuts {
+                crate::actions::label(ui.ctx(), crate::actions::Action::Fit)
+            } else {
+                "Fit".into()
+            })
             .clicked()
         {
             display.zoom = 1.;
@@ -107,7 +113,11 @@ pub(super) fn show(
         }
         ui.checkbox(
             &mut display.invert,
-            crate::actions::label(ui.ctx(), crate::actions::Action::Invert),
+            if shortcuts {
+                crate::actions::label(ui.ctx(), crate::actions::Action::Invert)
+            } else {
+                "Invert".into()
+            },
         );
         if ui.button("Reset display").on_hover_text("Restore this volume’s initial display and turn inversion off. Fit resets the camera separately.").clicked() {
             *preset = TransferPreset::Bone;
@@ -440,6 +450,7 @@ mod tests {
                         &mut display,
                         &mut TransferPreset::Bone,
                         Context {
+                            shortcuts: true,
                             source_range: None,
                             initial: &initial,
                             color: false,
@@ -510,6 +521,7 @@ mod tests {
                     &mut display,
                     &mut preset,
                     Context {
+                        shortcuts: true,
                         source_range: None,
                         initial: &TransferPreset::Bone.values(),
                         color: false,
