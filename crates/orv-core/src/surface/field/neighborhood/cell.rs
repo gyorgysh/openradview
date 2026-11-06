@@ -13,7 +13,7 @@ mod refine;
 pub use chart::{
     CellFiber, CellProjectionChart, ChartEdgeStep, ProjectedCellEdges, ProjectedContact,
     ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
-    ProjectedEdgeKind,
+    ProjectedEdgeKind, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
 };
 pub use refine::{CellPathLimits, CellPathOrigin, CellPathVertex, RefinedCellGraph};
 

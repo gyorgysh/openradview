@@ -51,6 +51,7 @@ pub struct JointSubdivision {
 }
 impl JointSubdivision {
     pub const MAX_INSERTIONS: usize = INSERTIONS;
+    pub const MAX_NODES: usize = JOINT_NODES;
     pub const MAX_REGIONS: usize = JOINT_REGIONS;
     pub fn fields(&self) -> [Bilinear; 2] {
         self.fields

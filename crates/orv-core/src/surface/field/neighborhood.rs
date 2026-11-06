@@ -8,7 +8,8 @@ pub use cell::{
     CellGraphRegion, CellGraphState, CellPathLimits, CellPathOrigin, CellPathVertex,
     CellProjectionChart, ChartEdgeStep, ProjectedCellEdges, ProjectedContact,
     ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
-    ProjectedEdgeKind, RefinedCellGraph, SourceCellGraph,
+    ProjectedEdgeKind, RefinedCellGraph, SourceCellGraph, SplitPath, SplitProjectedConstraints,
+    SplitSegment, SplitStep,
 };
 pub use zero_face::{
     WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,

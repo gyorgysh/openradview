@@ -4,6 +4,7 @@ use super::*;
 mod contacts;
 pub use contacts::{
     ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts,
+    SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
 };
 
 const MAX_LINKS: usize = 262_144;
@@ -112,7 +113,7 @@ fn curve_steps(
     let mut count = 0;
     while current != end {
         check(cancel)?;
-        if count >= JointSubdivision::MAX_INSERTIONS + 18 {
+        if count >= JointSubdivision::MAX_NODES {
             return Err(SurfaceError::Geometry);
         }
         let current_coordinate = chart

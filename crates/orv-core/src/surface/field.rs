@@ -28,8 +28,8 @@ pub use neighborhood::{
     CellPathVertex, CellProjectionChart, ChartEdgeStep, EdgePartition, EdgePoint, NeighborhoodCell,
     ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
     ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, RefinedCellGraph, SourceCellGraph,
-    SourceFace, WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase,
-    ZeroFaceSample,
+    SourceFace, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep, WholeZeroFace,
+    WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
 };
 use std::sync::Arc;
 

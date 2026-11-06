@@ -653,9 +653,16 @@ coincident intervals and whole-zero portions retain both endpoints. Separate
 owners are not welded merely because their projections coincide. The two-pass
 worker bounds output to 262,144 contacts and 32 MiB of retained typed storage,
 admits it before allocation, and publishes no partial directory on cancellation
-or unsupported arithmetic. This contact list still needs a planar arrangement,
-coordinated subdivisions, region assignment, certified surface interiors and
-shared seams. It has no rendering or source-edit authority.
+or unsupported arithmetic. `ProjectedContacts::split` rebuilds the chart with
+all contact endpoints and preserves its prior chart nodes, within the same
+80-entry insertion bound. It splits each straight source constraint at every chart
+node and gives coincident pieces one shared segment ID. Per-source directed paths
+retain ownership, collapsed paths retain their original height endpoints, and a
+coincident axis-aligned chart edge is linked without merging curved arcs solely
+by endpoints. Its input, rebuilt chart and edge directory retain separate charges;
+scratch and final typed output are admitted with bounded sizes. This is not yet a
+face-connected planar arrangement, certified 3D surface or shared seam and has
+no rendering or source-edit authority.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

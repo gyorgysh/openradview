@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod split;
 use std::collections::HashSet;
 
 #[test]
