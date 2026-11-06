@@ -2,6 +2,7 @@
 //! Atomic application of source-bound face partition requests.
 use super::*;
 mod compose;
+mod mixed;
 pub use compose::FacePromotionLimits;
 
 const MAX_OUTPUT: u64 = 32 * 1024 * 1024;

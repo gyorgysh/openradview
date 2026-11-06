@@ -1197,6 +1197,15 @@ intervals remain explicit. Unsupported face projections and unavailable cells do
 not become coverage. The directory does not alter either surface, establish a seam,
 or certify the physical error of a proposed affine split.
 
+`MixedFacePartition::apply` rebuilds the represented candidate facets and a
+quantized affine polygon together. It recertifies the candidate triangles,
+bounds the affine vertices' physical displacement with outward-rounded source
+basis norms, and refuses collapsed, inverted or self-intersecting fans. Exact
+coordinates on other source-cell faces stay on those faces. The retained spans
+preserve missing coverage and post-application candidate certification. The
+result is local CPU geometry, not a complete seam, GPU projection certificate,
+native surface or editing authority.
+
 `GpuCandidateSurface` uploads within-tolerance triangles of a bounded candidate
 assembly as per-cell immutable triangle descriptors. Exact affine polygons use
 the same integer grid only when a conservative physical displacement bound fits

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Exact local plane intersections for affine source-cell fields.
 use super::{
-    CellPhase, ConformingSurfaceMesh, ExactCoordinate, FaceKey, FacePlacement, FaceSpanCoverage,
-    FieldCell, FieldError, MaskField, Rational,
+    AppliedFaceCell, CellPhase, ConformingSurfaceMesh, ExactCoordinate, FaceKey, FacePlacement,
+    FaceSpanCoverage, FieldCell, FieldError, MaskField, Rational,
 };
 use crate::resources::Reservation;
 use std::sync::Arc;
@@ -95,6 +95,61 @@ impl MixedFacePartition {
     }
     pub fn spans(&self) -> &[MixedFaceSpan] {
         &self.spans
+    }
+    pub fn referenced_bytes(&self) -> u64 {
+        self.bytes
+    }
+}
+
+/// A representable partition can still fail the requested physical or topology gate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MixedFaceApplyRefusal {
+    PhysicalTolerance,
+    Topology,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AppliedMixedSpan {
+    pub partition_span: u32,
+    /// Vertex IDs in the candidate and affine output, respectively.
+    pub segments: [Option<[u32; 2]>; 2],
+    /// Certification after candidate triangles have been rebuilt.
+    pub candidate_within_tolerance: bool,
+}
+
+/// Atomically built local geometry. Missing spans and other faces remain open.
+pub struct AppliedMixedFace {
+    pub(in crate::surface) input: Arc<MixedFacePartition>,
+    pub(in crate::surface) candidate: AppliedFaceCell,
+    pub(in crate::surface) affine_vertices: Vec<[u32; 3]>,
+    pub(in crate::surface) affine_triangles: Vec<[u32; 3]>,
+    pub(in crate::surface) point_vertices: Vec<[Option<u32>; 2]>,
+    pub(in crate::surface) spans: Vec<AppliedMixedSpan>,
+    pub(in crate::surface) affine_error_mm: f64,
+    pub(in crate::surface) bytes: u64,
+    pub(in crate::surface) _reservation: Reservation,
+}
+impl AppliedMixedFace {
+    pub fn input(&self) -> &Arc<MixedFacePartition> {
+        &self.input
+    }
+    pub fn candidate(&self) -> &AppliedFaceCell {
+        &self.candidate
+    }
+    pub fn affine_vertices(&self) -> &[[u32; 3]] {
+        &self.affine_vertices
+    }
+    pub fn affine_triangles(&self) -> &[[u32; 3]] {
+        &self.affine_triangles
+    }
+    pub fn point_vertices(&self) -> &[[Option<u32>; 2]] {
+        &self.point_vertices
+    }
+    pub fn spans(&self) -> &[AppliedMixedSpan] {
+        &self.spans
+    }
+    pub fn affine_error_mm(&self) -> f64 {
+        self.affine_error_mm
     }
     pub fn referenced_bytes(&self) -> u64 {
         self.bytes

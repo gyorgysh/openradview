@@ -1532,3 +1532,390 @@ fn mixed_face_partition_handles_the_affine_cell_on_the_positive_side() {
     drop((partition, assembly, right, left, field));
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn mixed_face_application_joins_represented_edges_and_preserves_refusals() {
+    for reflected in [false, true] {
+        let budget = MemoryBudget::new(512 * 1024 * 1024);
+        let field = fractional(source([3, 2, 2], true, false), |[x, y, z]| {
+            let x = if reflected { 2 - x } else { x };
+            -4 + 4 * y as i16
+                + 4 * z as i16
+                + [-2, 0, 4][x]
+                + if [x, y, z] == [2, 1, 1] { -12 } else { 0 }
+        });
+        let affine_x = usize::from(reflected);
+        let candidate_x = 1 - affine_x;
+        let affine = field.affine_cell([affine_x, 0, 0], || false).unwrap();
+        let grid = field
+            .candidate_grid_with_budget(
+                [candidate_x, 0, 0],
+                [1; 3],
+                2,
+                limits(),
+                budget.clone(),
+                || false,
+            )
+            .unwrap();
+        let CandidateCellState::Candidate { mesh } = grid.cells()[0].state else {
+            panic!("expected a general candidate");
+        };
+        let candidate = grid.meshes()[usize::from(mesh)].clone();
+        let make_partition = || {
+            candidate
+                .mixed_face_partition_with_budget(
+                    &affine,
+                    0,
+                    limits().seams.partition,
+                    budget.clone(),
+                    || false,
+                )
+                .unwrap()
+                .unwrap()
+        };
+        let partition = Arc::new(make_partition());
+        let applied = partition
+            .apply_mixed_with_budget(0.02, AppliedFaceLimits::default(), budget.clone(), || false)
+            .unwrap()
+            .expect("mixed face must pass physical and topology checks");
+        assert!(applied.affine_error_mm() <= 0.02);
+        assert_eq!(
+            applied.affine_triangles().len(),
+            applied.affine_vertices().len() - 2
+        );
+        assert!(applied.affine_vertices().len() > affine.vertices().len());
+        let denominator = f64::from(ConformingSurfaceMesh::POSITION_DENOMINATOR);
+        for (id, point) in partition.points().iter().enumerate() {
+            let Some([candidate_id, affine_id]) = applied.point_vertices()[id][0]
+                .zip(applied.point_vertices()[id][1])
+                .map(|(a, b)| [a, b])
+            else {
+                continue;
+            };
+            let from_candidate = applied.candidate().vertices()[candidate_id as usize]
+                .position()
+                .unwrap();
+            let from_affine = applied.affine_vertices()[affine_id as usize];
+            assert_eq!(from_candidate[1..], from_affine[1..]);
+            assert_eq!(
+                from_candidate[0],
+                if reflected {
+                    ConformingSurfaceMesh::POSITION_DENOMINATOR
+                } else {
+                    0
+                }
+            );
+            assert_eq!(
+                from_affine[0],
+                if reflected {
+                    0
+                } else {
+                    ConformingSurfaceMesh::POSITION_DENOMINATOR
+                }
+            );
+            let along = point.coordinate.approximate().unwrap();
+            let expected = [f64::from(!reflected), along, 1.0 - along];
+            let actual = from_affine.map(|v| f64::from(v) / denominator);
+            let delta = std::array::from_fn(|axis| actual[axis] - expected[axis]);
+            let distance: f64 = field
+                .source()
+                .voxel_vector_to_world(delta)
+                .into_iter()
+                .map(f64::abs)
+                .sum();
+            assert!(distance <= applied.affine_error_mm() + 1e-12);
+        }
+        assert!(
+            applied
+                .spans()
+                .iter()
+                .any(|span| span.segments.iter().all(Option::is_some))
+        );
+        assert!(
+            applied
+                .spans()
+                .iter()
+                .all(|span| !span.candidate_within_tolerance)
+        );
+        let used = budget.used();
+        let calls = Cell::new(0usize);
+        let counted = partition
+            .apply_mixed_with_budget(0.02, AppliedFaceLimits::default(), budget.clone(), || {
+                calls.set(calls.get() + 1);
+                false
+            })
+            .unwrap()
+            .unwrap();
+        let total_calls = calls.get();
+        drop(counted);
+        for stop in [total_calls / 3, total_calls / 2, total_calls] {
+            let calls = Cell::new(0usize);
+            assert!(matches!(
+                partition.apply_mixed_with_budget(
+                    0.02,
+                    AppliedFaceLimits::default(),
+                    budget.clone(),
+                    || {
+                        calls.set(calls.get() + 1);
+                        calls.get() >= stop
+                    }
+                ),
+                Err(SurfaceError::Cancelled)
+            ));
+            assert_eq!(budget.used(), used);
+        }
+        assert!(matches!(
+            partition.apply_mixed_with_budget(
+                0.02,
+                AppliedFaceLimits::default(),
+                budget.clone(),
+                || true,
+            ),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert!(matches!(
+            partition.apply_mixed_with_budget(
+                -1.0,
+                AppliedFaceLimits::default(),
+                budget.clone(),
+                || false,
+            ),
+            Err(SurfaceError::Limit)
+        ));
+        assert!(matches!(
+            partition.apply_mixed_with_budget(
+                0.02,
+                AppliedFaceLimits {
+                    max_operations: 1,
+                    ..Default::default()
+                },
+                budget.clone(),
+                || false,
+            ),
+            Err(SurfaceError::Limit)
+        ));
+        assert_eq!(budget.used(), used);
+        let empty = MemoryBudget::new(0);
+        assert!(matches!(
+            partition.apply_mixed_with_budget(
+                0.02,
+                AppliedFaceLimits::default(),
+                empty.clone(),
+                || false,
+            ),
+            Err(SurfaceError::Memory)
+        ));
+        assert_eq!(empty.used(), 0);
+        let scratch_refused = MemoryBudget::new(applied.referenced_bytes());
+        assert!(matches!(
+            partition.apply_mixed_with_budget(
+                0.02,
+                AppliedFaceLimits::default(),
+                scratch_refused.clone(),
+                || false,
+            ),
+            Err(SurfaceError::Memory)
+        ));
+        assert_eq!(scratch_refused.used(), 0);
+        let mut collapsed = make_partition();
+        let endpoint = collapsed
+            .points
+            .iter()
+            .find(|point| point.affine == MixedAffinePlacement::Endpoint(0))
+            .unwrap()
+            .affine_position
+            .unwrap();
+        let split = collapsed
+            .points
+            .iter_mut()
+            .find(|point| point.affine == MixedAffinePlacement::Split)
+            .unwrap();
+        split.affine_position = Some(endpoint);
+        assert!(matches!(
+            Arc::new(collapsed).apply_mixed_with_budget(
+                100.0,
+                AppliedFaceLimits::default(),
+                budget.clone(),
+                || false,
+            ),
+            Ok(Err(MixedFaceApplyRefusal::Topology))
+        ));
+        drop((applied, partition, candidate, grid, affine, field));
+        assert_eq!(budget.used(), 0);
+    }
+}
+
+#[test]
+fn mixed_face_application_rejects_quantization_beyond_physical_tolerance() {
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let field = fractional(source([3, 2, 2], true, false), |[x, y, z]| {
+        -10 + 14 * y as i16
+            + 14 * z as i16
+            + [-4, 0, 8][x]
+            + if [x, y, z] == [2, 1, 1] { -24 } else { 0 }
+    });
+    let affine = field.affine_cell([0, 0, 0], || false).unwrap();
+    let grid = field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let CandidateCellState::Candidate { mesh } = grid.cells()[0].state else {
+        panic!("expected a general candidate");
+    };
+    let partition = Arc::new(
+        grid.meshes()[usize::from(mesh)]
+            .mixed_face_partition_with_budget(
+                &affine,
+                0,
+                limits().seams.partition,
+                budget.clone(),
+                || false,
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    let before = budget.used();
+    assert!(matches!(
+        partition.apply_mixed_with_budget(
+            0.0,
+            AppliedFaceLimits::default(),
+            budget.clone(),
+            || false,
+        ),
+        Ok(Err(MixedFaceApplyRefusal::PhysicalTolerance))
+    ));
+    assert_eq!(budget.used(), before);
+    let applied = partition
+        .apply_mixed_with_budget(0.02, AppliedFaceLimits::default(), budget.clone(), || false)
+        .unwrap()
+        .expect("non-dyadic face should meet the relaxed physical tolerance");
+    assert!(applied.affine_error_mm() > 0.0 && applied.affine_error_mm() <= 0.02);
+    let denominator = f64::from(ConformingSurfaceMesh::POSITION_DENOMINATOR);
+    for (id, point) in partition.points().iter().enumerate() {
+        if let Some(vertex) = applied.point_vertices()[id][1] {
+            let along = point.coordinate.approximate().unwrap();
+            let expected = [1.0, along, 5.0 / 7.0 - along];
+            let actual =
+                applied.affine_vertices()[vertex as usize].map(|v| f64::from(v) / denominator);
+            let delta = std::array::from_fn(|axis| actual[axis] - expected[axis]);
+            let distance: f64 = field
+                .source()
+                .voxel_vector_to_world(delta)
+                .into_iter()
+                .map(f64::abs)
+                .sum();
+            assert!(distance <= applied.affine_error_mm() + 1e-12);
+        }
+    }
+    drop((applied, partition, grid, affine, field));
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn mixed_face_application_preserves_shared_coordinates_on_every_axis() {
+    for face_axis in 0..3 {
+        for projection in 0..3 {
+            if projection == face_axis {
+                continue;
+            }
+            let along = (0..3)
+                .find(|axis| *axis != face_axis && *axis != projection)
+                .unwrap();
+            for reflected in [false, true] {
+                let mut dimensions = [2; 3];
+                dimensions[face_axis] = 3;
+                let budget = MemoryBudget::new(512 * 1024 * 1024);
+                let field = fractional(source(dimensions, true, false), |position| {
+                    let normal = if reflected {
+                        2 - position[face_axis]
+                    } else {
+                        position[face_axis]
+                    };
+                    let u = position[along];
+                    let v = position[projection];
+                    -4 + 4 * u as i16
+                        + 4 * v as i16
+                        + [-2, 0, 4][normal]
+                        + if [normal, u, v] == [2, 1, 1] { -12 } else { 0 }
+                });
+                let mut affine_origin = [0; 3];
+                affine_origin[face_axis] = usize::from(reflected);
+                let mut candidate_origin = [0; 3];
+                candidate_origin[face_axis] = usize::from(!reflected);
+                let affine = field.affine_cell(affine_origin, || false).unwrap();
+                let grid = field
+                    .candidate_grid_with_budget(
+                        candidate_origin,
+                        [1; 3],
+                        projection,
+                        limits(),
+                        budget.clone(),
+                        || false,
+                    )
+                    .unwrap();
+                let CandidateCellState::Candidate { mesh } = grid.cells()[0].state else {
+                    panic!(
+                        "missing candidate for face {face_axis}, projection {projection}, reflected {reflected}"
+                    );
+                };
+                let partition = Arc::new(
+                    grid.meshes()[usize::from(mesh)]
+                        .mixed_face_partition_with_budget(
+                            &affine,
+                            face_axis,
+                            limits().seams.partition,
+                            budget.clone(),
+                            || false,
+                        )
+                        .unwrap()
+                        .unwrap(),
+                );
+                let applied = partition
+                    .apply_mixed_with_budget(
+                        0.02,
+                        AppliedFaceLimits::default(),
+                        budget.clone(),
+                        || false,
+                    )
+                    .unwrap()
+                    .expect("expected a valid mixed face");
+                for mapping in applied.point_vertices() {
+                    if let Some((candidate, affine)) = mapping[0].zip(mapping[1]) {
+                        let p = applied.candidate().vertices()[candidate as usize]
+                            .position()
+                            .unwrap();
+                        let q = applied.affine_vertices()[affine as usize];
+                        for axis in 0..3 {
+                            if axis != face_axis {
+                                assert_eq!(p[axis], q[axis]);
+                            }
+                        }
+                        assert_eq!(
+                            p[face_axis],
+                            if reflected {
+                                ConformingSurfaceMesh::POSITION_DENOMINATOR
+                            } else {
+                                0
+                            }
+                        );
+                        assert_eq!(
+                            q[face_axis],
+                            if reflected {
+                                0
+                            } else {
+                                ConformingSurfaceMesh::POSITION_DENOMINATOR
+                            }
+                        );
+                    }
+                }
+                assert!(
+                    applied
+                        .spans()
+                        .iter()
+                        .any(|span| span.segments.iter().all(Option::is_some))
+                );
+                drop((applied, partition, grid, affine, field));
+                assert_eq!(budget.used(), 0);
+            }
+        }
+    }
+}
