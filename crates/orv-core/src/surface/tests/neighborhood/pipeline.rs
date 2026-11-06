@@ -146,25 +146,27 @@ fn overlapping_grid_reuses_independent_cells_and_recoordinates_like_a_clean_buil
 }
 
 #[test]
-fn reuse_rejects_different_revision_selection_source_settings_and_budget() {
+fn reuse_rejects_different_selection_source_settings_and_budget() {
     let volume = source([3, 3, 2], true, false);
-    let map = labels(volume, |[x, y, z]| if (x + y + z) % 2 == 0 { 1 } else { 2 });
+    let map = labels(
+        volume.clone(),
+        |[x, y, z]| if (x + y + z) % 2 == 0 { 1 } else { 2 },
+    );
+    let other_map = labels(volume, |[x, y, z]| if (x + y + z) % 2 == 0 { 1 } else { 2 });
     let field = MaskField::new(MaskOwner::Manual(map.clone()), 1).unwrap();
     let budget = MemoryBudget::new(512 * 1024 * 1024);
     let old = field
         .candidate_grid_with_budget([0; 3], [2, 2, 1], 2, limits(), budget.clone(), || false)
         .unwrap();
-    let mut edited = map.try_clone(|| false).unwrap();
-    edited.paint(1, &[[1., 1.]], 1, 2, || false).unwrap();
-    let changed = MaskField::new(MaskOwner::Manual(Arc::new(edited)), 1).unwrap();
     let other_id = MaskField::new(MaskOwner::Manual(map), 2).unwrap();
+    let other_object = MaskField::new(MaskOwner::Manual(other_map), 1).unwrap();
     let other_source = fractional(source([3, 3, 2], true, false), |_| -6);
     let other_budget = MemoryBudget::new(512 * 1024 * 1024);
     let mut other_limits = limits();
     other_limits.surface.max_error_mm = 0.03;
     for (new_field, axis, options, allocation) in [
-        (&changed, 2, limits(), budget.clone()),
         (&other_id, 2, limits(), budget.clone()),
+        (&other_object, 2, limits(), budget.clone()),
         (&other_source, 2, limits(), budget.clone()),
         (&field, 1, limits(), budget.clone()),
         (&field, 2, other_limits, budget.clone()),
@@ -195,6 +197,132 @@ fn reuse_rejects_different_revision_selection_source_settings_and_budget() {
     drop(old);
     assert_eq!(budget.used(), 0);
     assert_eq!(other_budget.used(), 0);
+}
+
+#[test]
+fn changed_revision_reuses_only_identical_pre_neighborhood_dispositions() {
+    for (missing, family) in [(false, false), (true, false), (false, true), (true, true)] {
+        let volume = source([8, 3, 2], true, missing);
+        let map = labels(volume, |[x, y, z]| {
+            u8::from(if family {
+                x < 3
+            } else {
+                [x, y, z] == [3, 0, 0]
+            })
+        });
+        let before = MaskField::new(MaskOwner::Manual(map.clone()), 1).unwrap();
+        let mut edited = map.try_clone(|| false).unwrap();
+        edited.paint(1, &[[6., 1.]], 1, 1, || false).unwrap();
+        let after = MaskField::new(MaskOwner::Manual(Arc::new(edited)), 1).unwrap();
+        assert_ne!(before.revision(), after.revision());
+        let budget = MemoryBudget::new(512 * 1024 * 1024);
+        let old = before
+            .candidate_grid_with_budget([0; 3], [7, 2, 1], 2, limits(), budget.clone(), || false)
+            .unwrap();
+        if family {
+            assert!(old.cells().iter().any(|cell| matches!(
+                cell.state,
+                CandidateCellState::Graph(CellGraphState::Family { .. })
+            )));
+        } else {
+            assert!(
+                !old.meshes().is_empty(),
+                "the fixture needs a candidate mesh"
+            );
+        }
+        if missing {
+            assert!(old.cells().iter().any(|cell| matches!(
+                cell.state,
+                CandidateCellState::Graph(CellGraphState::Unavailable { .. })
+            )));
+        }
+        let expected_reused = old
+            .cells()
+            .iter()
+            .filter(|cell| {
+                matches!(
+                    cell.state,
+                    CandidateCellState::Graph(
+                        CellGraphState::Unavailable { .. }
+                            | CellGraphState::NoInteriorInterface
+                            | CellGraphState::Family { .. }
+                    )
+                ) && before.cell(cell.origin).unwrap() == after.cell(cell.origin).unwrap()
+            })
+            .count();
+        assert!(expected_reused > 0 && expected_reused < old.cells().len());
+        let (incremental, stats) = after
+            .candidate_grid_reusing_with_budget(
+                [0; 3],
+                [7, 2, 1],
+                2,
+                limits(),
+                (Some(&old), budget.clone()),
+                || false,
+            )
+            .unwrap();
+        assert_eq!(stats.reused_cells, expected_reused);
+        assert_eq!(stats.rebuilt_cells, old.cells().len() - expected_reused);
+        let clean = after
+            .candidate_grid_with_budget([0; 3], [7, 2, 1], 2, limits(), budget.clone(), || false)
+            .unwrap();
+        assert_same_grid(&incremental, &clean);
+        for mesh in incremental.meshes() {
+            let field = mesh
+                .input()
+                .input()
+                .input()
+                .input()
+                .input()
+                .edges()
+                .chart()
+                .graph()
+                .field();
+            assert_eq!(field.revision(), after.revision());
+        }
+        // Returning to the earlier immutable revision models undo; compare the
+        // result with a fresh rebuild and check that its meshes retain that revision.
+        let (undone, _) = before
+            .candidate_grid_reusing_with_budget(
+                [0; 3],
+                [7, 2, 1],
+                2,
+                limits(),
+                (Some(&incremental), budget.clone()),
+                || false,
+            )
+            .unwrap();
+        let clean_undo = before
+            .candidate_grid_with_budget([0; 3], [7, 2, 1], 2, limits(), budget.clone(), || false)
+            .unwrap();
+        assert_same_grid(&undone, &clean_undo);
+        for mesh in undone.meshes() {
+            let field = mesh
+                .input()
+                .input()
+                .input()
+                .input()
+                .input()
+                .edges()
+                .chart()
+                .graph()
+                .field();
+            assert_eq!(field.revision(), before.revision());
+        }
+        let (redone, _) = after
+            .candidate_grid_reusing_with_budget(
+                [0; 3],
+                [7, 2, 1],
+                2,
+                limits(),
+                (Some(&undone), budget.clone()),
+                || false,
+            )
+            .unwrap();
+        assert_same_grid(&redone, &clean);
+        drop((old, incremental, clean, undone, clean_undo, redone));
+        assert_eq!(budget.used(), 0);
+    }
 }
 
 #[test]

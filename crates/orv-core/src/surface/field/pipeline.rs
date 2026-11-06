@@ -234,9 +234,10 @@ impl MaskField {
         self.candidate_grid_reusing_with_budget(origin, size, axis, limits, (None, budget), cancel)
             .map(|(grid, _)| grid)
     }
-    /// Reuse overlapping independent cells only for the identical immutable
-    /// source revision and build settings. Face coordination is always rerun.
-    /// A changed revision currently rebuilds every cell, including neighbors.
+    /// Reuse independent cells from the same immutable revision. Across revisions,
+    /// only pre-neighborhood graph dispositions with identical eight samples are
+    /// reused. Candidate geometry and unresolved stages are rebuilt, and face
+    /// coordination is always rerun.
     pub fn candidate_grid_reusing(
         &self,
         origin: [usize; 3],
@@ -310,7 +311,6 @@ impl MaskField {
             old.axis as usize == axis
                 && old.limits == limits
                 && old.field.key() == self.key()
-                && old.field.revision() == self.revision()
                 && Arc::ptr_eq(old.field.source(), self.source())
                 && Arc::ptr_eq(&old.budget, &budget)
         });
@@ -337,6 +337,30 @@ impl MaskField {
             ];
             let position = std::array::from_fn(|i| origin[i] + offset[i]);
             let cached = previous.and_then(|grid| grid.cell_at(position).map(|cell| (grid, cell)));
+            let cached = match cached {
+                Some((old, cell)) if old.field.revision() == self.revision() => Some((old, cell)),
+                Some((old, cell))
+                    if matches!(
+                        cell.state,
+                        CandidateCellState::Graph(
+                            CellGraphState::Unavailable { .. }
+                                | CellGraphState::NoInteriorInterface
+                                | CellGraphState::Family { .. }
+                        )
+                    ) =>
+                {
+                    // These three dispositions return before source-face and
+                    // incident-edge collection. Compare values, unknowns and
+                    // source validity; no old mesh or old field is promoted.
+                    let prior = old
+                        .field
+                        .cell(position)
+                        .map_err(|_| SurfaceError::Geometry)?;
+                    let current = self.cell(position).map_err(|_| SurfaceError::Geometry)?;
+                    (prior == current).then_some((old, cell))
+                }
+                _ => None,
+            };
             let state = if let Some((old, cell)) = cached {
                 update.reused_cells += 1;
                 match cell.state {

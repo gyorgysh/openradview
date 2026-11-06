@@ -273,6 +273,9 @@ impl MaskField {
             _metadata: reservation,
             _storage: None,
         };
+        // Unavailable, no-interior and family results below are reused across
+        // revisions after comparing only this cell's samples. Keep those exits
+        // before any source-face or incident-edge neighborhood reads.
         let Some(field) = result.cell.interpolant() else {
             let mut invalid_corners = 0;
             let mut unknown_corners = 0;
