@@ -2670,3 +2670,376 @@ fn affine_face_merge_keeps_neighbor_boundaries_and_rejects_duplicates() {
     drop((reversed, merged, applications, grids, affine, field));
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn mixed_coordination_rechecks_generations_and_merges_current_faces() {
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let field = fractional(source([3, 3, 2], true, false), |[x, y, z]| {
+        -10 + 4 * x as i16
+            + 4 * y as i16
+            + 8 * z as i16
+            + if [x, y, z] == [2, 1, 1] { -24 } else { 0 }
+            + if [x, y, z] == [1, 2, 1] { -24 } else { 0 }
+    });
+    let mut grids = Vec::new();
+    for origin in [[0, 0, 0], [1, 0, 0], [0, 1, 0]] {
+        grids.push(
+            field
+                .candidate_grid_with_budget(origin, [1; 3], 2, limits(), budget.clone(), || false)
+                .unwrap(),
+        );
+    }
+    let assembly = Arc::new(
+        CandidateAssembly::build_with_budget(
+            &[&grids[2], &grids[0], &grids[1]],
+            assembly_limits(),
+            budget.clone(),
+            || false,
+        )
+        .unwrap(),
+    );
+    let result = MixedCoordination::coordinate_with_budget(
+        &assembly,
+        MixedCoordinationLimits::default(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert!(Arc::ptr_eq(result.assembly(), &assembly));
+    assert_eq!(result.faces().len(), 2);
+    assert_eq!(result.general_state(), MixedGeneralState::Current);
+    assert!(result.rounds() <= MixedCoordinationLimits::default().max_rounds);
+    assert!(result.candidate_updates() > 0);
+    assert!(result.rounds() > 1);
+    let cell_index = assembly
+        .cells()
+        .iter()
+        .position(|cell| cell.origin == [0, 0, 0])
+        .unwrap();
+    assert_eq!(
+        result.affine_states()[cell_index],
+        MixedAffineState::Ready {
+            applied: 2,
+            listed: 2
+        }
+    );
+    let merged = result.affine_meshes()[cell_index]
+        .as_ref()
+        .expect("expected merged planar geometry");
+    assert_eq!(merged.applications().len(), 2);
+    for face in result.faces() {
+        let MixedFaceState::Applied {
+            points,
+            spans,
+            missing_points,
+            missing_spans,
+            uncertified_spans,
+        } = face.state()
+        else {
+            panic!(
+                "face {:?} did not converge: {:?}",
+                face.face(),
+                face.state()
+            );
+        };
+        assert!(points >= 2 && spans >= 1);
+        let application = face
+            .application()
+            .expect("applied face must retain its source");
+        assert_eq!(
+            missing_points as usize,
+            application
+                .point_vertices()
+                .iter()
+                .filter(|point| point.contains(&None))
+                .count()
+        );
+        assert_eq!(
+            missing_spans as usize,
+            application
+                .spans()
+                .iter()
+                .filter(|span| span.segments.contains(&None))
+                .count()
+        );
+        assert_eq!(
+            uncertified_spans as usize,
+            application
+                .spans()
+                .iter()
+                .filter(|span| span.segments[0].is_some() && !span.candidate_within_tolerance)
+                .count()
+        );
+        let mesh = usize::from(face.candidate_mesh().unwrap());
+        assert!(Arc::ptr_eq(
+            application.input().candidate(),
+            &result.meshes()[mesh]
+        ));
+        assert_eq!(application.input().face(), face.face());
+        assert!(
+            merged
+                .applications()
+                .iter()
+                .any(|other| Arc::ptr_eq(other, application))
+        );
+        let output = application.candidate();
+        assert_eq!(
+            output.triangles().len(),
+            result.meshes()[mesh].triangles().len()
+        );
+        for (expected, actual) in output
+            .triangles()
+            .iter()
+            .zip(result.meshes()[mesh].triangles())
+        {
+            assert_eq!(expected.vertices, actual.vertices);
+            assert_eq!(expected.source_facet, actual.source_facet);
+            assert_eq!(
+                matches!(expected.state, AppliedTriangleState::WithinTolerance { .. }),
+                matches!(actual.state, ConformingFacetState::WithinTolerance { .. })
+            );
+        }
+    }
+    let baseline = budget.used();
+    let limited = MixedCoordination::coordinate_with_budget(
+        &assembly,
+        MixedCoordinationLimits {
+            max_face_visits: 0,
+            ..Default::default()
+        },
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert!(limited.faces().iter().all(|face| matches!(
+        face.state(),
+        MixedFaceState::Unresolved {
+            reason: MixedFaceStop::NotRechecked
+        }
+    )));
+    assert_eq!(
+        limited.affine_states()[cell_index],
+        MixedAffineState::NoReadyFaces { listed: 2 }
+    );
+    assert!(limited.affine_meshes()[cell_index].is_none());
+    drop(limited);
+    assert_eq!(budget.used(), baseline);
+    let one_round = MixedCoordination::coordinate_with_budget(
+        &assembly,
+        MixedCoordinationLimits {
+            max_rounds: 1,
+            ..Default::default()
+        },
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(one_round.general_state(), MixedGeneralState::NotRechecked);
+    assert!(one_round.faces().iter().any(|face| matches!(
+        face.state(),
+        MixedFaceState::Unresolved {
+            reason: MixedFaceStop::NotRechecked
+        }
+    )));
+    for face in one_round.faces() {
+        if let Some(application) = face.application() {
+            let id = usize::from(face.candidate_mesh().unwrap());
+            assert!(Arc::ptr_eq(
+                application.input().candidate(),
+                &one_round.meshes()[id]
+            ));
+        }
+    }
+    drop(one_round);
+    assert_eq!(budget.used(), baseline);
+    let no_updates = MixedCoordination::coordinate_with_budget(
+        &assembly,
+        MixedCoordinationLimits {
+            max_candidate_updates: 0,
+            ..Default::default()
+        },
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(no_updates.candidate_updates(), 0);
+    assert!(
+        no_updates
+            .meshes()
+            .iter()
+            .zip(assembly.meshes())
+            .all(|(a, b)| Arc::ptr_eq(a, b))
+    );
+    drop(no_updates);
+    assert_eq!(budget.used(), baseline);
+    let mut general_limited = MixedCoordinationLimits::default();
+    general_limited.general.max_faces = 0;
+    let general_limited = MixedCoordination::coordinate_with_budget(
+        &assembly,
+        general_limited,
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(
+        general_limited.general_state(),
+        MixedGeneralState::Unresolved(SurfaceError::Limit)
+    );
+    assert!(general_limited.general_faces().is_empty());
+    drop(general_limited);
+    assert_eq!(budget.used(), baseline);
+    let calls = Cell::new(0usize);
+    let counted = MixedCoordination::coordinate_with_budget(
+        &assembly,
+        MixedCoordinationLimits::default(),
+        budget.clone(),
+        || {
+            calls.set(calls.get() + 1);
+            false
+        },
+    )
+    .unwrap();
+    let total_calls = calls.get();
+    drop(counted);
+    for stop in [total_calls / 2, total_calls] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            MixedCoordination::coordinate_with_budget(
+                &assembly,
+                MixedCoordinationLimits::default(),
+                budget.clone(),
+                || {
+                    calls.set(calls.get() + 1);
+                    calls.get() >= stop
+                },
+            ),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), baseline);
+    }
+    assert!(matches!(
+        MixedCoordination::coordinate_with_budget(
+            &assembly,
+            MixedCoordinationLimits {
+                max_rounds: 0,
+                ..Default::default()
+            },
+            budget.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        MixedCoordination::coordinate_with_budget(
+            &assembly,
+            MixedCoordinationLimits::default(),
+            budget.clone(),
+            || true,
+        ),
+        Err(SurfaceError::Cancelled)
+    ));
+    let empty = MemoryBudget::new(0);
+    assert!(matches!(
+        MixedCoordination::coordinate_with_budget(
+            &assembly,
+            MixedCoordinationLimits::default(),
+            empty.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(empty.used(), 0);
+    let scratch_refused = MemoryBudget::new(result.referenced_bytes());
+    assert!(matches!(
+        MixedCoordination::coordinate_with_budget(
+            &assembly,
+            MixedCoordinationLimits::default(),
+            scratch_refused.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(scratch_refused.used(), 0);
+    assert_eq!(budget.used(), baseline);
+    drop((result, assembly, grids, field));
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn mixed_coordination_keeps_end_face_or_unavailable_neighbor_explicit() {
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let field = fractional(source([3, 3, 3], true, false), |[x, y, z]| {
+        -10 + 4 * x as i16
+            + 4 * y as i16
+            + 8 * z as i16
+            + if [x, y, z] == [2, 1, 1] { -24 } else { 0 }
+            + if [x, y, z] == [1, 2, 1] { -24 } else { 0 }
+            + if [x, y, z] == [1, 1, 2] { -24 } else { 0 }
+    });
+    let mut grids = Vec::new();
+    for origin in [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]] {
+        grids.push(
+            field
+                .candidate_grid_with_budget(origin, [1; 3], 2, limits(), budget.clone(), || false)
+                .unwrap(),
+        );
+    }
+    let assembly = Arc::new(
+        CandidateAssembly::build_with_budget(
+            &[&grids[0], &grids[1], &grids[2], &grids[3]],
+            assembly_limits(),
+            budget.clone(),
+            || false,
+        )
+        .unwrap(),
+    );
+    let result = MixedCoordination::coordinate_with_budget(
+        &assembly,
+        MixedCoordinationLimits::default(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    let face = result
+        .faces()
+        .iter()
+        .find(|face| face.face().axis == 2)
+        .expect("expected the listed end face");
+    match face.candidate_mesh() {
+        Some(_) => assert_eq!(
+            face.state(),
+            MixedFaceState::Unresolved {
+                reason: MixedFaceStop::Unsupported(MixedFaceUnsupported::ProjectionEndFace)
+            }
+        ),
+        None => assert_eq!(
+            face.state(),
+            MixedFaceState::Unresolved {
+                reason: MixedFaceStop::CandidateUnavailable
+            }
+        ),
+    }
+    assert!(face.application().is_none());
+    let cell = assembly
+        .cells()
+        .iter()
+        .position(|cell| cell.origin == [0, 0, 0])
+        .unwrap();
+    assert_eq!(
+        result.affine_states()[cell],
+        MixedAffineState::Ready {
+            applied: 2,
+            listed: 3
+        }
+    );
+    assert_eq!(
+        result.affine_meshes()[cell]
+            .as_ref()
+            .unwrap()
+            .applications()
+            .len(),
+        2
+    );
+    drop((result, assembly, grids, field));
+    assert_eq!(budget.used(), 0);
+}

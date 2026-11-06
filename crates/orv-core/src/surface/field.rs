@@ -53,7 +53,9 @@ pub use neighborhood::{
 };
 pub use pipeline::{
     CandidateAssembly, CandidateAssemblyLimits, CandidateCell, CandidateCellState, CandidateGrid,
-    CandidateGridLimits, CandidateGridUpdate, GridCoordination, PipelineStage,
+    CandidateGridLimits, CandidateGridUpdate, GridCoordination, MixedAffineState,
+    MixedCoordination, MixedCoordinationLimits, MixedFaceReport, MixedFaceState, MixedFaceStop,
+    MixedGeneralState, PipelineStage,
 };
 use std::sync::Arc;
 

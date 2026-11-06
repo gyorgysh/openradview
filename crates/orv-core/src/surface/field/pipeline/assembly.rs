@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded cross-box coordination of independent source-cell candidates.
 use super::*;
+mod mixed;
+pub use mixed::{
+    MixedAffineState, MixedCoordination, MixedCoordinationLimits, MixedFaceReport, MixedFaceState,
+    MixedFaceStop, MixedGeneralState,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CandidateAssemblyLimits {

@@ -6,7 +6,10 @@ use crate::{
     surface::SurfaceError,
 };
 mod assembly;
-pub use assembly::{CandidateAssembly, CandidateAssemblyLimits};
+pub use assembly::{
+    CandidateAssembly, CandidateAssemblyLimits, MixedAffineState, MixedCoordination,
+    MixedCoordinationLimits, MixedFaceReport, MixedFaceState, MixedFaceStop, MixedGeneralState,
+};
 
 const MAX_CELLS: usize = 256;
 const MAX_DIRECTORY: u64 = 1024 * 1024;

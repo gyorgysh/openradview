@@ -1217,6 +1217,15 @@ original exact edge topology and bounds physical displacement; duplicate edges,
 conflicting corners and insufficient resources remain explicit refusals.
 The result retains its face applications but does not certify missing coverage,
 coordinate a whole grid or provide GPU or native display.
+`MixedCoordination::coordinate` starts from one immutable candidate assembly,
+recoordinates its general candidate meshes and visits listed mixed faces within
+explicit round, visit, update and memory limits. Candidate generations invalidate
+their earlier face applications; stale faces remain marked for rechecking.
+The result retains per-face missing and uncertified counts, per-cell affine merge
+states and current general-candidate reports. Those reports concern candidate
+meshes, not proof that an affine replacement or the whole surface is joined.
+Unlisted neighbors, unsupported faces, finite-grid closure, GPU projection and
+native editing remain outside this result.
 
 `GpuCandidateSurface` uploads within-tolerance triangles of a bounded candidate
 assembly as per-cell immutable triangle descriptors. Exact affine polygons use
