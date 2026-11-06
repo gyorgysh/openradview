@@ -23,8 +23,10 @@ pub use factor::{
     AxisFactor, CellFactorization, CellPhase, CellResidual, FactorPatch, ResidualKind, ZeroBoundary,
 };
 pub use neighborhood::{
-    CellNeighborhood, EdgePartition, EdgePoint, NeighborhoodCell, SourceFace, WholeZeroFace,
-    WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
+    CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
+    CellGraphRegion, CellGraphState, CellNeighborhood, EdgePartition, EdgePoint, NeighborhoodCell,
+    SourceCellGraph, SourceFace, WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch,
+    ZeroFacePhase, ZeroFaceSample,
 };
 use std::sync::Arc;
 

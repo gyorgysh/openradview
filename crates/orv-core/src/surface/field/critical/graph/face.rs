@@ -76,6 +76,8 @@ pub struct FaceArrangement {
 }
 impl FaceArrangement {
     pub const MAX_INSERTIONS: usize = INSERTIONS;
+    pub const MAX_NODES: usize = NODES;
+    pub const MAX_SEGMENTS: usize = NODES;
     pub fn field(&self) -> Bilinear {
         self.field
     }

@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Source-bound canonical edge partitions and face insertion neighborhoods.
 use super::*;
+mod cell;
 mod zero_face;
+pub use cell::{
+    CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
+    CellGraphRegion, CellGraphState, SourceCellGraph,
+};
 pub use zero_face::{
     WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
 };

@@ -336,6 +336,9 @@ pub struct CriticalGraph {
     line_families: u8,
 }
 impl CriticalGraph {
+    pub const MAX_NODES: usize = MAX_NODES;
+    pub const MAX_LINES: usize = MAX_LINES;
+    pub const MAX_EDGES: usize = MAX_EDGES;
     pub fn field(&self) -> Trilinear {
         self.field
     }

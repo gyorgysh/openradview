@@ -105,6 +105,15 @@ fn gradient(
 fn slot(axis: usize, positive: bool) -> usize {
     2 * axis + usize::from(!positive)
 }
+impl Trilinear {
+    pub(in crate::surface::field) fn gradient_signs(
+        self,
+        point: [ExactCoordinate; 3],
+        cancel: impl Fn() -> bool,
+    ) -> Result<[i8; 3], FieldError> {
+        gradient(power(self), point, &cancel)
+    }
+}
 impl CriticalGraph {
     pub fn anchor_star(&self, id: u8, cancel: impl Fn() -> bool) -> Result<AnchorStar, FieldError> {
         check_cancel(&cancel)?;

@@ -587,6 +587,34 @@ the outward cell-face side. These are constant-size direction operations without
 allocation. They do not determine curvature, inside-cell sectors, complete
 source-cell contour ownership or a surface patch triangulation.
 
+`MaskField::cell_graph` assembles a source-owned cell contour/anchor graph. It
+retains the original field owner, cell samples, phase and factorization. Unavailable
+samples, no strict-interior interface, unresolved families and finite graphs have
+distinct states. Selected boundary strata and whole-section diagnostics remain
+available; these states do not close the finite grid or declare an empty mask.
+
+Finite assembly processes the six canonical source faces one at a time. Exact
+coordinate comparisons merge their points with original critical nodes. Shared
+face expressions own boundary coordinates, and every boundary point must occur
+in each containing face. All union points split their original anchor lines;
+coincident axial geometry merges while preserving face/anchor ownership. Bounds
+are 552 raw nodes, 2,238 edges and 4,476 half-edges, with checked u16 identities.
+
+Open axial segments use exact affine derivative signs and intersect the boundary
+conditions from every containing face. An isolated zero edge therefore remains
+a lower-dimensional stratum, with no fabricated surface half-edges. Regular mixed
+tangent rotations and ordinary-double rings connect eligible half-edges into
+oriented cycles. Isolated points and inactive edges remain in the constraint graph.
+These cycles do not yet supply a general patch parameterization or triangle mesh.
+
+Metadata, fixed preparation, bounded heap scratch and completed typed output use
+shared volume admission. Output limits can be lowered; the complete retained byte
+count excludes shared source/mask buffers, scratch and allocator/process overhead.
+Cancellation, incomplete unions, inconsistent incidence and pressure publish no
+partial finite graph and preserve previous owners. Source chunks, family patches,
+certified 3D approximation, complete adaptive seam unions and physical/GPU/native
+publication remain separate requirements.
+
 `ExactCoordinate::compare` also orders coordinates from unrelated quadratic
 fields in neighboring cells. Compatible fields retain the common-radical fast
 path. Otherwise, rationalization gives a positive denominator and the difference
