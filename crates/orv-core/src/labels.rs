@@ -2,6 +2,7 @@
 //! Deterministic user labels. No anatomical inference, persistence or network access.
 use crate::{resources::MemoryBudget, study::Frame, volume::Volume};
 use std::sync::Arc;
+mod combine;
 mod export;
 mod physical;
 mod regions;
@@ -10,6 +11,7 @@ mod seeded;
 mod statistics;
 mod surface;
 mod tiles;
+pub use combine::{CombineOperation, CombinePreview, CombineRequest, CombineSummary};
 pub use physical::{
     BrushAction, BrushShape, MAX_PHYSICAL_BRUSH_RADIUS_MM, MAX_STROKE_CANDIDATES,
     MAX_STROKE_POINTS, PhysicalBrush, PhysicalStroke, StrokeSummary,

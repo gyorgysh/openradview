@@ -364,6 +364,15 @@ mask and u32 queue, bounded by the existing label-grid limits. Missing samples a
 other IDs stop traversal; cleanup preserves missing stored cells. Queue storage
 is transient and the proposal mask retains its reservation.
 
+`CombinePreview` prepares an explicitly scoped union, intersection, subtraction
+or copy from a selected manual or supplied mask into one manual ID. Both inputs
+must retain the same prepared source. Unknown operand coverage, missing source
+samples and competing IDs remain unchanged and are counted separately. The
+preview retains its exact target and operand revisions and an admitted change
+mask; applying it requires the current identities to match and creates a private
+tiled revision. Cancellation or allocation failure publishes no partial edit.
+The primitive does not itself provide a native control or authorize sharing.
+
 Manual label maps use immutable 32-cubed tiles with clipped edge allocations.
 A missing tile means stored zero IDs throughout; it does not replace source
 sample validity. Checkpoints copy a bounded directory and share unchanged tiles.
