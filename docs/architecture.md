@@ -760,15 +760,21 @@ rather than rounded point equality; a split crossing onto another face must be a
 exact corner. The retained dependency depth includes both input histories and is
 bounded. Storage and cancellation are separately admitted; composing individual
 face exchanges does not itself establish a whole-grid fixed point or surface.
+`AppliedFacePair::promote_cells_compacted` instead materializes the same vertex
+parents, exact face coordinates, source facets and current certificates without
+retaining the prior pair or its audit history. A caller that needs that history
+must retain the pair separately. Both results are admitted atomically, and their
+subsequent face queries use the retained source graph and exact coordinates.
 `CellSeamBatch::coordinate` accepts an explicit bounded set of source cells and
 revisits their shared faces whenever either cell generation changes. It retains
 uncovered intervals, unsupported projections, exhausted limits and faces that
-were not rechecked as distinct results. Only split sides replace their prior
-meshes and certificates. Each face operation and the complete returned batch
-remain private until successful publication; cancellation or memory refusal
-returns no partial batch. Bounded rounds, visits, updates and retained lineage can
-stop coordination before convergence. Matching represented candidate edges does
-not certify noncandidate strata, unlisted neighbors or a complete surface.
+were not rechecked as distinct results. It uses compacted promotion; only split
+sides replace their prior meshes and certificates. Each face operation and the
+complete returned batch remain private until successful publication; cancellation
+or memory refusal returns no partial batch. Bounded rounds, visits, updates and
+other resource limits can stop coordination before convergence. Matching
+represented candidate edges does not certify noncandidate strata, unlisted
+neighbors or a complete surface.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

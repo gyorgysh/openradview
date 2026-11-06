@@ -368,7 +368,7 @@ impl CellSeamBatch {
                         }
                     };
                 let pair = Arc::new(pair);
-                let promoted = match pair.promote_cells_with_budget(
+                let promoted = match pair.promote_cells_compacted_with_budget(
                     limits.promotion,
                     Arc::clone(&budget),
                     &cancel,

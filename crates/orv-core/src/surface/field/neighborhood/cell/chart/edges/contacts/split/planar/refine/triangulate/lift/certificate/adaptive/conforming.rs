@@ -121,10 +121,12 @@ impl ConformingSurfaceMesh {
     pub fn input(&self) -> &Arc<EnclosedSurfaceGraph> {
         &self.input
     }
-    /// The face application retained for exact split provenance, when present.
+    /// The last face application, when its exchange history is retained.
+    /// Compacted meshes retain exact split coordinates without that application.
     pub fn face_application(&self) -> Option<&Arc<AppliedFacePair>> {
         self.lineage.as_ref()
     }
+    /// Depth of retained exchange history; zero also describes compacted meshes.
     pub fn face_lineage_depth(&self) -> u8 {
         self.lineage_depth
     }

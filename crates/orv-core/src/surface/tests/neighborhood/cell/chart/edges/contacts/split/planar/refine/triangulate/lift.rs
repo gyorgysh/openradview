@@ -1651,6 +1651,25 @@ fn promoted_cells_preserve_prior_seam_through_a_second_face_exchange() {
             .iter()
             .any(|v| matches!(v, FacePlacement::Split { .. }))
     }));
+    let [a2_compact, c1_compact] = second_pair
+        .promote_cells_compacted_with_budget(FacePromotionLimits::default(), budget.clone(), || {
+            false
+        })
+        .unwrap();
+    assert_eq!(a2_compact.vertices(), a2.vertices());
+    assert_eq!(a2_compact.triangles(), a2.triangles());
+    assert_eq!(c1_compact.vertices(), c1.vertices());
+    assert_eq!(c1_compact.triangles(), c1.triangles());
+    let compact_first = a2_compact
+        .shared_face_partition_with_budget(&b1, 0, face_limits, budget, || false)
+        .unwrap();
+    assert_eq!(first_after.face(), compact_first.face());
+    assert_eq!(first_after.points().len(), compact_first.points().len());
+    assert_eq!(first_after.spans(), compact_first.spans());
+    for (a, b) in first_after.points().iter().zip(compact_first.points()) {
+        assert!(a.coordinate.compare(b.coordinate).unwrap().is_eq());
+        assert_eq!(a.placements, b.placements);
+    }
 }
 
 #[test]
@@ -1681,6 +1700,12 @@ fn cell_seam_batch_rechecks_changed_neighbors_and_reports_final_coverage() {
         CellSeamBatch::coordinate_with_budget(&inputs, limits, budget.clone(), || false).unwrap();
     assert_eq!(batch.faces().len(), 4);
     assert!(batch.updates() > 0);
+    assert!(
+        batch
+            .cells()
+            .iter()
+            .all(|cell| cell.face_lineage_depth() == 0 && cell.face_application().is_none())
+    );
     for report in batch.faces() {
         if matches!(report.state, CellFaceState::Unresolved { .. }) {
             continue;
@@ -2126,5 +2151,139 @@ fn face_promotion_bounds_lineage_without_publishing_a_partial_pair() {
         pair.promote_cells_with_budget(FacePromotionLimits::default(), budget.clone(), || false),
         Err(SurfaceError::Limit)
     ));
+    assert_eq!(budget.used(), baseline);
+
+    let old_left = Arc::downgrade(&left);
+    let old_right = Arc::downgrade(&right);
+    let old_pair = Arc::downgrade(&pair);
+    let expected_vertices = [left.vertices().to_vec(), right.vertices().to_vec()];
+    let mut expected_sources = [Vec::new(), Vec::new()];
+    for (side, cell) in [&left, &right].into_iter().enumerate() {
+        for vertex in cell.vertices() {
+            if let ConformingVertex::FaceSplit { point, .. } = *vertex {
+                expected_sources[side].push((point, cell.face_split_source(point).unwrap()));
+            }
+        }
+    }
+    let mut compact = pair
+        .promote_cells_compacted_with_budget(FacePromotionLimits::default(), budget.clone(), || {
+            false
+        })
+        .unwrap();
+    for side in 0..2 {
+        assert_eq!(compact[side].face_lineage_depth(), 0);
+        assert!(compact[side].face_application().is_none());
+        assert_eq!(compact[side].vertices(), expected_vertices[side]);
+        assert!(Arc::ptr_eq(
+            compact[side].input(),
+            [&left, &right][side].input()
+        ));
+        for (point, (face, coordinate)) in &expected_sources[side] {
+            let (actual_face, actual_coordinate) = compact[side].face_split_source(*point).unwrap();
+            assert_eq!(actual_face, *face);
+            assert!(actual_coordinate.compare(*coordinate).unwrap().is_eq());
+        }
+    }
+    drop(pair);
+    drop(partition);
+    drop(left);
+    drop(right);
+    assert!(old_pair.upgrade().is_none());
+    assert!(old_left.upgrade().is_none());
+    assert!(old_right.upgrade().is_none());
+    assert!(budget.used() < baseline);
+    for _ in 0..20 {
+        let partition = Arc::new(
+            compact[0]
+                .shared_face_partition_with_budget(&compact[1], 0, limits, budget.clone(), || false)
+                .unwrap(),
+        );
+        assert!(partition.points().iter().all(|p| {
+            p.placements
+                .iter()
+                .all(|p| !matches!(p, FacePlacement::Split { .. }))
+        }));
+        let pair = Arc::new(
+            partition
+                .apply_with_budget(AppliedFaceLimits::default(), budget.clone(), || false)
+                .unwrap(),
+        );
+        compact = pair
+            .promote_cells_compacted_with_budget(
+                FacePromotionLimits::default(),
+                budget.clone(),
+                || false,
+            )
+            .unwrap();
+        assert!(
+            compact
+                .iter()
+                .all(|cell| cell.face_lineage_depth() == 0 && cell.face_application().is_none())
+        );
+    }
+}
+
+#[test]
+fn compact_face_promotion_matches_retained_results_and_is_atomic() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let fixture = partition_fixture(budget.clone());
+    let pair = Arc::new(
+        fixture
+            .apply_with_budget(AppliedFaceLimits::default(), budget.clone(), || false)
+            .unwrap(),
+    );
+    let baseline = budget.used();
+    let retained = pair
+        .promote_cells_with_budget(FacePromotionLimits::default(), budget.clone(), || false)
+        .unwrap();
+    let calls = Cell::new(0usize);
+    let compact = pair
+        .promote_cells_compacted_with_budget(FacePromotionLimits::default(), budget.clone(), || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .unwrap();
+    let count = calls.get();
+    for side in 0..2 {
+        assert_eq!(retained[side].vertices(), compact[side].vertices());
+        assert_eq!(retained[side].triangles(), compact[side].triangles());
+        assert!(Arc::ptr_eq(retained[side].input(), compact[side].input()));
+        for vertex in compact[side].vertices() {
+            if let ConformingVertex::FaceSplit { point, .. } = *vertex {
+                let (a, x) = retained[side].face_split_source(point).unwrap();
+                let (b, y) = compact[side].face_split_source(point).unwrap();
+                assert_eq!(a, b);
+                assert!(x.compare(y).unwrap().is_eq());
+            }
+        }
+    }
+    drop(compact);
+    drop(retained);
+    assert_eq!(budget.used(), baseline);
+    for stop in [1, count / 2, count] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            pair.promote_cells_compacted_with_budget(
+                FacePromotionLimits::default(),
+                budget.clone(),
+                || {
+                    calls.set(calls.get() + 1);
+                    calls.get() >= stop
+                }
+            ),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), baseline);
+    }
+    let small = MemoryBudget::new(1);
+    assert!(matches!(
+        pair.promote_cells_compacted_with_budget(
+            FacePromotionLimits::default(),
+            small.clone(),
+            || false
+        ),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(small.used(), 0);
     assert_eq!(budget.used(), baseline);
 }

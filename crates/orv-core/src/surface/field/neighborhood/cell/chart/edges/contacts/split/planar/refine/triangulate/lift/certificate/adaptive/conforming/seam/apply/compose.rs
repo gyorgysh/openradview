@@ -155,7 +155,7 @@ fn build<F: Fn() -> bool>(
     Ok(Arc::new(ConformingSurfaceMesh {
         input: Arc::clone(&source.input),
         seam_points,
-        lineage: Some(Arc::clone(pair)),
+        lineage: (depth != 0).then(|| Arc::clone(pair)),
         lineage_depth: depth,
         vertices,
         triangles,
@@ -179,6 +179,33 @@ impl AppliedFacePair {
         budget: Arc<MemoryBudget>,
         cancel: impl Fn() -> bool,
     ) -> Result<[Arc<ConformingSurfaceMesh>; 2], SurfaceError> {
+        self.promote_with_budget(limits, budget, cancel, true)
+    }
+    /// Publish both cells with materialized exact face coordinates, parent
+    /// vertices and facet states. The prior application and its audit history
+    /// are not retained by the outputs; callers can keep the pair separately.
+    pub fn promote_cells_compacted(
+        self: &Arc<Self>,
+        limits: FacePromotionLimits,
+        cancel: impl Fn() -> bool,
+    ) -> Result<[Arc<ConformingSurfaceMesh>; 2], SurfaceError> {
+        self.promote_cells_compacted_with_budget(limits, MemoryBudget::volumes(), cancel)
+    }
+    pub(in crate::surface) fn promote_cells_compacted_with_budget(
+        self: &Arc<Self>,
+        limits: FacePromotionLimits,
+        budget: Arc<MemoryBudget>,
+        cancel: impl Fn() -> bool,
+    ) -> Result<[Arc<ConformingSurfaceMesh>; 2], SurfaceError> {
+        self.promote_with_budget(limits, budget, cancel, false)
+    }
+    fn promote_with_budget(
+        self: &Arc<Self>,
+        limits: FacePromotionLimits,
+        budget: Arc<MemoryBudget>,
+        cancel: impl Fn() -> bool,
+        retain_history: bool,
+    ) -> Result<[Arc<ConformingSurfaceMesh>; 2], SurfaceError> {
         check(&cancel)?;
         if limits.max_vertices_per_cell > MAX_CELL_VERTICES
             || limits.max_triangles_per_cell > MAX_CELL_TRIANGLES
@@ -189,12 +216,16 @@ impl AppliedFacePair {
         {
             return Err(SurfaceError::Limit);
         }
-        // Both new cells retain the pair and therefore both input histories.
-        let depth = self.input.inputs[0]
-            .lineage_depth
-            .max(self.input.inputs[1].lineage_depth)
-            .checked_add(1)
-            .ok_or(SurfaceError::Limit)?;
+        // Retaining the pair also retains both input histories.
+        let depth = if retain_history {
+            self.input.inputs[0]
+                .lineage_depth
+                .max(self.input.inputs[1].lineage_depth)
+                .checked_add(1)
+                .ok_or(SurfaceError::Limit)?
+        } else {
+            0
+        };
         if depth > MAX_LINEAGE {
             return Err(SurfaceError::Limit);
         }
