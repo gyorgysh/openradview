@@ -4,12 +4,14 @@ use super::*;
 mod refine;
 pub use refine::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
-    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
-    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
-    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, FacePartitionLimits,
-    FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage, PlanarRefinementLimits,
-    PlanarTriangle, PlanarTriangulationLimits, RefinedPlanarGraph, SharedFacePartition,
-    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    AdaptiveStopReason, AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan,
+    AppliedFaceTriangle, AppliedFaceVertex, AppliedTriangleState, BoundedSurfaceFacet,
+    BoundedSurfaceVertex, CellAxisBounds, ConformingFacetState, ConformingStopReason,
+    ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
+    EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
+    FacePlacement, FaceSpanCoverage, PlanarRefinementLimits, PlanarTriangle,
+    PlanarTriangulationLimits, RefinedPlanarGraph, SharedFacePartition, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_EDGES: usize = 8192;

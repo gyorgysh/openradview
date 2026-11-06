@@ -744,6 +744,15 @@ matching endpoints cannot conceal a gap. Distinct exact coordinates that collaps
 or reorder on the output grid are refused. Output and scratch are bounded and
 admitted separately. This directory does not apply splits, prove full face coverage,
 or establish a cross-cell seam; end-face and cross-projection cases remain open.
+`SharedFacePartition::apply` groups requests by original boundary edge, applies
+all ordered split points to private copies of both candidate meshes, and
+recertifies every resulting triangle against each side's requested axial
+error tolerance. Source triangle/facet identities and exact partition point
+references remain available; open intervals without candidate coverage remain
+absent. Both outputs are admitted and published atomically, with separately
+bounded scratch and cancellation. This joins the represented candidate edges
+for one compatible transverse face only: singular/noncandidate regions, other
+faces, curved end-face topology, physical error and whole-grid seams remain open.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

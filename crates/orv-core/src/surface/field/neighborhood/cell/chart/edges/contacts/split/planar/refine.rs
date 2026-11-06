@@ -4,12 +4,13 @@ use super::*;
 mod triangulate;
 pub use triangulate::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
-    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
-    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
-    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, FacePartitionLimits,
-    FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage, PlanarTriangle,
-    PlanarTriangulationLimits, SharedFacePartition, SurfaceEnclosureLimits,
-    SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    AdaptiveStopReason, AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan,
+    AppliedFaceTriangle, AppliedFaceVertex, AppliedTriangleState, BoundedSurfaceFacet,
+    BoundedSurfaceVertex, CellAxisBounds, ConformingFacetState, ConformingStopReason,
+    ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
+    EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
+    FacePlacement, FaceSpanCoverage, PlanarTriangle, PlanarTriangulationLimits,
+    SharedFacePartition, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_BYTES: u64 = 16 * 1024 * 1024;

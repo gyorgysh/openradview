@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Exact source-face partition exchange between two neighboring cell meshes.
 use super::*;
+mod apply;
+pub use apply::{
+    AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan, AppliedFaceTriangle,
+    AppliedFaceVertex, AppliedTriangleState,
+};
 
 const MAX_EDGES: usize = 4096;
 const MAX_POINTS: usize = 8192;

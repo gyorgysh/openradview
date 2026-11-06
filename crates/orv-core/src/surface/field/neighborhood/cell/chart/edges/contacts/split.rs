@@ -4,13 +4,15 @@ use super::*;
 mod planar;
 pub use planar::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
-    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
-    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
-    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, FacePartitionLimits,
-    FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage, PlanarEdge,
-    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
-    PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph, SharedFacePartition,
-    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    AdaptiveStopReason, AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan,
+    AppliedFaceTriangle, AppliedFaceVertex, AppliedTriangleState, BoundedSurfaceFacet,
+    BoundedSurfaceVertex, CellAxisBounds, ConformingFacetState, ConformingStopReason,
+    ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
+    EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
+    FacePlacement, FaceSpanCoverage, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
+    PlanarRegion, PlanarTriangle, PlanarTriangulationLimits, ProjectedPlanarGraph,
+    RefinedPlanarGraph, SharedFacePartition, SurfaceEnclosureLimits, SurfaceFacetCertificate,
+    TriangulatedPlanarGraph,
 };
 
 const NODES: usize = JointSubdivision::MAX_NODES;

@@ -760,10 +760,18 @@ fn adjacent_mesh(
     lower: [usize; 3],
     budget: Arc<MemoryBudget>,
 ) -> Arc<TriangulatedPlanarGraph> {
+    adjacent_mesh_axis(field, lower, 2, budget)
+}
+fn adjacent_mesh_axis(
+    field: &MaskField,
+    lower: [usize; 3],
+    projection: usize,
+    budget: Arc<MemoryBudget>,
+) -> Arc<TriangulatedPlanarGraph> {
     let graph = Arc::new(build(field, lower, budget.clone()));
     let chart = Arc::new(
         graph
-            .projection_chart_with_budget(2, budget.clone(), || false)
+            .projection_chart_with_budget(projection, budget.clone(), || false)
             .unwrap(),
     );
     let edges = Arc::new(
@@ -853,7 +861,16 @@ fn adjacent_conforming(
     depth: u8,
     budget: Arc<MemoryBudget>,
 ) -> Arc<ConformingSurfaceMesh> {
-    let mesh = adjacent_mesh(field, lower, budget.clone());
+    adjacent_conforming_axis(field, lower, 2, depth, budget)
+}
+fn adjacent_conforming_axis(
+    field: &MaskField,
+    lower: [usize; 3],
+    projection: usize,
+    depth: u8,
+    budget: Arc<MemoryBudget>,
+) -> Arc<ConformingSurfaceMesh> {
+    let mesh = adjacent_mesh_axis(field, lower, projection, budget.clone());
     let enclosed = Arc::new(
         mesh.enclose_surface_with_budget(SurfaceEnclosureLimits::default(), budget.clone(), || {
             false
@@ -1092,4 +1109,445 @@ fn face_partition_refuses_unrelated_sources_limits_and_cancellation() {
         ));
         assert_eq!(budget.used(), baseline);
     }
+}
+
+fn partition_fixture(budget: Arc<MemoryBudget>) -> Arc<SharedFacePartition> {
+    let source = source([3, 2, 2], true, false);
+    let field = fractional(source, |[x, y, z]| {
+        if (x == 0 && y == 0 && z == 0)
+            || (x == 1 && y == 1 && z == 1)
+            || (x == 2 && y == 0 && z == 0)
+        {
+            26
+        } else {
+            -6
+        }
+    });
+    let left = adjacent_conforming(&field, [0, 0, 0], 0, budget.clone());
+    let right = adjacent_conforming(&field, [1, 0, 0], 7, budget.clone());
+    Arc::new(
+        left.shared_face_partition_with_budget(
+            &right,
+            0,
+            FacePartitionLimits {
+                max_edges_per_cell: 1024,
+                max_points: 2048,
+                ..FacePartitionLimits::default()
+            },
+            budget,
+            || false,
+        )
+        .unwrap(),
+    )
+}
+
+#[test]
+fn applying_face_requests_preserves_area_and_matches_covered_segments() {
+    use std::collections::{BTreeMap, BTreeSet};
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let partition = partition_fixture(budget.clone());
+    let baseline = budget.used();
+    let limits = AppliedFaceLimits {
+        tolerance_bits: [6, 12],
+        ..AppliedFaceLimits::default()
+    };
+    let applied = partition
+        .apply_with_budget(limits, budget.clone(), || false)
+        .unwrap();
+    assert!(Arc::ptr_eq(applied.input(), &partition));
+    assert_eq!(budget.used(), baseline + applied.referenced_bytes());
+    assert_eq!(applied.point_vertices().len(), partition.points().len());
+    assert_eq!(applied.spans().len(), partition.spans().len());
+    let mut split_count = 0usize;
+    let mut accepted = 0usize;
+    for side in 0..2 {
+        let source = &partition.inputs()[side];
+        let output = &applied.cells()[side];
+        let mut source_area = BTreeMap::<u32, i128>::new();
+        let mut edges = BTreeMap::<(u32, u32), Vec<(u32, u32)>>::new();
+        let mut used = BTreeSet::new();
+        let field = source
+            .input()
+            .input()
+            .input()
+            .input()
+            .input()
+            .edges()
+            .chart()
+            .graph()
+            .cell()
+            .interpolant()
+            .unwrap();
+        for triangle in output.triangles() {
+            let p = triangle
+                .vertices
+                .map(|id| output.vertices()[id as usize].position().unwrap());
+            *source_area.entry(triangle.source_triangle).or_default() += area(p, 0, 1);
+            assert_eq!(
+                triangle.source_facet,
+                source.triangles()[triangle.source_triangle as usize].source_facet
+            );
+            used.extend(triangle.vertices);
+            for (a, b) in [
+                (triangle.vertices[0], triangle.vertices[1]),
+                (triangle.vertices[1], triangle.vertices[2]),
+                (triangle.vertices[2], triangle.vertices[0]),
+            ] {
+                edges.entry((a.min(b), a.max(b))).or_default().push((a, b));
+            }
+            if let AppliedTriangleState::WithinTolerance {
+                numerator,
+                denominator,
+            } = triangle.state
+            {
+                assert!(numerator * (1u128 << limits.tolerance_bits[side]) <= denominator);
+                let bound = numerator as f64 / denominator as f64;
+                let q = p.map(|point| {
+                    point.map(|v| f64::from(v) / f64::from(AppliedFacePair::POSITION_DENOMINATOR))
+                });
+                for i in 0..=4 {
+                    for j in 0..=4 - i {
+                        let weights = [
+                            f64::from(i) / 4.,
+                            f64::from(j) / 4.,
+                            f64::from(4 - i - j) / 4.,
+                        ];
+                        let mut sample: [f64; 3] =
+                            std::array::from_fn(|d| (0..3).map(|k| weights[k] * q[k][d]).sum());
+                        let z = sample[2];
+                        sample[2] = 0.;
+                        let lo = field.evaluate(sample).unwrap();
+                        sample[2] = 1.;
+                        let hi = field.evaluate(sample).unwrap();
+                        assert!((z + lo / (hi - lo)).abs() <= bound + 1e-9);
+                    }
+                }
+                accepted += 1;
+            }
+        }
+        assert_eq!(source_area.len(), source.triangles().len());
+        for (id, total) in source_area {
+            let original = source.triangles()[id as usize]
+                .vertices
+                .map(|v| source.vertices()[v as usize].position().unwrap());
+            assert_eq!(total, area(original, 0, 1));
+        }
+        for owners in edges.values() {
+            assert!(owners.len() <= 2);
+            if owners.len() == 2 {
+                assert_eq!(owners[0], (owners[1].1, owners[1].0));
+            }
+        }
+        for &(a, b) in edges.keys() {
+            let pa = output.vertices()[a as usize].position().unwrap();
+            let pb = output.vertices()[b as usize].position().unwrap();
+            let dx = i128::from(pb[0]) - i128::from(pa[0]);
+            let dy = i128::from(pb[1]) - i128::from(pa[1]);
+            let length = dx * dx + dy * dy;
+            for &id in &used {
+                if id == a || id == b {
+                    continue;
+                }
+                let p = output.vertices()[id as usize].position().unwrap();
+                let x = i128::from(p[0]) - i128::from(pa[0]);
+                let y = i128::from(p[1]) - i128::from(pa[1]);
+                assert!(
+                    !(dx * y == dy * x && x * dx + y * dy > 0 && x * dx + y * dy < length),
+                    "hanging vertex {id} on edge {a}-{b}"
+                );
+            }
+        }
+        split_count += output
+            .vertices()
+            .iter()
+            .filter(|v| matches!(v, AppliedFaceVertex::Split { .. }))
+            .count();
+        for span in applied.spans() {
+            if let Some([a, b]) = span.segments[side] {
+                assert!(edges.contains_key(&(a.min(b), a.max(b))));
+            }
+        }
+    }
+    assert!(split_count > 0);
+    assert!(accepted > 0);
+    let mut matched = 0;
+    for span in applied.spans() {
+        let original = partition.spans()[span.partition_span as usize];
+        for side in 0..2 {
+            assert_eq!(
+                span.segments[side].is_some(),
+                matches!(original.coverage[side], FaceSpanCoverage::Present { .. })
+            );
+        }
+        if let [Some(a), Some(b)] = span.segments {
+            for i in 0..2 {
+                let left = applied.cells()[0].vertices()[a[i] as usize]
+                    .position()
+                    .unwrap();
+                let right = applied.cells()[1].vertices()[b[i] as usize]
+                    .position()
+                    .unwrap();
+                assert_eq!(left[0], AppliedFacePair::POSITION_DENOMINATOR);
+                assert_eq!(right[0], 0);
+                assert_eq!([left[1], left[2]], [right[1], right[2]]);
+            }
+            matched += 1;
+        }
+    }
+    assert!(matched > 0);
+    let reverse_partition = Arc::new(
+        partition.inputs()[1]
+            .shared_face_partition_with_budget(
+                &partition.inputs()[0],
+                0,
+                FacePartitionLimits {
+                    max_edges_per_cell: 1024,
+                    max_points: 2048,
+                    ..FacePartitionLimits::default()
+                },
+                budget.clone(),
+                || false,
+            )
+            .unwrap(),
+    );
+    let reverse = reverse_partition
+        .apply_with_budget(
+            AppliedFaceLimits {
+                tolerance_bits: [12, 6],
+                ..limits
+            },
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    for side in 0..2 {
+        assert_eq!(
+            applied.cells()[side].vertices(),
+            reverse.cells()[1 - side].vertices()
+        );
+        assert_eq!(
+            applied.cells()[side].triangles(),
+            reverse.cells()[1 - side].triangles()
+        );
+    }
+    for (forward, backward) in applied.spans().iter().zip(reverse.spans()) {
+        assert_eq!(
+            forward.segments,
+            [backward.segments[1], backward.segments[0]]
+        );
+    }
+    drop(reverse);
+    drop(reverse_partition);
+    drop(applied);
+    assert_eq!(budget.used(), baseline);
+}
+
+#[test]
+fn face_application_is_atomic_under_limits_and_cancellation() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let partition = partition_fixture(budget.clone());
+    let before_vertices = partition
+        .inputs()
+        .each_ref()
+        .map(|mesh| mesh.vertices().to_vec());
+    let before_triangles = partition
+        .inputs()
+        .each_ref()
+        .map(|mesh| mesh.triangles().to_vec());
+    let baseline = budget.used();
+    let limits = AppliedFaceLimits::default();
+    let calls = Cell::new(0usize);
+    let result = partition
+        .apply_with_budget(limits, budget.clone(), || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .unwrap();
+    let total_calls = calls.get();
+    let bytes = result.referenced_bytes();
+    let needed_vertices = result
+        .cells()
+        .iter()
+        .map(|cell| cell.vertices().len())
+        .max()
+        .unwrap();
+    let needed_triangles = result
+        .cells()
+        .iter()
+        .map(|cell| cell.triangles().len())
+        .max()
+        .unwrap();
+    drop(result);
+    let strict = partition
+        .apply_with_budget(
+            AppliedFaceLimits {
+                tolerance_bits: [16, 16],
+                ..limits
+            },
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    assert!(
+        strict
+            .cells()
+            .iter()
+            .flat_map(|cell| cell.triangles())
+            .any(|triangle| matches!(triangle.state, AppliedTriangleState::Unresolved { .. }))
+    );
+    for triangle in strict.cells().iter().flat_map(|cell| cell.triangles()) {
+        if let AppliedTriangleState::WithinTolerance {
+            numerator,
+            denominator,
+        } = triangle.state
+        {
+            assert!(numerator * (1u128 << 16) <= denominator);
+        }
+    }
+    drop(strict);
+    assert!(matches!(
+        partition.apply_with_budget(
+            AppliedFaceLimits {
+                tolerance_bits: [17, 8],
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        partition.apply_with_budget(
+            AppliedFaceLimits {
+                max_vertices_per_cell: needed_vertices - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        partition.apply_with_budget(
+            AppliedFaceLimits {
+                max_triangles_per_cell: needed_triangles - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        partition.apply_with_budget(
+            AppliedFaceLimits {
+                max_operations: 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        partition.apply_with_budget(
+            AppliedFaceLimits {
+                max_bytes: bytes - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    let small = MemoryBudget::new(bytes);
+    assert!(matches!(
+        partition.apply_with_budget(limits, small.clone(), || false),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(small.used(), 0);
+    for stop in [1, total_calls / 2, total_calls] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            partition.apply_with_budget(limits, budget.clone(), || {
+                calls.set(calls.get() + 1);
+                calls.get() >= stop
+            }),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), baseline);
+    }
+    for side in 0..2 {
+        assert_eq!(partition.inputs()[side].vertices(), before_vertices[side]);
+        assert_eq!(partition.inputs()[side].triangles(), before_triangles[side]);
+    }
+}
+
+#[test]
+fn face_application_matches_segments_for_all_transverse_axis_pairs() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    for face_axis in 0..3 {
+        for projection in 0..3 {
+            if face_axis == projection {
+                continue;
+            }
+            let [a, b] = transverse(face_axis);
+            let mut dimensions = [2; 3];
+            dimensions[face_axis] = 3;
+            let field = fractional(source(dimensions, true, false), |p| {
+                if (p[face_axis] == 0 && p[a] == 0 && p[b] == 0)
+                    || (p[face_axis] == 1 && p[a] == 1 && p[b] == 1)
+                    || (p[face_axis] == 2 && p[a] == 0 && p[b] == 0)
+                {
+                    26
+                } else {
+                    -6
+                }
+            });
+            let mut upper = [0; 3];
+            upper[face_axis] = 1;
+            let left = adjacent_conforming_axis(&field, [0; 3], projection, 0, budget.clone());
+            let right = adjacent_conforming_axis(&field, upper, projection, 7, budget.clone());
+            let partition = Arc::new(
+                left.shared_face_partition_with_budget(
+                    &right,
+                    face_axis,
+                    FacePartitionLimits {
+                        max_edges_per_cell: 1024,
+                        max_points: 2048,
+                        ..FacePartitionLimits::default()
+                    },
+                    budget.clone(),
+                    || false,
+                )
+                .unwrap(),
+            );
+            let result = partition
+                .apply_with_budget(AppliedFaceLimits::default(), budget.clone(), || false)
+                .unwrap();
+            let mut matched = 0;
+            for span in result.spans() {
+                if let [Some(left), Some(right)] = span.segments {
+                    for i in 0..2 {
+                        let a = result.cells()[0].vertices()[left[i] as usize]
+                            .position()
+                            .unwrap();
+                        let b = result.cells()[1].vertices()[right[i] as usize]
+                            .position()
+                            .unwrap();
+                        assert_eq!(a[face_axis], AppliedFacePair::POSITION_DENOMINATOR);
+                        assert_eq!(b[face_axis], 0);
+                        for axis in 0..3 {
+                            if axis != face_axis {
+                                assert_eq!(a[axis], b[axis]);
+                            }
+                        }
+                    }
+                    matched += 1;
+                }
+            }
+            assert!(matched > 0, "face {face_axis}, projection {projection}");
+        }
+    }
+    assert_eq!(budget.used(), 0);
 }

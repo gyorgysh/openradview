@@ -3,9 +3,11 @@
 use super::*;
 mod conforming;
 pub use conforming::{
-    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
-    ConformingTriangle, ConformingVertex, FacePartitionLimits, FacePartitionPoint,
-    FacePartitionSpan, FacePlacement, FaceSpanCoverage, SharedFacePartition,
+    AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan, AppliedFaceTriangle,
+    AppliedFaceVertex, AppliedTriangleState, ConformingFacetState, ConformingStopReason,
+    ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
+    FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage,
+    SharedFacePartition,
 };
 
 const MAX_DEPTH: u8 = 8;

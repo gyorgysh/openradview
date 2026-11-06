@@ -12,16 +12,18 @@ mod link;
 mod refine;
 pub use chart::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
-    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, CellFiber,
-    CellFiberBounds, CellProjectionChart, ChartEdgeStep, ConformingFacetState,
-    ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle,
-    ConformingVertex, EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint,
-    FacePartitionSpan, FacePlacement, FaceSpanCoverage, PlanarEdge, PlanarHalfEdge,
-    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
-    ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
-    ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph,
-    SharedFacePartition, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
-    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    AdaptiveStopReason, AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan,
+    AppliedFaceTriangle, AppliedFaceVertex, AppliedTriangleState, BoundedSurfaceFacet,
+    BoundedSurfaceVertex, CellAxisBounds, CellFiber, CellFiberBounds, CellProjectionChart,
+    ChartEdgeStep, ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits,
+    ConformingSurfaceMesh, ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph,
+    FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage,
+    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
+    PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
+    ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
+    ProjectedPlanarGraph, RefinedPlanarGraph, SharedFacePartition, SplitPath,
+    SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 pub use refine::{CellPathLimits, CellPathOrigin, CellPathVertex, RefinedCellGraph};
 
