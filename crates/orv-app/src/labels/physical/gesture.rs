@@ -206,6 +206,7 @@ impl LabelUi {
             !capture.matches(image, view, response.rect, plane, self.physical.epoch)
         }) {
             self.physical.gesture = None;
+            self.physical.drawing = false;
             self.message = "The displayed plane changed; the pointer path was discarded.".into();
             self.physical.open = true;
             return;
@@ -225,6 +226,7 @@ impl LabelUi {
                     })
                 }
                 Err(error) => {
+                    self.physical.drawing = false;
                     self.message = error.into();
                     self.physical.open = true;
                     return;
@@ -236,12 +238,14 @@ impl LabelUi {
                 Ok(released) => released,
                 Err(error) => {
                     self.physical.gesture = None;
+                    self.physical.drawing = false;
                     self.message = error.into();
                     self.physical.open = true;
                     return;
                 }
             };
             if released && let Some(capture) = self.physical.gesture.take() {
+                self.physical.drawing = false;
                 self.physical.path = Some(Arc::new(capture.path));
                 self.submit_physical(ui.ctx());
                 self.physical.open = true;
@@ -399,6 +403,10 @@ mod tests {
                 ],
             );
             assert!(labels.busy() && labels.physical.open);
+            assert!(
+                !labels.physical_drawing(),
+                "releasing the path must leave drawing mode"
+            );
             wait(&mut labels);
             let preview = labels.physical.preview.as_ref().unwrap();
             assert_eq!(preview.stroke.points_mm().len(), 3);
@@ -466,6 +474,10 @@ mod tests {
             assert!(labels.physical.gesture.is_none());
             assert!(!labels.busy() && !labels.physical_preview_visible());
             assert!(!labels.dirty && labels.undo.is_empty());
+            assert!(
+                !labels.physical_drawing(),
+                "a discarded path must not resume drawing behind the dialog"
+            );
         }
     }
     #[test]

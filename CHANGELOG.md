@@ -36,6 +36,7 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
+- Drawing a physical path now ends drawing mode when its preview opens.
 - Linked MPR and oblique views no longer accept an older moving preview with a
   different slab setting or image resolution after those settings change.
 - A 3D region could fail to appear at certain window sizes when a ray crossed a
