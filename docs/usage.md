@@ -57,6 +57,7 @@ Thin planes keep their requested sampling during navigation, and planes whose
 position did not change reuse their images.
 **Oblique** adds explicit plane rotation and normal offset. **3D / MIP** projects
 the loaded volume; drag to orbit, and use the named transfer presets/controls.
+**MPR + 3D** places the linked planes beside a 3D view of the same volume.
 MPR and projections require consistent geometry and a volume within the budget.
 Their interpolated values can differ from source pixels. In compact windows,
 2D, MPR, oblique and 3D/MIP place their display rows under **Display and tools**,
@@ -75,8 +76,8 @@ features; sharing still requires a fresh Allow review.
 
 For scalar MPR/oblique views, choose **Slab MIP**, **Slab MinIP** or **Slab mean** and a
 physical thickness. These show the discrete maximum, minimum or mean of valid
-samples along the plane normal,
-with the sample count shown. A smaller preview refines after interaction stops.
+samples along the plane normal, with the sample count shown. Navigation retains
+the requested plane detail and slab sampling.
 At most 257 samples span a slab, so features between samples can be missed.
 Slabs disable physical measurements; choose **Thin plane** to measure again. **Clipping…** in 3D/MIP
 limits the projection to explicit LPS minimum/maximum coordinates in millimeters.
@@ -133,7 +134,16 @@ The same map appears on matching thin MPR and oblique planes. Open **Labels…**
 there to choose fill, outline or hatching and hide individual numeric IDs.
 Counts use original source voxels and declared cell volume, with valid and missing
 samples kept separate; zoom and display resolution do not change them. Painting
-and threshold edits stay on source images. Slab projections and 3D omit labels.
+and threshold edits stay on source images. Slab projections omit labels.
+
+For a supported scalar volume, enable **Region in 3D** in the 3D controls and
+choose a manual label or supplied segment. The material view shows one opaque ID
+at a time. Fractional segments use half their declared maximum. In **MPR + 3D**,
+source-grid cell faces can be inspected with **Pick surface**; a visible source
+plane or foreground material can block a pick. Missing or unknown boundaries stay
+open, and clipping does not add a cap. Use **Physical edit…** to preview a sphere,
+disk or drawn plane path, or **Surface stamp…** to preview a visible-layer erase
+on an applied manual label. Apply or cancel the preview explicitly.
 
 In **Labels… → Connected regions**, choose **Grow from seed**, an inclusive
 scalar interval and either the current source image (four neighbors) or the whole
