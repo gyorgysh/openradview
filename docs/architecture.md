@@ -639,8 +639,34 @@ vertices and 16 MiB per result; callers can lower them. Errors or cancellation
 discard unpublished work and release reservations without changing the input or
 reducing requested precision. Canonical edge paths are deterministic for the
 same complete insertion union and detail; owning geometry must share the
-completed path across incident patches. This is not triangulation, a GPU mesh,
-source-edit authority or a whole-grid geometry admission policy.
+completed path across incident patches. Refinement alone supplies no triangles,
+GPU mesh, source-edit authority or whole-grid geometry admission policy.
+
+`RefinedSubdivision::triangulate` retains an `Arc` to that exact refinement and
+triangulates every bounded region. An irreducible curved bilinear graph has at
+most one crossing on each vertical line; its two branches have disjoint horizontal
+domains. Its monotone chords preserve this property, while factored axis lines
+bound separate regions. Merging the two lexicographically ordered boundary chains
+and a stack triangulates each region without a quadratic ear search. Collinear
+boundary vertices remain constraints. Isolated whole-zero interior points split
+their containing triangle, or both triangles sharing their containing diagonal.
+
+Turns first use cached 40-bit integer interval bounds. Ambiguous turns clear all
+six positive coordinate denominators and evaluate the determinant in up to six
+quadratic radical fields. Opposite-sign terms are compared by recursive magnitude
+squaring; each level removes one radical, so depth is at most six. Dependent
+radicals and exact collinearity need no floating tolerance or factorization.
+Checked fixed-width signed integers use derived widths up to 65,536 bits; the
+coefficient pool is separately admitted and released. Overflow is an error.
+
+The worker counts `n-2` triangles per region and two per isolated interior point
+before allocating. Output IDs are counterclockwise and retain region identity;
+all shared constraint edges use the same completed vertex path. Scratch and
+additional retained triangles are admitted separately from the immutable input.
+Limits are 131,072 triangles and 16 MiB of additional retained typed storage;
+callers may lower them. Failure or cancellation publishes nothing and preserves
+prior owners. This covers one bilinear square subdivision, not two incident
+fields, full trilinear surface connectivity, finite-grid closure or GPU conversion.
 
 `Trilinear::phase` uses the inclusive F>=0 level, matching retained fractional
 half-maximum ties. Nonnegative corners select the complete closed cell; strictly

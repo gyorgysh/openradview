@@ -2,7 +2,9 @@
 //! Exact ordering across incident cells, whose quadratic fields need not agree.
 use super::*;
 mod integer;
+mod orientation;
 use integer::Integer;
+pub(super) use orientation::orientation;
 
 impl ExactCoordinate {
     /// Exact numerical ordering, including unrelated quadratic fields from

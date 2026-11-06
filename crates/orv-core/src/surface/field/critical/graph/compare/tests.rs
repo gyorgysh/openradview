@@ -82,7 +82,7 @@ fn unrelated_coordinates_that_round_to_the_same_float_remain_ordered() {
 // Independent enclosure: bisect the root using its polynomial at exact dyadic
 // rationals, then bound the fractional-linear coordinate by its two endpoints.
 // No radical signs or comparator arithmetic are used by this reference.
-fn coordinate_bounds(value: ExactCoordinate, depth: u32) -> Option<[(i128, i128); 2]> {
+pub(super) fn coordinate_bounds(value: ExactCoordinate, depth: u32) -> Option<[(i128, i128); 2]> {
     if let Some(value) = value.rational_value() {
         let point = (i128::from(value.numerator), i128::from(value.denominator));
         return Some([point, point]);

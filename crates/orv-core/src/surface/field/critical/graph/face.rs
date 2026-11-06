@@ -5,7 +5,7 @@ use compare::bilinear_sign;
 mod subdivision;
 pub use subdivision::{
     PatchHalfEdge, PatchRegion, PlaneSubdivision, RefinedSubdivision, RefinementLimits,
-    SubdivisionEdge,
+    RegionTriangle, SubdivisionEdge, TriangulatedSubdivision, TriangulationLimits,
 };
 
 // A source face unions two <=18-node graphs and four <=10-point edge

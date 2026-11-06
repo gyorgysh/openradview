@@ -13,7 +13,8 @@ pub use critical::{
     AlgebraicRoot, AnchorLine, ContourNode, ContourSegment, CriticalGraph, ExactCoordinate,
     FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode, LimitContours, PatchHalfEdge,
     PatchRegion, PlaneSubdivision, ProjectionAnalysis, ProjectionPoint, RefinedSubdivision,
-    RefinementLimits, SubdivisionEdge, WholeSection,
+    RefinementLimits, RegionTriangle, SubdivisionEdge, TriangulatedSubdivision,
+    TriangulationLimits, WholeSection,
 };
 pub use factor::{
     AxisFactor, CellFactorization, CellPhase, CellResidual, FactorPatch, ResidualKind, ZeroBoundary,

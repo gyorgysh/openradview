@@ -2,7 +2,10 @@
 //! Bounded square subdivision by one bilinear zero set, with directed regions.
 use super::*;
 mod refine;
-pub use refine::{RefinedSubdivision, RefinementLimits};
+pub use refine::{
+    RefinedSubdivision, RefinementLimits, RegionTriangle, TriangulatedSubdivision,
+    TriangulationLimits,
+};
 
 // At most four regions: two factor lines cross, or at most two noncrossing
 // hyperbola arcs meet the boundary. E<=V+3, including retained isolated points.

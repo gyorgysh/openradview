@@ -6,7 +6,8 @@ mod graph;
 pub use graph::{
     AnchorLine, ContourNode, ContourSegment, CriticalGraph, ExactCoordinate, FaceArrangement,
     GraphEdge, GraphNode, PatchHalfEdge, PatchRegion, PlaneSubdivision, RefinedSubdivision,
-    RefinementLimits, SubdivisionEdge, WholeSection,
+    RefinementLimits, RegionTriangle, SubdivisionEdge, TriangulatedSubdivision,
+    TriangulationLimits, WholeSection,
 };
 
 // For corner magnitudes <=255, each section coefficient has magnitude <=520200.

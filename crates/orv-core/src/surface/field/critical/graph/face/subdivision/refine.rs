@@ -6,6 +6,8 @@ use crate::{
     surface::SurfaceError,
 };
 use std::sync::Arc;
+mod triangulate;
+pub use triangulate::{RegionTriangle, TriangulatedSubdivision, TriangulationLimits};
 
 const GRID_BITS: u32 = 40;
 const GRID: u64 = 1 << GRID_BITS;
