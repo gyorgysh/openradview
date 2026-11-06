@@ -1654,6 +1654,326 @@ fn promoted_cells_preserve_prior_seam_through_a_second_face_exchange() {
 }
 
 #[test]
+fn cell_seam_batch_rechecks_changed_neighbors_and_reports_final_coverage() {
+    let budget = MemoryBudget::new(256 * 1024 * 1024);
+    let field = fractional(source([3, 3, 2], true, false), |[x, y, z]| {
+        if (x % 2 == 0 && y % 2 == 0 && z == 0) || (x == 1 && y == 1 && z == 1) {
+            26
+        } else {
+            -6
+        }
+    });
+    let inputs = [
+        adjacent_conforming_axis(&field, [0, 0, 0], 2, 0, budget.clone()),
+        adjacent_conforming_axis(&field, [1, 0, 0], 2, 7, budget.clone()),
+        adjacent_conforming_axis(&field, [0, 1, 0], 2, 7, budget.clone()),
+        adjacent_conforming_axis(&field, [1, 1, 0], 2, 0, budget.clone()),
+    ];
+    let limits = CellSeamLimits {
+        partition: FacePartitionLimits {
+            max_edges_per_cell: 1024,
+            max_points: 2048,
+            ..FacePartitionLimits::default()
+        },
+        ..CellSeamLimits::default()
+    };
+    let batch =
+        CellSeamBatch::coordinate_with_budget(&inputs, limits, budget.clone(), || false).unwrap();
+    assert_eq!(batch.faces().len(), 4);
+    assert!(batch.updates() > 0);
+    for report in batch.faces() {
+        if matches!(report.state, CellFaceState::Unresolved { .. }) {
+            continue;
+        }
+        let [a, b] = report.cells.map(usize::from);
+        let partition = batch.cells()[a]
+            .shared_face_partition_with_budget(
+                &batch.cells()[b],
+                usize::from(report.face.axis),
+                limits.partition,
+                budget.clone(),
+                || false,
+            )
+            .unwrap();
+        assert_eq!(partition.face(), report.face);
+        assert!(partition.points().iter().all(|point| {
+            point
+                .placements
+                .iter()
+                .all(|placement| !matches!(placement, FacePlacement::Split { .. }))
+        }));
+        if matches!(report.state, CellFaceState::CandidateAligned { .. }) {
+            assert!(
+                partition
+                    .points()
+                    .iter()
+                    .all(|point| !point.placements.contains(&FacePlacement::Absent))
+            );
+            assert!(
+                partition
+                    .spans()
+                    .iter()
+                    .all(|span| !span.coverage.contains(&FaceSpanCoverage::Absent))
+            );
+        }
+        if let CellFaceState::Uncovered {
+            points,
+            spans,
+            missing_points,
+            missing_spans,
+        } = report.state
+        {
+            assert_eq!(points as usize, partition.points().len());
+            assert_eq!(spans as usize, partition.spans().len());
+            assert_eq!(
+                missing_points as usize,
+                partition
+                    .points()
+                    .iter()
+                    .filter(|point| point.placements.contains(&FacePlacement::Absent))
+                    .count()
+            );
+            assert_eq!(
+                missing_spans as usize,
+                partition
+                    .spans()
+                    .iter()
+                    .filter(|span| span.coverage.contains(&FaceSpanCoverage::Absent))
+                    .count()
+            );
+            assert!(missing_points > 0 || missing_spans > 0);
+        }
+    }
+    assert!(
+        batch
+            .faces()
+            .iter()
+            .any(|face| !matches!(face.state, CellFaceState::Unresolved { .. }))
+    );
+    let one_round = CellSeamBatch::coordinate_with_budget(
+        &inputs,
+        CellSeamLimits {
+            max_rounds: 1,
+            ..limits
+        },
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert!(one_round.updates() > 0);
+    assert!(one_round.faces().iter().any(|face| matches!(
+        face.state,
+        CellFaceState::Unresolved {
+            reason: CellSeamStop::NotRechecked
+        }
+    )));
+    assert!(!one_round.candidate_faces_aligned());
+}
+
+#[test]
+fn cell_seam_batch_preserves_limits_and_cancellation() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let fixture = partition_fixture(budget.clone());
+    let inputs = fixture.inputs();
+    let limits = CellSeamLimits {
+        partition: FacePartitionLimits {
+            max_edges_per_cell: 1024,
+            max_points: 2048,
+            ..FacePartitionLimits::default()
+        },
+        ..CellSeamLimits::default()
+    };
+    let no_visits = CellSeamBatch::coordinate_with_budget(
+        inputs,
+        CellSeamLimits {
+            max_face_visits: 0,
+            ..limits
+        },
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(no_visits.updates(), 0);
+    assert_eq!(
+        no_visits.faces()[0].state,
+        CellFaceState::Unresolved {
+            reason: CellSeamStop::NotRechecked
+        }
+    );
+    assert!(!no_visits.candidate_faces_aligned());
+    drop(no_visits);
+    let no_updates = CellSeamBatch::coordinate_with_budget(
+        inputs,
+        CellSeamLimits {
+            max_updates: 0,
+            ..limits
+        },
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(
+        no_updates.faces()[0].state,
+        CellFaceState::Unresolved {
+            reason: CellSeamStop::UpdateLimit
+        }
+    );
+    drop(no_updates);
+    let baseline = budget.used();
+    let checks = Cell::new(0usize);
+    let result = CellSeamBatch::coordinate_with_budget(inputs, limits, budget.clone(), || {
+        checks.set(checks.get() + 1);
+        false
+    })
+    .unwrap();
+    assert!(result.updates() > 0);
+    assert!(!matches!(
+        result.faces()[0].state,
+        CellFaceState::Unresolved { .. }
+    ));
+    let again =
+        CellSeamBatch::coordinate_with_budget(result.cells(), limits, budget.clone(), || false)
+            .unwrap();
+    assert_eq!(again.updates(), 0);
+    assert_eq!(again.faces()[0].state, result.faces()[0].state);
+    drop(again);
+    drop(result);
+    assert_eq!(budget.used(), baseline);
+    for threshold in [1, checks.get() / 2, checks.get()] {
+        let count = Cell::new(0usize);
+        assert!(matches!(
+            CellSeamBatch::coordinate_with_budget(inputs, limits, budget.clone(), || {
+                count.set(count.get() + 1);
+                count.get() >= threshold
+            }),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), baseline);
+    }
+    assert!(matches!(
+        CellSeamBatch::coordinate_with_budget(
+            &[inputs[0].clone(), inputs[0].clone()],
+            limits,
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Geometry)
+    ));
+    assert!(matches!(
+        CellSeamBatch::coordinate_with_budget(
+            inputs,
+            CellSeamLimits {
+                max_bytes: 0,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    let small = MemoryBudget::new(1);
+    assert!(matches!(
+        CellSeamBatch::coordinate_with_budget(inputs, limits, small.clone(), || false),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(small.used(), 0);
+    assert_eq!(budget.used(), baseline);
+
+    for (bounded, reason) in [
+        (
+            CellSeamLimits {
+                partition: FacePartitionLimits {
+                    max_bytes: 0,
+                    ..limits.partition
+                },
+                ..limits
+            },
+            CellSeamStop::PartitionLimit,
+        ),
+        (
+            CellSeamLimits {
+                apply: AppliedFaceLimits {
+                    max_bytes: 0,
+                    ..limits.apply
+                },
+                ..limits
+            },
+            CellSeamStop::ApplyLimit,
+        ),
+        (
+            CellSeamLimits {
+                promotion: FacePromotionLimits {
+                    max_bytes: 0,
+                    ..limits.promotion
+                },
+                ..limits
+            },
+            CellSeamStop::PromotionLimit,
+        ),
+    ] {
+        let result =
+            CellSeamBatch::coordinate_with_budget(inputs, bounded, budget.clone(), || false)
+                .unwrap();
+        assert_eq!(
+            result.faces()[0].state,
+            CellFaceState::Unresolved { reason }
+        );
+        assert_eq!(result.updates(), 0);
+        assert!(Arc::ptr_eq(&result.cells()[0], &inputs[0]));
+        assert!(Arc::ptr_eq(&result.cells()[1], &inputs[1]));
+        drop(result);
+        assert_eq!(budget.used(), baseline);
+    }
+}
+
+#[test]
+fn cell_seam_batch_reports_unsupported_projection_pairs() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let field = fractional(source([3, 2, 2], true, false), |[x, y, z]| {
+        if (x == 0 && y == 0 && z == 0)
+            || (x == 1 && y == 1 && z == 1)
+            || (x == 2 && y == 0 && z == 0)
+        {
+            26
+        } else {
+            -6
+        }
+    });
+    let left = adjacent_conforming_axis(&field, [0, 0, 0], 2, 0, budget.clone());
+    let right = adjacent_conforming_axis(&field, [1, 0, 0], 1, 0, budget.clone());
+    let batch = CellSeamBatch::coordinate_with_budget(
+        &[left, right],
+        CellSeamLimits::default(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(
+        batch.faces()[0].state,
+        CellFaceState::Unresolved {
+            reason: CellSeamStop::ProjectionMismatch
+        }
+    );
+    assert!(!batch.candidate_faces_aligned());
+    let left = adjacent_conforming_axis(&field, [0, 0, 0], 0, 0, budget.clone());
+    let right = adjacent_conforming_axis(&field, [1, 0, 0], 0, 0, budget.clone());
+    let batch = CellSeamBatch::coordinate_with_budget(
+        &[left, right],
+        CellSeamLimits::default(),
+        budget,
+        || false,
+    )
+    .unwrap();
+    assert_eq!(
+        batch.faces()[0].state,
+        CellFaceState::Unresolved {
+            reason: CellSeamStop::ProjectionEndFace
+        }
+    );
+    assert!(!batch.candidate_faces_aligned());
+}
+
+#[test]
 fn face_promotion_is_atomic_under_limits_and_cancellation() {
     let budget = MemoryBudget::new(128 * 1024 * 1024);
     let partition = partition_fixture(budget.clone());

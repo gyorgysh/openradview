@@ -5,10 +5,11 @@ mod adaptive;
 pub use adaptive::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan,
-    AppliedFaceTriangle, AppliedFaceVertex, AppliedTriangleState, ConformingFacetState,
-    ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle,
-    ConformingVertex, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement,
-    FacePromotionLimits, FaceSpanCoverage, SharedFacePartition,
+    AppliedFaceTriangle, AppliedFaceVertex, AppliedTriangleState, CellFaceReport, CellFaceState,
+    CellSeamBatch, CellSeamLimits, CellSeamStop, ConformingFacetState, ConformingStopReason,
+    ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
+    FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FacePromotionLimits,
+    FaceSpanCoverage, SharedFacePartition,
 };
 
 /// An axial error bound applies only over the triangle's projected domain.

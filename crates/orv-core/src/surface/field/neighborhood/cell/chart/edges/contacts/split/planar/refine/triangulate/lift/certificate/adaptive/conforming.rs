@@ -4,8 +4,9 @@ use super::*;
 mod seam;
 pub use seam::{
     AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan, AppliedFaceTriangle,
-    AppliedFaceVertex, AppliedTriangleState, FacePartitionLimits, FacePartitionPoint,
-    FacePartitionSpan, FacePlacement, FacePromotionLimits, FaceSpanCoverage, SharedFacePartition,
+    AppliedFaceVertex, AppliedTriangleState, CellFaceReport, CellFaceState, CellSeamBatch,
+    CellSeamLimits, CellSeamStop, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, SharedFacePartition,
 };
 
 const MAX_VERTICES: usize = 65_536;

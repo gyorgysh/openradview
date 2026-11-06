@@ -2,10 +2,12 @@
 //! Exact source-face partition exchange between two neighboring cell meshes.
 use super::*;
 mod apply;
+mod coordinate;
 pub use apply::{
     AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan, AppliedFaceTriangle,
     AppliedFaceVertex, AppliedTriangleState, FacePromotionLimits,
 };
+pub use coordinate::{CellFaceReport, CellFaceState, CellSeamBatch, CellSeamLimits, CellSeamStop};
 
 const MAX_EDGES: usize = 4096;
 const MAX_POINTS: usize = 8192;
@@ -604,7 +606,7 @@ impl ConformingSurfaceMesh {
                     std::mem::size_of::<FacePartitionSpan>(),
                 ),
             ],
-            std::mem::size_of::<SharedFacePartition>(),
+            std::mem::size_of::<SharedFacePartition>() + 2 * std::mem::size_of::<usize>(),
         )?;
         if bytes > limits.max_bytes {
             return Err(SurfaceError::Limit);

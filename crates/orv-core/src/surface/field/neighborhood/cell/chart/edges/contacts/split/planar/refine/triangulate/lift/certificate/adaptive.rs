@@ -4,7 +4,8 @@ use super::*;
 mod conforming;
 pub use conforming::{
     AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan, AppliedFaceTriangle,
-    AppliedFaceVertex, AppliedTriangleState, ConformingFacetState, ConformingStopReason,
+    AppliedFaceVertex, AppliedTriangleState, CellFaceReport, CellFaceState, CellSeamBatch,
+    CellSeamLimits, CellSeamStop, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FacePromotionLimits,
     FaceSpanCoverage, SharedFacePartition,

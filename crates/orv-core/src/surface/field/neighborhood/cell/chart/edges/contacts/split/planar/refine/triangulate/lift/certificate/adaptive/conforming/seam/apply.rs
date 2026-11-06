@@ -326,7 +326,7 @@ impl SharedFacePartition {
                 (self.points.len(), std::mem::size_of::<[Option<u32>; 2]>()),
                 (self.spans.len(), std::mem::size_of::<AppliedFaceSpan>()),
             ],
-            std::mem::size_of::<AppliedFacePair>(),
+            std::mem::size_of::<AppliedFacePair>() + 2 * std::mem::size_of::<usize>(),
         )?;
         if bytes > limits.max_bytes {
             return Err(SurfaceError::Limit);
