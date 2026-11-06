@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::candidate_opaque::{
+    CandidateOpaqueImage, CandidateOpaqueRenderer, CandidateOpaqueScene,
+};
 use crate::candidate_projection::{CandidateImage, CandidateProjection, GpuCandidateProjector};
+use crate::material_volume::Lighting;
 use orv_core::{
     ViewState,
     labels::Labels,
@@ -14,7 +18,8 @@ use orv_core::{
         RefinementLimits, SurfaceEnclosureLimits,
     },
     volume::Volume,
-    volume_view::{Camera, PhysicalClip},
+    volume_material::{MaterialPoint, VolumeMaterial},
+    volume_view::{Camera, PhysicalClip, Projection, VolumeView},
 };
 use std::{
     cell::Cell,
@@ -71,6 +76,25 @@ fn volume_geometry(dimensions: [u32; 3], offset: f64, shear: bool, reverse: bool
         )
         .unwrap(),
     )
+}
+fn volume_with_missing_sample() -> Arc<Volume> {
+    let base = volume_geometry([3, 3, 2], 1000., true, true);
+    let frames = base
+        .frames()
+        .iter()
+        .enumerate()
+        .map(|(z, frame)| {
+            let mut frame = (**frame).clone();
+            frame.validity = Some(
+                (0..9)
+                    .map(|i| u8::from(!(z == 0 && i == 0)))
+                    .collect::<Vec<_>>()
+                    .into(),
+            );
+            Arc::new(frame)
+        })
+        .collect();
+    Arc::new(Volume::new(frames).unwrap())
 }
 fn geometry(source: Arc<Volume>, tolerance: f64, depth: u8) -> Arc<CandidateAssembly> {
     geometry_scaled(source, tolerance, depth, 1)
@@ -898,11 +922,414 @@ fn candidate_projection_handles_empty_sources_scopes_and_cancellation() {
         maximum_mm: [0.; 3],
     });
     assert!(projector.render(invalid, || false).is_err());
-    let other = GpuVolumeSource::new(&device, &queue, volume(), || false).unwrap();
+    let other =
+        GpuVolumeSource::new(&device, &queue, volume_dimensions([3, 3, 2]), || false).unwrap();
     assert!(
         GpuCandidateProjector::new(other)
             .unwrap()
             .render(request, || false)
+            .is_err()
+    );
+}
+
+fn candidate_material(luminance: f32, extinction: f32) -> Arc<VolumeMaterial> {
+    Arc::new(
+        VolumeMaterial::new(&[-1000., 1000.].map(|value| MaterialPoint {
+            value,
+            luminance,
+            extinction_per_mm: extinction,
+        }))
+        .unwrap(),
+    )
+}
+fn optical_pixels(image: &CandidateOpaqueImage) -> Vec<[f64; 4]> {
+    let source = image.scene().surface.request().surface.source();
+    texture_bytes(source, image.texture(), 8)
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|bytes| {
+            std::array::from_fn(|i| {
+                half(u16::from_le_bytes(
+                    bytes[i * 2..i * 2 + 2].try_into().unwrap(),
+                ))
+            })
+        })
+        .collect()
+}
+// Independent homogeneous Beer-Lambert reference, with f64 ray/triangle
+// intersection and source-cell field normals. The generated source is constant.
+fn optical_reference(scene: &CandidateOpaqueScene, pixel: [u32; 2]) -> Option<f64> {
+    let request = scene.surface.request();
+    let source = request.surface.source().volume();
+    let frame = scene
+        .volume
+        .camera
+        .frame(
+            &scene.navigation,
+            f64::from(request.size[0]) / f64::from(request.size[1]),
+        )
+        .unwrap();
+    let (world, direction) = frame.ray(std::array::from_fn(|a| {
+        (f64::from(pixel[a]) + 0.5) / f64::from(request.size[a])
+    }));
+    let hit = reference(request, pixel, 0., 0.);
+    if hit.as_ref().is_some_and(|hit| hit.margin <= 0.005) {
+        return None;
+    }
+    if hit.is_none() && reference(request, pixel, 0.005, 0.001).is_some() {
+        return None;
+    }
+    let mut interval = source.clipped_ray_interval(world, direction, scene.volume.clip.as_ref());
+    if let (Some(range), Some(hit)) = (&mut interval, &hit) {
+        let point = source.voxel_to_world(hit.voxel);
+        range[1] = range[1].min(dot(sub(point, world), direction));
+    }
+    let mut length = 0.;
+    if let Some(range) = interval
+        && range[0] < range[1]
+    {
+        let voxel_origin = source.world_to_voxel(world);
+        let voxel_direction = source.world_vector_to_voxel(direction);
+        let mut breaks = vec![range[0], range[1]];
+        for axis in 0..3 {
+            if voxel_direction[axis] != 0. {
+                for plane in 0..source.dimensions()[axis] {
+                    let t = (plane as f64 - voxel_origin[axis]) / voxel_direction[axis];
+                    if t > range[0] && t < range[1] {
+                        breaks.push(t);
+                    }
+                }
+            }
+        }
+        breaks.sort_by(f64::total_cmp);
+        breaks.dedup();
+        for interval in breaks.windows(2) {
+            let midpoint = (interval[0] + interval[1]) * 0.5;
+            if source
+                .sample(std::array::from_fn(|a| world[a] + direction[a] * midpoint))
+                .is_some()
+            {
+                length += interval[1] - interval[0];
+            }
+        }
+    }
+    let optics = scene.material.sample(10.).unwrap();
+    let transmission = (-optics.extinction_per_mm * length).exp();
+    let background = if let Some(hit) = hit {
+        let normal = reference_normal(request, &hit)?;
+        f64::from(scene.surface_luminance)
+            * (f64::from(scene.surface_lighting.ambient)
+                + f64::from(scene.surface_lighting.diffuse) * dot(normal, direction).abs())
+    } else {
+        0.0030352698
+    };
+    Some(optics.luminance * (1. - transmission) + transmission * background)
+}
+fn assert_optical(image: &CandidateOpaqueImage) -> (usize, usize) {
+    let scene = image.scene();
+    let size = scene.surface.request().size;
+    let mut checked = 0;
+    let mut hits = 0;
+    let mut misses = 0;
+    for (i, pixel) in optical_pixels(image).iter().enumerate() {
+        let position = [i as u32 % size[0], i as u32 / size[0]];
+        let Some(expected) = optical_reference(scene, position) else {
+            continue;
+        };
+        checked += 1;
+        if reference(scene.surface.request(), position, 0., 0.).is_some() {
+            hits += 1;
+        } else {
+            misses += 1;
+        }
+        assert!(
+            pixel[..3].iter().all(|v| (*v - expected).abs() < 0.002),
+            "pixel {position:?}: {pixel:?} vs {expected}"
+        );
+        assert_eq!(pixel[3], 1.);
+    }
+    assert!(checked > 100 && hits > 10 && misses > 10);
+    (hits, misses)
+}
+
+#[test]
+fn candidate_composition_orders_source_and_partial_surface_against_physical_reference() {
+    let (device, queue) = device();
+    let cpu = volume_geometry([3, 3, 2], 1_000_000., true, true);
+    let source = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false).unwrap();
+    let (surface, _) = GpuCandidateSurface::upload(
+        source.clone(),
+        geometry(cpu.clone(), 1000., 2),
+        None,
+        CandidateUploadLimits::default(),
+        || false,
+    )
+    .unwrap();
+    let mut volume = VolumeView::fit(&cpu);
+    volume.projection = Projection::Composite;
+    volume.camera.yaw_degrees = 27.;
+    volume.camera.pitch_degrees = -17.;
+    let navigation = ViewState {
+        pan: [0.021, -0.017],
+        ..Default::default()
+    };
+    let projector = GpuCandidateProjector::new(source.clone()).unwrap();
+    let candidate = projector
+        .render(
+            CandidateProjection {
+                surface: surface.clone(),
+                camera: volume.camera.clone(),
+                display: navigation.clone(),
+                clip: None,
+                size: [37, 33],
+            },
+            || false,
+        )
+        .unwrap();
+    let renderer =
+        CandidateOpaqueRenderer::new(source.clone(), wgpu::TextureFormat::Rgba8Unorm).unwrap();
+    let mut scene = CandidateOpaqueScene {
+        surface: candidate,
+        navigation,
+        volume,
+        material: candidate_material(0.2, 0.4),
+        lighting: Lighting::UNLIT,
+        surface_lighting: Lighting::HEADLIGHT,
+        surface_luminance: 0.85,
+    };
+    for (sigma, lighting) in [
+        (0., Lighting::UNLIT),
+        (0.4, Lighting::HEADLIGHT),
+        (2., Lighting::UNLIT),
+    ] {
+        scene.material = candidate_material(0.2, sigma);
+        scene.surface_lighting = lighting;
+        let image = renderer.render(scene.clone(), || false).unwrap();
+        assert_optical(&image);
+    }
+    let center = cpu.center();
+    scene.volume.clip = Some(PhysicalClip {
+        minimum_mm: [center[0] - 10., center[1] - 10., center[2] - 10.],
+        maximum_mm: [center[0] + 0.25, center[1] + 10., center[2] + 10.],
+    });
+    scene.surface = projector
+        .render(
+            CandidateProjection {
+                surface,
+                camera: scene.volume.camera.clone(),
+                display: scene.navigation.clone(),
+                clip: scene.volume.clip.clone(),
+                size: [37, 33],
+            },
+            || false,
+        )
+        .unwrap();
+    scene.material = candidate_material(0.2, 0.4);
+    scene.surface_lighting = Lighting::HEADLIGHT;
+    assert_optical(&renderer.render(scene, || false).unwrap());
+}
+
+#[test]
+fn candidate_composition_preserves_missing_source_stencils() {
+    let (device, queue) = device();
+    let cpu = volume_with_missing_sample();
+    assert!(cpu.sample(cpu.voxel_to_world([0.5, 0.5, 0.5])).is_none());
+    assert!(cpu.sample(cpu.voxel_to_world([1.5, 1.5, 0.5])).is_some());
+    let source = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false).unwrap();
+    let assembly = geometry(cpu.clone(), 1000., 2);
+    assert!(assembly.cells().iter().any(|cell| matches!(
+        cell.state,
+        CandidateCellState::Graph(orv_core::surface::field::CellGraphState::Unavailable { .. })
+    )));
+    let (surface, _) = GpuCandidateSurface::upload(
+        source.clone(),
+        assembly,
+        None,
+        CandidateUploadLimits::default(),
+        || false,
+    )
+    .unwrap();
+    assert!(!surface.chunks().is_empty());
+    let mut volume = VolumeView::fit(&cpu);
+    volume.projection = Projection::Composite;
+    let navigation = ViewState::default();
+    let candidate = GpuCandidateProjector::new(source.clone())
+        .unwrap()
+        .render(
+            CandidateProjection {
+                surface,
+                camera: volume.camera.clone(),
+                display: navigation.clone(),
+                clip: None,
+                size: [37, 33],
+            },
+            || false,
+        )
+        .unwrap();
+    let scene = CandidateOpaqueScene {
+        surface: candidate,
+        navigation,
+        volume,
+        material: candidate_material(0.2, 2.),
+        lighting: Lighting::UNLIT,
+        surface_lighting: Lighting::UNLIT,
+        surface_luminance: 0.85,
+    };
+    let image = CandidateOpaqueRenderer::new(source, wgpu::TextureFormat::Rgba8Unorm)
+        .unwrap()
+        .render(scene, || false)
+        .unwrap();
+    assert_optical(&image);
+}
+
+#[test]
+fn candidate_composition_refuses_lighting_without_a_valid_normal() {
+    let (device, queue) = device();
+    let cpu = volume();
+    let source = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false).unwrap();
+    let (surface, _) = GpuCandidateSurface::upload(
+        source.clone(),
+        geometry(cpu.clone(), 1000., 2),
+        None,
+        CandidateUploadLimits::default(),
+        || false,
+    )
+    .unwrap();
+    let mut volume = VolumeView::fit(&cpu);
+    volume.projection = Projection::Composite;
+    let navigation = ViewState::default();
+    let candidate = GpuCandidateProjector::new(source.clone())
+        .unwrap()
+        .render(
+            CandidateProjection {
+                surface,
+                camera: volume.camera.clone(),
+                display: navigation.clone(),
+                clip: None,
+                size: [37, 33],
+            },
+            || false,
+        )
+        .unwrap();
+    assert!(image_pixels(&candidate).0.iter().any(|cell| cell[3] != 0));
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let view = candidate.normals().create_view(&Default::default());
+    {
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("generated missing candidate normals"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+    }
+    queue.submit([encoder.finish()]);
+    fence(&device);
+    let renderer = CandidateOpaqueRenderer::new(source, wgpu::TextureFormat::Rgba8Unorm).unwrap();
+    let mut scene = CandidateOpaqueScene {
+        surface: candidate,
+        navigation,
+        volume,
+        material: candidate_material(0.2, 0.4),
+        lighting: Lighting::UNLIT,
+        surface_lighting: Lighting::HEADLIGHT,
+        surface_luminance: 0.85,
+    };
+    assert!(matches!(
+        renderer.render(scene.clone(), || false),
+        Err("Candidate composition could not resolve this view; no image was published")
+    ));
+    scene.surface_lighting = Lighting::UNLIT;
+    assert_optical(&renderer.render(scene, || false).unwrap());
+}
+
+#[test]
+fn candidate_composition_rejects_stale_scopes_and_preserves_old_images_on_cancel() {
+    let (device, queue) = device();
+    let cpu = volume();
+    let source = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false).unwrap();
+    let (surface, _) = GpuCandidateSurface::upload(
+        source.clone(),
+        geometry(cpu.clone(), 1000., 2),
+        None,
+        CandidateUploadLimits::default(),
+        || false,
+    )
+    .unwrap();
+    let mut volume = VolumeView::fit(&cpu);
+    volume.projection = Projection::Composite;
+    let navigation = ViewState::default();
+    let image = GpuCandidateProjector::new(source.clone())
+        .unwrap()
+        .render(
+            CandidateProjection {
+                surface,
+                camera: volume.camera.clone(),
+                display: navigation.clone(),
+                clip: None,
+                size: [31, 35],
+            },
+            || false,
+        )
+        .unwrap();
+    let scene = CandidateOpaqueScene {
+        surface: image,
+        navigation,
+        volume,
+        material: candidate_material(0.2, 0.4),
+        lighting: Lighting::UNLIT,
+        surface_lighting: Lighting::HEADLIGHT,
+        surface_luminance: 0.85,
+    };
+    let renderer =
+        CandidateOpaqueRenderer::new(source.clone(), wgpu::TextureFormat::Rgba8Unorm).unwrap();
+    let previous = renderer.render(scene.clone(), || false).unwrap();
+    let saved = optical_pixels(&previous);
+    let mut wrong = scene.clone();
+    wrong.volume.camera.yaw_degrees = 11.;
+    assert!(renderer.render(wrong, || false).is_err());
+    let mut wrong = scene.clone();
+    wrong.navigation.pan[0] += 0.1;
+    assert!(renderer.render(wrong, || false).is_err());
+    let mut wrong = scene.clone();
+    wrong.volume.clip = Some(PhysicalClip {
+        minimum_mm: [0.; 3],
+        maximum_mm: [1.; 3],
+    });
+    assert!(renderer.render(wrong, || false).is_err());
+    let mut wrong = scene.clone();
+    wrong.surface_luminance = f32::NAN;
+    assert!(renderer.render(wrong, || false).is_err());
+    assert!(renderer.render(scene.clone(), || true).is_err());
+    let gpu_before = MemoryBudget::gpu().used();
+    let cpu_before = MemoryBudget::volumes().used();
+    let entered = AtomicBool::new(false);
+    assert!(matches!(
+        renderer.render(scene, || {
+            let allocated = MemoryBudget::gpu().used() > gpu_before;
+            entered.fetch_or(allocated, Ordering::AcqRel);
+            allocated
+        }),
+        Err("Cancelled")
+    ));
+    assert!(entered.load(Ordering::Acquire));
+    fence(&device);
+    assert_eq!(MemoryBudget::gpu().used(), gpu_before);
+    assert_eq!(MemoryBudget::volumes().used(), cpu_before);
+    assert_eq!(optical_pixels(&previous), saved);
+    let other =
+        GpuVolumeSource::new(&device, &queue, volume_dimensions([3, 3, 2]), || false).unwrap();
+    assert!(
+        CandidateOpaqueRenderer::new(other, wgpu::TextureFormat::Rgba8Unorm)
+            .unwrap()
+            .render(previous.scene().clone(), || false)
             .is_err()
     );
 }

@@ -1183,7 +1183,14 @@ rectangle pixel work before allocation and divides draws into bounded fenced bat
 views exceeding the frame work limit are refused. The reported vertex reconstruction
 bound excludes projection, rasterization, intersection, clipping, source-surface
 error and world-origin rounding. The image retains the incomplete assembly and
-is separate from source composition, native display and edit authority.
+does not itself perform source composition or establish edit authority.
+
+`CandidateOpaqueRenderer` composes represented candidate hits with source
+material in physical depth order, using bounded fenced worker rows. It checks the
+source, camera, navigation and clip identities and refuses invalid or required
+missing normals. The retained assembly describes incomplete coverage, so an
+absent hit does not establish that a surface is absent. This output is a partial
+preview without a complete fallback, authoritative picking or native display.
 
 `GpuSurfaceProjector` produces a separate immutable `SurfaceImage` for one exact
 GPU source, mask revision, numeric ID, camera/display state, clip and requested
