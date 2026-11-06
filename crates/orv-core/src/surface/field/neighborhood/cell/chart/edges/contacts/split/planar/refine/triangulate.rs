@@ -5,7 +5,9 @@ mod lift;
 pub use lift::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
-    EnclosedSurfaceGraph, SurfaceEnclosureLimits, SurfaceFacetCertificate,
+    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
+    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate,
 };
 
 const MAX_TRIANGLES: usize = 262_144;

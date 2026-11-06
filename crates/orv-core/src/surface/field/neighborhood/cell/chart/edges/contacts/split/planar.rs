@@ -5,8 +5,10 @@ mod refine;
 pub use refine::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
-    EnclosedSurfaceGraph, PlanarRefinementLimits, PlanarTriangle, PlanarTriangulationLimits,
-    RefinedPlanarGraph, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
+    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, PlanarRefinementLimits,
+    PlanarTriangle, PlanarTriangulationLimits, RefinedPlanarGraph, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_EDGES: usize = 8192;

@@ -723,6 +723,14 @@ empty, whole, or has the opposite axial orientation. Output and fixed scratch
 are separately admitted and cancellation publishes no partial result. This is a
 single-facet operation; neighboring facets and source cells do not yet share an
 adaptive split union, so its output is not a conforming or renderable mesh.
+`EnclosedSurfaceGraph::refine_conforming` coordinates candidate facets within
+one source-cell chart. Source vertex IDs and explicit midpoint parent IDs identify
+edges; rounded coordinates are not welded. Splitting a shared candidate edge
+updates both owners before either child is recertified. Limits, work exhaustion,
+singular midpoints and incompatible neighbors remain unresolved rather than
+loosening tolerance. Output and scratch are admitted separately. Noncandidate
+facets remain in the retained source, and cross-cell seams, curved-boundary
+topology, physical-space accuracy and native rendering remain separate work.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

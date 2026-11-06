@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded source-field subdivision of a single certified-candidate facet.
 use super::*;
+mod conforming;
+pub use conforming::{
+    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
+    ConformingTriangle, ConformingVertex,
+};
 
 const MAX_DEPTH: u8 = 8;
 const MAX_TRIANGLES: usize = 1 << MAX_DEPTH;

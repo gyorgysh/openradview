@@ -4,7 +4,8 @@ use super::*;
 mod adaptive;
 pub use adaptive::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
-    AdaptiveStopReason,
+    AdaptiveStopReason, ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits,
+    ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
 };
 
 /// An axial error bound applies only over the triangle's projected domain.

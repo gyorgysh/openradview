@@ -5,8 +5,10 @@ mod triangulate;
 pub use triangulate::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
-    EnclosedSurfaceGraph, PlanarTriangle, PlanarTriangulationLimits, SurfaceEnclosureLimits,
-    SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
+    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, PlanarTriangle,
+    PlanarTriangulationLimits, SurfaceEnclosureLimits, SurfaceFacetCertificate,
+    TriangulatedPlanarGraph,
 };
 
 const MAX_BYTES: u64 = 16 * 1024 * 1024;

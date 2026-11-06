@@ -5,9 +5,11 @@ mod planar;
 pub use planar::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
-    EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
-    PlanarTriangle, PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph,
-    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
+    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge,
+    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
+    ProjectedPlanarGraph, RefinedPlanarGraph, SurfaceEnclosureLimits, SurfaceFacetCertificate,
+    TriangulatedPlanarGraph,
 };
 
 const NODES: usize = JointSubdivision::MAX_NODES;

@@ -5,11 +5,12 @@ mod edges;
 pub use edges::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, ChartEdgeStep,
-    EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
-    PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
-    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
-    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
-    SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
+    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
+    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge,
+    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
+    ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
+    ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph,
+    SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
     SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 

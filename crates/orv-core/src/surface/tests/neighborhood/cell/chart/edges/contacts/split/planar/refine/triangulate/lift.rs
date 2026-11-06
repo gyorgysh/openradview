@@ -466,3 +466,274 @@ fn adaptive_requested_tolerance_is_not_lowered_by_depth_or_triangle_caps() {
         }
     ));
 }
+
+#[test]
+fn shared_candidate_edges_refine_without_hanging_vertices() {
+    use std::collections::{BTreeMap, BTreeSet};
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let mut split_count = 0usize;
+    let mut propagated = 0usize;
+    let mut shared_splits = 0usize;
+    for axis in 0..3 {
+        let mesh = input(axis, budget.clone());
+        let enclosed = Arc::new(
+            mesh.enclose_surface_with_budget(
+                SurfaceEnclosureLimits::default(),
+                budget.clone(),
+                || false,
+            )
+            .unwrap(),
+        );
+        let initial = enclosed
+            .facets()
+            .iter()
+            .filter(|f| matches!(f, BoundedSurfaceFacet::Candidate { .. }))
+            .count();
+        let limits = ConformingSurfaceLimits {
+            tolerance_bits: 8,
+            max_depth: 5,
+            max_vertices: enclosed.vertices().len() + 1024,
+            max_triangles: initial + 1024,
+            max_operations: 2_000_000,
+            ..ConformingSurfaceLimits::default()
+        };
+        let baseline = budget.used();
+        let refined = enclosed
+            .refine_conforming_with_budget(limits, budget.clone(), || false)
+            .unwrap();
+        assert!(Arc::ptr_eq(refined.input(), &enclosed));
+        assert_eq!(budget.used(), baseline + refined.referenced_bytes());
+        let chart = mesh.input().input().input().edges().chart();
+        let [u, v] = chart.transverse_axes();
+        let mut original_edges = BTreeMap::<(u32, u32), Vec<u32>>::new();
+        for (id, triangle) in mesh.triangles().iter().enumerate() {
+            if !matches!(enclosed.facets()[id], BoundedSurfaceFacet::Candidate { .. }) {
+                continue;
+            }
+            for (a, b) in [
+                (triangle.vertices[0], triangle.vertices[1]),
+                (triangle.vertices[1], triangle.vertices[2]),
+                (triangle.vertices[2], triangle.vertices[0]),
+            ] {
+                original_edges
+                    .entry((a.min(b), a.max(b)))
+                    .or_default()
+                    .push(id as u32);
+            }
+        }
+        let mut area_by_source = BTreeMap::<u32, i128>::new();
+        let mut edges = BTreeMap::<(u32, u32), Vec<(u32, u32)>>::new();
+        let mut used = BTreeSet::new();
+        for triangle in refined.triangles() {
+            let p = triangle
+                .vertices
+                .map(|id| refined.vertices()[id as usize].position().unwrap());
+            *area_by_source.entry(triangle.source_facet).or_default() += area(p, u, v);
+            used.extend(triangle.vertices);
+            for (a, b) in [
+                (triangle.vertices[0], triangle.vertices[1]),
+                (triangle.vertices[1], triangle.vertices[2]),
+                (triangle.vertices[2], triangle.vertices[0]),
+            ] {
+                edges.entry((a.min(b), a.max(b))).or_default().push((a, b));
+            }
+            if let ConformingFacetState::WithinTolerance {
+                numerator,
+                denominator,
+            } = triangle.state
+            {
+                assert!(numerator * (1u128 << limits.tolerance_bits) <= denominator);
+                let bound = numerator as f64 / denominator as f64;
+                let grid = f64::from(ConformingSurfaceMesh::POSITION_DENOMINATOR);
+                let vertices = p.map(|point| point.map(|coordinate| f64::from(coordinate) / grid));
+                for i in 0..=4 {
+                    for j in 0..=4 - i {
+                        let weights = [
+                            f64::from(i) / 4.,
+                            f64::from(j) / 4.,
+                            f64::from(4 - i - j) / 4.,
+                        ];
+                        let mut position: [f64; 3] = std::array::from_fn(|d| {
+                            (0..3).map(|k| weights[k] * vertices[k][d]).sum()
+                        });
+                        let height = position[axis];
+                        position[axis] = 0.;
+                        let lo = tensor([26, -6, -6, -6, -6, -6, -6, 26], position, None);
+                        position[axis] = 1.;
+                        let hi = tensor([26, -6, -6, -6, -6, -6, -6, 26], position, None);
+                        assert!((height + lo / (hi - lo)).abs() <= bound + 1e-9);
+                    }
+                }
+            }
+        }
+        for (source, total) in &area_by_source {
+            let original = mesh.triangles()[*source as usize].vertices.map(|id| {
+                enclosed
+                    .vertex_lattice_point(id)
+                    .unwrap()
+                    .unwrap()
+                    .map(|v| v * 256)
+            });
+            assert_eq!(*total, area(original, u, v));
+        }
+        assert_eq!(area_by_source.len(), initial);
+        for owners in edges.values() {
+            assert!(owners.len() <= 2);
+            if owners.len() == 2 {
+                assert_eq!(owners[0], (owners[1].1, owners[1].0));
+                if owners[0].0 as usize >= enclosed.vertices().len()
+                    || owners[0].1 as usize >= enclosed.vertices().len()
+                {
+                    propagated += 1;
+                }
+            }
+        }
+        for &(a, b) in edges.keys() {
+            let pa = refined.vertices()[a as usize].position().unwrap();
+            let pb = refined.vertices()[b as usize].position().unwrap();
+            let dx = i128::from(pb[u]) - i128::from(pa[u]);
+            let dy = i128::from(pb[v]) - i128::from(pa[v]);
+            let length = dx * dx + dy * dy;
+            for &id in &used {
+                if id == a || id == b {
+                    continue;
+                }
+                let p = refined.vertices()[id as usize].position().unwrap();
+                let x = i128::from(p[u]) - i128::from(pa[u]);
+                let y = i128::from(p[v]) - i128::from(pa[v]);
+                assert!(
+                    !(dx * y == dy * x && x * dx + y * dy > 0 && x * dx + y * dy < length),
+                    "hanging vertex {id} on edge {a}-{b}"
+                );
+            }
+        }
+        for (id, vertex) in refined.vertices().iter().enumerate() {
+            if let ConformingVertex::Midpoint {
+                parents: [a, b], ..
+            } = *vertex
+                && let Some(owners) = original_edges.get(&(a.min(b), a.max(b)))
+                && owners.len() == 2
+            {
+                for owner in owners {
+                    assert!(
+                        refined
+                            .triangles()
+                            .iter()
+                            .any(|triangle| triangle.source_facet == *owner
+                                && triangle.vertices.contains(&(id as u32)))
+                    );
+                }
+                shared_splits += 1;
+            }
+        }
+        split_count += refined.vertices().len() - enclosed.vertices().len();
+        drop(refined);
+        assert_eq!(budget.used(), baseline);
+    }
+    assert!(split_count > 0);
+    assert!(propagated > 0);
+    assert!(shared_splits > 0);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn shared_refinement_limits_and_cancellation_keep_the_input_intact() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let mesh = input(0, budget.clone());
+    let enclosed = Arc::new(
+        mesh.enclose_surface_with_budget(SurfaceEnclosureLimits::default(), budget.clone(), || {
+            false
+        })
+        .unwrap(),
+    );
+    let candidate_count = enclosed
+        .facets()
+        .iter()
+        .filter(|f| matches!(f, BoundedSurfaceFacet::Candidate { .. }))
+        .count();
+    let limits = ConformingSurfaceLimits {
+        max_vertices: enclosed.vertices().len() + 128,
+        max_triangles: candidate_count + 128,
+        max_operations: 100_000,
+        ..ConformingSurfaceLimits::default()
+    };
+    let baseline = budget.used();
+    let calls = Cell::new(0usize);
+    let refined = enclosed
+        .refine_conforming_with_budget(limits, budget.clone(), || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .unwrap();
+    let total_calls = calls.get();
+    let bytes = refined.referenced_bytes();
+    drop(refined);
+    assert!(matches!(
+        enclosed.refine_conforming_with_budget(
+            ConformingSurfaceLimits {
+                max_vertices: enclosed.vertices().len() - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        enclosed.refine_conforming_with_budget(
+            ConformingSurfaceLimits {
+                max_triangles: candidate_count - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        enclosed.refine_conforming_with_budget(
+            ConformingSurfaceLimits {
+                max_bytes: bytes - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    let small = MemoryBudget::new(bytes);
+    assert!(matches!(
+        enclosed.refine_conforming_with_budget(limits, small.clone(), || false),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(small.used(), 0);
+    for stop in [1, total_calls / 2, total_calls] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            enclosed.refine_conforming_with_budget(limits, budget.clone(), || {
+                calls.set(calls.get() + 1);
+                calls.get() >= stop
+            }),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), baseline);
+    }
+    let limited = enclosed
+        .refine_conforming_with_budget(
+            ConformingSurfaceLimits {
+                max_operations: 1,
+                ..limits
+            },
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(limited.triangles().len(), candidate_count);
+    assert!(limited.triangles().iter().any(|t| matches!(
+        t.state,
+        ConformingFacetState::Unresolved {
+            reason: ConformingStopReason::WorkLimit,
+            ..
+        }
+    )));
+}

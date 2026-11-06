@@ -5,11 +5,12 @@ mod contacts;
 pub use contacts::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
-    EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
-    PlanarTriangle, PlanarTriangulationLimits, ProjectedContact, ProjectedContactGeometry,
-    ProjectedContactOwner, ProjectedContacts, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
-    SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
-    SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
+    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge,
+    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
+    ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts,
+    ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath, SplitProjectedConstraints, SplitSegment,
+    SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_LINKS: usize = 262_144;

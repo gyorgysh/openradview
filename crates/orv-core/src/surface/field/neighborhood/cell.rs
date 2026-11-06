@@ -13,12 +13,14 @@ mod refine;
 pub use chart::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, CellFiber,
-    CellFiberBounds, CellProjectionChart, ChartEdgeStep, EnclosedSurfaceGraph, PlanarEdge,
-    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
-    PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
-    ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
-    ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath, SplitProjectedConstraints, SplitSegment,
-    SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    CellFiberBounds, CellProjectionChart, ChartEdgeStep, ConformingFacetState,
+    ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle,
+    ConformingVertex, EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
+    PlanarRegion, PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
+    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
+    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
+    SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 pub use refine::{CellPathLimits, CellPathOrigin, CellPathVertex, RefinedCellGraph};
 

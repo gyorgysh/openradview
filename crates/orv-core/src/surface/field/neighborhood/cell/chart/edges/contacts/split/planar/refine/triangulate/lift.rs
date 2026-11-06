@@ -4,7 +4,8 @@ use super::*;
 mod certificate;
 pub use certificate::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
-    AdaptiveStopReason, SurfaceFacetCertificate,
+    AdaptiveStopReason, ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits,
+    ConformingSurfaceMesh, ConformingTriangle, ConformingVertex, SurfaceFacetCertificate,
 };
 
 const MAX_OUTPUT: u64 = 16 * 1024 * 1024;
