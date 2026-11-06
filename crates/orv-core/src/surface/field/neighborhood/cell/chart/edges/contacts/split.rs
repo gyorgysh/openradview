@@ -3,8 +3,8 @@
 use super::*;
 mod planar;
 pub use planar::{
-    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, ProjectedPlanarGraph,
-    RefinedPlanarGraph,
+    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
+    PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph, TriangulatedPlanarGraph,
 };
 
 const NODES: usize = JointSubdivision::MAX_NODES;

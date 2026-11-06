@@ -680,8 +680,15 @@ contact and split stages supply the complete intersection constraints. Each orig
 planar edge has one retained path and each region traverses those paths in its
 original half-edge direction, including repeated visits at contacts or bridges.
 Curve and additional path storage are admitted separately, and limits never lower
-requested detail. This boundary refinement does not certify a 3D surface interior
-or shared seam and has no rendering or source-edit authority.
+requested detail. `RefinedPlanarGraph::triangulate` groups all retained vertices by
+exact shared slice, orders the nonvertical boundary pieces within each slab and
+uses their directed face ownership to triangulate each strip. Slice vertices,
+including isolated constraints, appear on both incident slab boundaries. The
+result retains its source graph and planar region IDs. Additional vertical slice
+splits still need propagation to neighboring owners; this planar mesh does not
+certify a 3D surface interior or shared seam and has no rendering or source-edit
+authority. Output, scratch, comparisons and cancellation are bounded; inconsistent
+slice order or region incidence produces no partial mesh.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

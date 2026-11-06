@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod triangulate;
 
 fn limits(bits: u8) -> PlanarRefinementLimits {
     PlanarRefinementLimits {

@@ -2,7 +2,10 @@
 //! Connected planar rotation system over exact chart curves and source cuts.
 use super::*;
 mod refine;
-pub use refine::{PlanarRefinementLimits, RefinedPlanarGraph};
+pub use refine::{
+    PlanarRefinementLimits, PlanarTriangle, PlanarTriangulationLimits, RefinedPlanarGraph,
+    TriangulatedPlanarGraph,
+};
 
 const MAX_EDGES: usize = 8192;
 const MAX_BYTES: u64 = 16 * 1024 * 1024;
