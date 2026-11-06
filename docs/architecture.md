@@ -607,6 +607,26 @@ tangent rotations and ordinary-double rings connect eligible half-edges into
 oriented cycles. Isolated points and inactive edges remain in the constraint graph.
 These cycles do not yet supply a general patch parameterization or triangle mesh.
 
+`SourceCellGraph::refine_edges` retains that immutable graph and supplies one
+canonical path per original edge. All original nodes remain the vertex prefix,
+including isolated and inactive constraints. Added exact points carry their
+original edge ID. Incident regions reuse the same path in their half-edge
+direction; boundary walks retain repeated visits at contacts and cuts. Axial
+edges stay straight. Face arcs reuse the bilinear chord certificate with endpoints
+ordered by ascending transverse u, then restore the original edge direction.
+Canonical shared-face inputs therefore produce identical exact points and
+floating approximations from either cell at the same requested precision.
+
+The path bound is max-coordinate Hausdorff error `2^-precision_bits` in the unit
+cell, for bits 0..24. It does not bound a surface interior, physical-affine error
+or GPU quantization. Complete count/admit/emit passes separately charge bounded
+scratch and up to 65,536 vertices / 16 MiB of additional retained typed storage;
+the input graph keeps its own reservation. Limits and cancellation never lower
+precision or replace a previous result. Unavailable, family and no-interface
+inputs are refused rather than converted into empty refined geometry. These
+paths are inputs to patch triangulation, not a completed smooth surface or a
+whole-grid adaptive seam directory.
+
 Metadata, fixed preparation, bounded heap scratch and completed typed output use
 shared volume admission. Output limits can be lowered; the complete retained byte
 count excludes shared source/mask buffers, scratch and allocator/process overhead.

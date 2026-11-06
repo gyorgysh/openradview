@@ -25,6 +25,11 @@ pub struct RefinementLimits {
     /// Complete retained typed storage, including the copied subdivision.
     pub max_bytes: u64,
 }
+impl RefinementLimits {
+    pub const MAX_PRECISION_BITS: u8 = MAX_BITS;
+    pub const MAX_VERTICES: usize = MAX_VERTICES;
+    pub const MAX_BYTES: u64 = MAX_BYTES;
+}
 impl Default for RefinementLimits {
     fn default() -> Self {
         Self {
@@ -284,6 +289,45 @@ fn walk(
         count += 2;
     }
     Ok(())
+}
+impl Bilinear {
+    /// Shared worker kernel for a proved monotone zero arc, ordered by u.
+    /// The callback receives the final original endpoint or a new exact point.
+    pub(in crate::surface::field) fn refine_arc(
+        self,
+        points: [[ExactCoordinate; 2]; 2],
+        bits: u8,
+        budget: &Arc<MemoryBudget>,
+        cancel: &impl Fn() -> bool,
+        mut emit: impl FnMut([ExactCoordinate; 2], bool) -> Result<(), SurfaceError>,
+    ) -> Result<(), SurfaceError> {
+        check(cancel)?;
+        if bits > MAX_BITS {
+            return Err(SurfaceError::Limit);
+        }
+        if points[0][0].compare(points[1][0]).map_err(geometry)? != Ordering::Less
+            || self.sign_at(points[0]).map_err(geometry)? != 0
+            || self.sign_at(points[1]).map_err(geometry)? != 0
+        {
+            return Err(SurfaceError::Geometry);
+        }
+        let _scratch = budget
+            .reserve(
+                (2 * std::mem::size_of::<Enclosed>()
+                    + std::mem::size_of::<[Option<Segment>; DEPTH]>()) as u64,
+            )
+            .ok_or(SurfaceError::Memory)?;
+        let a = Enclosed::new(points[0], Some(0), cancel)?;
+        let b = Enclosed::new(points[1], Some(1), cancel)?;
+        let [p, q, r, s] = coefficients(self).map(i64::from);
+        let curved = s != 0 && p * s != q * r;
+        walk(a, b, self, curved, bits, cancel, |sample| {
+            if sample.original.is_some_and(|id| id != 1) {
+                return Err(SurfaceError::Geometry);
+            }
+            emit(sample.point, sample.original.is_some())
+        })
+    }
 }
 fn bytes(vertices: usize, indices: usize) -> Result<u64, SurfaceError> {
     let vertex_bytes = vertices

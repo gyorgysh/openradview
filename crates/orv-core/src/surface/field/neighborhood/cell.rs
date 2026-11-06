@@ -8,6 +8,8 @@ use crate::{
 use std::cmp::Ordering;
 mod collect;
 mod link;
+mod refine;
+pub use refine::{CellPathLimits, CellPathOrigin, CellPathVertex, RefinedCellGraph};
 
 const NODES: usize = 6 * FaceArrangement::MAX_NODES + CriticalGraph::MAX_NODES;
 const EDGES: usize =
