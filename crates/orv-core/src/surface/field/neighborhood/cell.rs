@@ -6,9 +6,11 @@ use crate::{
     surface::{SurfaceError, allocated},
 };
 use std::cmp::Ordering;
+mod chart;
 mod collect;
 mod link;
 mod refine;
+pub use chart::{CellFiber, CellProjectionChart};
 pub use refine::{CellPathLimits, CellPathOrigin, CellPathVertex, RefinedCellGraph};
 
 const NODES: usize = 6 * FaceArrangement::MAX_NODES + CriticalGraph::MAX_NODES;

@@ -630,6 +630,17 @@ tangent rotations and ordinary-double rings connect eligible half-edges into
 oriented cycles. Isolated points and inactive edges remain in the constraint graph.
 These cycles do not yet supply a general patch parameterization or triangle mesh.
 
+`SourceCellGraph::projection_chart` retains a finite source-cell graph and builds
+an exact arrangement of its two endpoint fields on the selected projection axis.
+Each original graph node is inserted in the chart, while distinct original heights
+remain in the retained graph even when their projections coincide. A rational chart
+point can be lifted as an empty, unique-height or whole zero fiber; a unique result
+retains the source-axis derivative sign. Unrepresentable or irrational lifts fail
+explicitly. Original graph identity remains attached, and input/scratch and retained
+storage are bounded and admitted. This arrangement does not yet assign 3D regions,
+refine projected graph edges, certify the surface interior or join neighboring
+charts, and has no rendering or source-edit authority.
+
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,
 including isolated and inactive constraints. Added exact points carry their

@@ -4,9 +4,9 @@ use super::*;
 mod cell;
 mod zero_face;
 pub use cell::{
-    CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
+    CellFiber, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
     CellGraphRegion, CellGraphState, CellPathLimits, CellPathOrigin, CellPathVertex,
-    RefinedCellGraph, SourceCellGraph,
+    CellProjectionChart, RefinedCellGraph, SourceCellGraph,
 };
 pub use zero_face::{
     WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
