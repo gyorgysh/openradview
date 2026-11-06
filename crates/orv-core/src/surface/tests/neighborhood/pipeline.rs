@@ -1249,8 +1249,286 @@ fn assemblies_retain_affine_planes_and_explicit_cross_box_neighbor_traces() {
                 assembly.affine_faces()[0].state(),
                 AffineFaceState::Matched(AffineFaceTrace::Segment(_))
             ));
+            assert!(matches!(
+                assembly.mixed_face_partition_with_budget(
+                    0,
+                    FacePartitionLimits::default(),
+                    budget.clone(),
+                    || false,
+                ),
+                Ok(Err(MixedFaceUnsupported::NotMixed))
+            ));
         }
         drop((assembly, left, right));
         assert_eq!(budget.used(), 0);
     }
+}
+
+#[test]
+fn mixed_affine_and_general_face_partition_retains_split_requests_and_uncertified_facets() {
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let field = fractional(source([3, 2, 2], true, false), |[x, y, z]| {
+        -4 + 4 * y as i16
+            + 4 * z as i16
+            + [-2, 0, 4][x]
+            + if [x, y, z] == [2, 1, 1] { -12 } else { 0 }
+    });
+    let affine = Arc::new(field.affine_cell([0, 0, 0], || false).unwrap());
+    assert_eq!(affine.disposition(), AffineDisposition::Plane);
+    let grid = field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let CandidateCellState::Candidate { mesh } = grid.cells()[0].state else {
+        panic!("expected a general candidate");
+    };
+    let candidate = grid.meshes()[usize::from(mesh)].clone();
+    let partition_limits = FacePartitionLimits {
+        max_edges_per_cell: 1024,
+        max_points: 2048,
+        ..Default::default()
+    };
+    let partition = candidate
+        .mixed_face_partition_with_budget(&affine, 0, partition_limits, budget.clone(), || false)
+        .unwrap()
+        .expect("expected a transverse segment");
+    assert!(
+        partition
+            .spans()
+            .iter()
+            .any(|span| matches!(span.candidate, FaceSpanCoverage::Present { .. }))
+    );
+    assert_eq!(
+        partition.face(),
+        FaceKey {
+            origin: [1, 0, 0],
+            axis: 0
+        }
+    );
+    assert_eq!(partition.projection_axis(), 2);
+    assert_eq!(partition.affine().cell().origin(), affine.cell().origin());
+    assert_eq!(partition.affine().field().key(), affine.field().key());
+    assert!(Arc::ptr_eq(partition.candidate(), &candidate));
+    assert_eq!(partition.points().len(), 5);
+    assert_eq!(
+        partition
+            .points()
+            .iter()
+            .filter(|point| point.affine == MixedAffinePlacement::Split)
+            .count(),
+        3
+    );
+    assert!(
+        partition
+            .spans()
+            .iter()
+            .all(|span| span.affine && !span.candidate_within_tolerance)
+    );
+    for (endpoint, numerator) in [(0, 0), (1, 1)] {
+        let coordinate = partition
+            .points()
+            .iter()
+            .find(|point| point.affine == MixedAffinePlacement::Endpoint(endpoint))
+            .unwrap()
+            .coordinate
+            .rational_value()
+            .unwrap();
+        assert_eq!(
+            (coordinate.numerator(), coordinate.denominator()),
+            (numerator, 1)
+        );
+    }
+    assert!(
+        partition
+            .points()
+            .iter()
+            .any(|point| matches!(point.affine, MixedAffinePlacement::Endpoint(0)))
+    );
+    assert!(
+        partition
+            .points()
+            .iter()
+            .any(|point| matches!(point.affine, MixedAffinePlacement::Endpoint(1)))
+    );
+    for pair in partition.points().windows(2) {
+        assert!(
+            pair[0]
+                .coordinate
+                .compare(pair[1].coordinate)
+                .unwrap()
+                .is_lt()
+        );
+    }
+    for point in partition.points() {
+        if let Some(position) = point.affine_position {
+            assert_eq!(position[0], ConformingSurfaceMesh::POSITION_DENOMINATOR);
+        } else {
+            assert_eq!(point.candidate, FacePlacement::Absent);
+        }
+    }
+    for span in partition.spans() {
+        if span.candidate_within_tolerance {
+            let FaceSpanCoverage::Present { triangle, .. } = span.candidate else {
+                panic!("certified span has no candidate")
+            };
+            assert!(matches!(
+                candidate.triangles()[triangle as usize].state,
+                ConformingFacetState::WithinTolerance { .. }
+            ));
+        }
+    }
+    let mut loose = limits();
+    loose.surface.max_error_mm = 100.0;
+    let loose_grid = field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, loose, budget.clone(), || false)
+        .unwrap();
+    let CandidateCellState::Candidate { mesh } = loose_grid.cells()[0].state else {
+        panic!("expected a candidate with a relaxed tolerance");
+    };
+    let loose_partition = loose_grid.meshes()[usize::from(mesh)]
+        .mixed_face_partition_with_budget(&affine, 0, partition_limits, budget.clone(), || false)
+        .unwrap()
+        .expect("expected a transverse segment");
+    assert!(
+        loose_partition
+            .spans()
+            .iter()
+            .any(|span| span.candidate_within_tolerance)
+    );
+    drop((loose_partition, loose_grid));
+    let left = field
+        .candidate_grid_with_budget([0, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let assembly = CandidateAssembly::build_with_budget(
+        &[&grid, &left],
+        assembly_limits(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    let assembled = assembly
+        .mixed_face_partition_with_budget(0, partition_limits, budget.clone(), || false)
+        .unwrap()
+        .expect("assembly should expose the mixed face");
+    assert_eq!(assembled.face(), partition.face());
+    assert!(
+        assembled
+            .spans()
+            .iter()
+            .any(|span| matches!(span.candidate, FaceSpanCoverage::Present { .. }))
+    );
+    assert!(matches!(
+        assembly.mixed_face_partition_with_budget(1, partition_limits, budget.clone(), || false),
+        Err(SurfaceError::Selection)
+    ));
+    assert!(matches!(
+        assembly.mixed_face_partition_with_budget(0, partition_limits, budget.clone(), || true),
+        Err(SurfaceError::Cancelled)
+    ));
+    drop((assembled, assembly, left));
+    let wrong = fractional(field.source().clone(), |_| 2);
+    let wrong = Arc::new(wrong.affine_cell([0, 0, 0], || false).unwrap());
+    let limits = FacePartitionLimits {
+        max_edges_per_cell: 1024,
+        max_points: 2048,
+        ..Default::default()
+    };
+    assert!(matches!(
+        candidate.mixed_face_partition_with_budget(&wrong, 0, limits, budget.clone(), || false),
+        Err(SurfaceError::Geometry)
+    ));
+    assert!(matches!(
+        candidate.mixed_face_partition_with_budget(&affine, 0, limits, budget.clone(), || true),
+        Err(SurfaceError::Cancelled)
+    ));
+    let used_before_refusals = budget.used();
+    for bounded in [
+        FacePartitionLimits {
+            max_operations: 1,
+            ..limits
+        },
+        FacePartitionLimits {
+            max_bytes: 0,
+            ..limits
+        },
+        FacePartitionLimits {
+            max_points: 0,
+            ..limits
+        },
+    ] {
+        assert!(matches!(
+            candidate
+                .mixed_face_partition_with_budget(&affine, 0, bounded, budget.clone(), || false),
+            Err(SurfaceError::Limit)
+        ));
+        assert_eq!(budget.used(), used_before_refusals);
+    }
+    let empty = MemoryBudget::new(0);
+    assert!(matches!(
+        candidate.mixed_face_partition_with_budget(&affine, 0, limits, empty.clone(), || false),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(empty.used(), 0);
+    drop((partition, candidate, grid, affine, field));
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn mixed_face_partition_handles_the_affine_cell_on_the_positive_side() {
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let field = fractional(source([3, 2, 2], true, false), |[x, y, z]| {
+        let reflected_x = 2 - x;
+        -4 + 4 * y as i16
+            + 4 * z as i16
+            + [-2, 0, 4][reflected_x]
+            + if [reflected_x, y, z] == [2, 1, 1] {
+                -12
+            } else {
+                0
+            }
+    });
+    let left = field
+        .candidate_grid_with_budget([0, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let right = field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let assembly = CandidateAssembly::build_with_budget(
+        &[&left, &right],
+        assembly_limits(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    let partition = assembly
+        .mixed_face_partition_with_budget(0, limits().seams.partition, budget.clone(), || false)
+        .unwrap()
+        .expect("expected a mixed face on the positive side");
+    assert_eq!(partition.affine().cell().origin(), [1, 0, 0]);
+    for (endpoint, numerator) in [(0, 0), (1, 1)] {
+        let coordinate = partition
+            .points()
+            .iter()
+            .find(|point| point.affine == MixedAffinePlacement::Endpoint(endpoint))
+            .unwrap()
+            .coordinate
+            .rational_value()
+            .unwrap();
+        assert_eq!(
+            (coordinate.numerator(), coordinate.denominator()),
+            (numerator, 1)
+        );
+    }
+    assert!(
+        partition
+            .spans()
+            .iter()
+            .any(|span| matches!(span.candidate, FaceSpanCoverage::Present { .. }))
+    );
+    for point in partition.points() {
+        if let Some(position) = point.affine_position {
+            assert_eq!(position[0], 0);
+        }
+    }
+    drop((partition, assembly, right, left, field));
+    assert_eq!(budget.used(), 0);
 }

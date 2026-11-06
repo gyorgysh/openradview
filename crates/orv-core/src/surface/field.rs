@@ -11,7 +11,10 @@ use crate::{
     mask::{MaskKey, MaskOwner, MaskRevision},
     volume::Volume,
 };
-pub use affine::{AffineCell, AffineDisposition, AffineFace, AffineFaceState, AffineFaceTrace};
+pub use affine::{
+    AffineCell, AffineDisposition, AffineFace, AffineFaceState, AffineFaceTrace,
+    MixedAffinePlacement, MixedFacePartition, MixedFacePoint, MixedFaceSpan, MixedFaceUnsupported,
+};
 pub use critical::{
     AlgebraicRoot, AnchorLine, AnchorRay, AnchorRing, AnchorStar, BilinearIntersections,
     BilinearSlice, CommonZero, ContourNode, ContourSegment, CriticalGraph, ExactCoordinate,

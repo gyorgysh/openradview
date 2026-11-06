@@ -1189,6 +1189,14 @@ exact traces for listed adjacent pairs involving an affine plane. Faces involvin
 non-affine or unavailable neighbors remain unresolved. Unlisted neighbors and
 finite-grid closure are not inferred from absent reports.
 
+For a listed mixed affine/general face, `CandidateAssembly::mixed_face_partition`
+can inspect the current candidate mesh against the exact affine trace. The bounded,
+source-bound directory identifies proposed split positions, candidate-edge intervals
+and whether their facets meet the requested tolerance; absent and uncertified
+intervals remain explicit. Unsupported face projections and unavailable cells do
+not become coverage. The directory does not alter either surface, establish a seam,
+or certify the physical error of a proposed affine split.
+
 `GpuCandidateSurface` uploads within-tolerance triangles of a bounded candidate
 assembly as per-cell immutable triangle descriptors. Exact affine polygons use
 the same integer grid only when a conservative physical displacement bound fits

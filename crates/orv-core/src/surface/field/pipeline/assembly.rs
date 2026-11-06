@@ -55,6 +55,70 @@ impl CandidateAssembly {
     pub fn affine_faces(&self) -> &[AffineFace] {
         &self.affine_faces
     }
+    /// Inspect a listed affine face against its current general candidate.
+    /// The returned directory is not applied and does not prove a complete seam.
+    pub fn mixed_face_partition(
+        &self,
+        face_index: usize,
+        limits: FacePartitionLimits,
+        cancel: impl Fn() -> bool,
+    ) -> Result<Result<MixedFacePartition, MixedFaceUnsupported>, SurfaceError> {
+        self.mixed_face_partition_with_budget(face_index, limits, MemoryBudget::volumes(), cancel)
+    }
+    pub(in crate::surface) fn mixed_face_partition_with_budget(
+        &self,
+        face_index: usize,
+        limits: FacePartitionLimits,
+        budget: Arc<MemoryBudget>,
+        cancel: impl Fn() -> bool,
+    ) -> Result<Result<MixedFacePartition, MixedFaceUnsupported>, SurfaceError> {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        let key = self
+            .affine_faces
+            .get(face_index)
+            .ok_or(SurfaceError::Selection)?
+            .key();
+        let axis = usize::from(key.axis);
+        if axis >= 3 {
+            return Err(SurfaceError::Geometry);
+        }
+        let mut negative = key.origin;
+        negative[axis] = negative[axis]
+            .checked_sub(1)
+            .ok_or(SurfaceError::Geometry)?;
+        let index = |origin: [u32; 3]| {
+            self.cells
+                .binary_search_by_key(
+                    &(origin[2] as usize, origin[1] as usize, origin[0] as usize),
+                    |cell| (cell.origin[2], cell.origin[1], cell.origin[0]),
+                )
+                .map_err(|_| SurfaceError::Geometry)
+        };
+        let negative = index(negative)?;
+        let positive = index(key.origin)?;
+        let negative_plane = self.affine[negative].disposition() == AffineDisposition::Plane;
+        let positive_plane = self.affine[positive].disposition() == AffineDisposition::Plane;
+        let (affine_index, candidate_index) = match (negative_plane, positive_plane) {
+            (true, false) => (negative, positive),
+            (false, true) => (positive, negative),
+            _ => return Ok(Err(MixedFaceUnsupported::NotMixed)),
+        };
+        let CandidateCellState::Candidate { mesh } = self.cells[candidate_index].state else {
+            return Ok(Err(MixedFaceUnsupported::CandidateUnavailable));
+        };
+        self.meshes()
+            .get(usize::from(mesh))
+            .ok_or(SurfaceError::Geometry)?
+            .mixed_face_partition_with_budget(
+                &self.affine[affine_index],
+                axis,
+                limits,
+                budget,
+                cancel,
+            )
+    }
     pub fn max_error_mm(&self) -> f64 {
         self.max_error_mm
     }

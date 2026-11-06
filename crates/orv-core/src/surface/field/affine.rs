@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Exact local plane intersections for affine source-cell fields.
-use super::{CellPhase, FaceKey, FieldCell, FieldError, MaskField, Rational};
+use super::{
+    CellPhase, ConformingSurfaceMesh, ExactCoordinate, FaceKey, FacePlacement, FaceSpanCoverage,
+    FieldCell, FieldError, MaskField, Rational,
+};
+use crate::resources::Reservation;
 use std::sync::Arc;
 
 /// A cell-local result. Boundary faces still require adjacent-cell coordination,
@@ -24,6 +28,77 @@ pub enum AffineFaceTrace {
     Empty,
     Point([Rational; 2]),
     Segment([[Rational; 2]; 2]),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MixedFaceUnsupported {
+    /// The listed face does not have exactly one affine crossing cell.
+    NotMixed,
+    /// The other listed cell did not produce a general candidate mesh.
+    CandidateUnavailable,
+    AffineCellUnavailable,
+    ProjectionEndFace,
+    NoSegment,
+    CollapsedProjection,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MixedAffinePlacement {
+    Outside,
+    /// Endpoint 0/1 in increasing candidate-chart coordinate order.
+    Endpoint(u8),
+    Split,
+}
+#[derive(Clone, Copy, Debug)]
+pub struct MixedFacePoint {
+    pub coordinate: ExactCoordinate,
+    pub affine: MixedAffinePlacement,
+    pub candidate: FacePlacement,
+    /// Candidate-grid position translated into the affine cell, if available.
+    /// It is a proposed split and has not been checked against the affine
+    /// physical error target or applied to the polygon.
+    pub affine_position: Option<[u32; 3]>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MixedFaceSpan {
+    pub points: [u32; 2],
+    pub affine: bool,
+    pub candidate: FaceSpanCoverage,
+    /// False for absent or uncertified candidate facets.
+    pub candidate_within_tolerance: bool,
+}
+/// A source-bound directory of split requests, not a completed or watertight seam.
+pub struct MixedFacePartition {
+    pub(in crate::surface) affine: AffineCell,
+    pub(in crate::surface) candidate: Arc<ConformingSurfaceMesh>,
+    pub(in crate::surface) face: FaceKey,
+    pub(in crate::surface) projection_axis: u8,
+    pub(in crate::surface) points: Vec<MixedFacePoint>,
+    pub(in crate::surface) spans: Vec<MixedFaceSpan>,
+    pub(in crate::surface) bytes: u64,
+    pub(in crate::surface) _reservation: Reservation,
+}
+impl MixedFacePartition {
+    pub fn affine(&self) -> &AffineCell {
+        &self.affine
+    }
+    pub fn candidate(&self) -> &Arc<ConformingSurfaceMesh> {
+        &self.candidate
+    }
+    pub fn face(&self) -> FaceKey {
+        self.face
+    }
+    pub fn projection_axis(&self) -> u8 {
+        self.projection_axis
+    }
+    pub fn points(&self) -> &[MixedFacePoint] {
+        &self.points
+    }
+    pub fn spans(&self) -> &[MixedFaceSpan] {
+        &self.spans
+    }
+    pub fn referenced_bytes(&self) -> u64 {
+        self.bytes
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AffineFaceState {
@@ -54,6 +129,7 @@ impl AffineFace {
 
 /// Exact source/revision-bound local geometry, with no edit authority or global
 /// surface-coverage claim. Coordinates are ratios relative to the source cell.
+#[derive(Clone)]
 pub struct AffineCell {
     field: MaskField,
     cell: FieldCell,
@@ -83,6 +159,16 @@ impl AffineCell {
     }
     pub fn triangles(&self) -> impl Iterator<Item = [u8; 3]> + '_ {
         (1..self.count.saturating_sub(1)).map(|i| [0, i, i + 1])
+    }
+    pub(in crate::surface) fn face_trace(
+        &self,
+        axis: usize,
+        upper: bool,
+    ) -> Result<AffineFaceTrace, FieldError> {
+        if axis >= 3 || self.disposition != AffineDisposition::Plane {
+            return Err(FieldError::Bounds);
+        }
+        face_trace(self, axis, upper)
     }
     /// Match the exact traces of two adjacent cells from one field revision.
     /// Unknown neighbors and non-affine or boundary-only cells stay unresolved.

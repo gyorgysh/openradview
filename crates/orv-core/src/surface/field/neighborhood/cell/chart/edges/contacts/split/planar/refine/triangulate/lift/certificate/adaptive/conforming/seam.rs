@@ -3,6 +3,7 @@
 use super::*;
 mod apply;
 mod coordinate;
+mod mixed;
 pub use apply::{
     AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan, AppliedFaceTriangle,
     AppliedFaceVertex, AppliedTriangleState, FacePromotionLimits,
