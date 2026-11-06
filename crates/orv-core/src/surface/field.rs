@@ -10,13 +10,13 @@ use crate::{
     volume::Volume,
 };
 pub use critical::{
-    AlgebraicRoot, AnchorLine, BilinearIntersections, BilinearSlice, CommonZero, ContourNode,
-    ContourSegment, CriticalGraph, ExactCoordinate, FaceArrangement, FaceInteriorLimit, GraphEdge,
-    GraphNode, IntersectionContact, IntersectionPoint, JointEdge, JointRegion, JointSubdivision,
-    LimitContours, PatchHalfEdge, PatchRegion, PlaneSubdivision, ProjectionAnalysis,
-    ProjectionPoint, RefinedJointSubdivision, RefinedSubdivision, RefinementLimits, RegionTriangle,
-    SubdivisionEdge, TriangulatedJointSubdivision, TriangulatedSubdivision, TriangulationLimits,
-    WholeSection,
+    AlgebraicRoot, AnchorLine, AnchorRay, AnchorRing, AnchorStar, BilinearIntersections,
+    BilinearSlice, CommonZero, ContourNode, ContourSegment, CriticalGraph, ExactCoordinate,
+    FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode, IntersectionContact,
+    IntersectionPoint, JointEdge, JointRegion, JointSubdivision, LimitContours, PatchHalfEdge,
+    PatchRegion, PlaneSubdivision, ProjectionAnalysis, ProjectionPoint, RefinedJointSubdivision,
+    RefinedSubdivision, RefinementLimits, RegionTriangle, SubdivisionEdge,
+    TriangulatedJointSubdivision, TriangulatedSubdivision, TriangulationLimits, WholeSection,
 };
 pub use factor::{
     AxisFactor, CellFactorization, CellPhase, CellResidual, FactorPatch, ResidualKind, ZeroBoundary,

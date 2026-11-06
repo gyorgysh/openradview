@@ -4,12 +4,12 @@
 use super::*;
 mod graph;
 pub use graph::{
-    AnchorLine, BilinearIntersections, BilinearSlice, CommonZero, ContourNode, ContourSegment,
-    CriticalGraph, ExactCoordinate, FaceArrangement, GraphEdge, GraphNode, IntersectionContact,
-    IntersectionPoint, JointEdge, JointRegion, JointSubdivision, PatchHalfEdge, PatchRegion,
-    PlaneSubdivision, RefinedJointSubdivision, RefinedSubdivision, RefinementLimits,
-    RegionTriangle, SubdivisionEdge, TriangulatedJointSubdivision, TriangulatedSubdivision,
-    TriangulationLimits, WholeSection,
+    AnchorLine, AnchorRay, AnchorRing, AnchorStar, BilinearIntersections, BilinearSlice,
+    CommonZero, ContourNode, ContourSegment, CriticalGraph, ExactCoordinate, FaceArrangement,
+    GraphEdge, GraphNode, IntersectionContact, IntersectionPoint, JointEdge, JointRegion,
+    JointSubdivision, PatchHalfEdge, PatchRegion, PlaneSubdivision, RefinedJointSubdivision,
+    RefinedSubdivision, RefinementLimits, RegionTriangle, SubdivisionEdge,
+    TriangulatedJointSubdivision, TriangulatedSubdivision, TriangulationLimits, WholeSection,
 };
 
 // For corner magnitudes <=255, each section coefficient has magnitude <=520200.

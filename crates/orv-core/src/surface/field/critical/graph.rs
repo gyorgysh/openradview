@@ -5,6 +5,7 @@ use super::*;
 use std::cmp::Ordering;
 mod compare;
 mod face;
+mod star;
 mod wide;
 pub use face::{
     BilinearIntersections, BilinearSlice, CommonZero, ContourNode, ContourSegment, FaceArrangement,
@@ -13,6 +14,7 @@ pub use face::{
     RefinementLimits, RegionTriangle, SubdivisionEdge, TriangulatedJointSubdivision,
     TriangulatedSubdivision, TriangulationLimits,
 };
+pub use star::{AnchorRay, AnchorRing, AnchorStar};
 use wide::radical_sign;
 // Original source expressions and polynomial signs retain their own narrow bound.
 // One graph evaluation of an original expression needs at most3121200 per form.
@@ -21,6 +23,7 @@ const MAX_FORM: u32 = 1 << 22;
 const MAX_LINES: usize = 6;
 const MAX_NODES: usize = 18;
 const MAX_EDGES: usize = MAX_LINES * (MAX_NODES - 1);
+const _: () = assert!(MAX_EDGES <= 256);
 type RadicalForm = (i128, i128);
 
 /// A unit-cell coordinate. Numerical equality requires `compare`;
@@ -348,6 +351,9 @@ impl CriticalGraph {
     }
     pub fn edges(&self) -> impl Iterator<Item = &GraphEdge> {
         self.edges.iter().flatten()
+    }
+    pub fn edge(&self, index: u8) -> Option<&GraphEdge> {
+        self.edges.get(usize::from(index))?.as_ref()
     }
     pub fn whole_sections(&self) -> impl Iterator<Item = &WholeSection> {
         self.sections.iter().flatten()

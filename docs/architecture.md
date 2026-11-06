@@ -552,6 +552,25 @@ face contours, singular families and triangulation remain separate work. Future
 mesh owners must retain source/map/ID/revision and admit aggregate geometry;
 unit-cell graphs grant no edit or disclosure authority.
 
+`CriticalGraph::anchor_star` orders retained anchor half-edges at an original
+node, carrying their edge/neighbor IDs, signed axes and boundary clipping. Exact
+gradient signs select the outward cyclic order at regular nodes. A zero partial
+derivative at a zero node proves an entire axial line; every in-cell direction
+must be present, with no duplicate ray. Original power coefficients are bounded
+by 2040, so the existing bilinear sign predicate evaluates these derivatives.
+
+An isolated singularity with nonzero mixed derivatives retains two separate
+three-ray rings at the same node. In translated coordinates its field is
+`e*xy+f*xz+g*yz+h*xyz`. The local map `X=x/(1+h*x/g)` reduces it to the quadratic
+cone with positive scale and Jacobian near the node, fixing the anchor rays.
+Exact mixed-derivative signs then determine the two rings and their outward
+orientation without moving the contact. Family diagnostics remain explicitly
+unresolved. Fixed storage and bounded cancellation preserve the original graph
+on failure. These are anchor orders, with outside rays clipped. Boundary bits
+do not determine which intervening surface sectors lie inside the cell; one-sided
+face limits and complete cell-face contours remain necessary. Surface patch
+connectivity and finite-grid policy are separate requirements.
+
 `ExactCoordinate::compare` also orders coordinates from unrelated quadratic
 fields in neighboring cells. Compatible fields retain the common-radical fast
 path. Otherwise, rationalization gives a positive denominator and the difference
