@@ -9,8 +9,8 @@ pub use lift::{
     BoundedSurfaceVertex, CellAxisBounds, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
-    FacePlacement, FaceSpanCoverage, SharedFacePartition, SurfaceEnclosureLimits,
-    SurfaceFacetCertificate,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, SharedFacePartition,
+    SurfaceEnclosureLimits, SurfaceFacetCertificate,
 };
 
 const MAX_TRIANGLES: usize = 262_144;

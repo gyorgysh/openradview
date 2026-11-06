@@ -753,6 +753,13 @@ absent. Both outputs are admitted and published atomically, with separately
 bounded scratch and cancellation. This joins the represented candidate edges
 for one compatible transverse face only: singular/noncandidate regions, other
 faces, curved end-face topology, physical error and whole-grid seams remain open.
+`AppliedFacePair::promote_cells` atomically creates two reusable cell meshes with
+exact face-split coordinates, source face keys, original facet identity and the
+prior application retained. Later compatible face partitions use this provenance
+rather than rounded point equality; a split crossing onto another face must be an
+exact corner. The retained dependency depth includes both input histories and is
+bounded. Storage and cancellation are separately admitted; composing individual
+face exchanges does not itself establish a whole-grid fixed point or surface.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

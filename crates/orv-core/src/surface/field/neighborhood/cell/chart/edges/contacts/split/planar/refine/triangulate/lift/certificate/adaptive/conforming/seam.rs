@@ -4,7 +4,7 @@ use super::*;
 mod apply;
 pub use apply::{
     AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan, AppliedFaceTriangle,
-    AppliedFaceVertex, AppliedTriangleState,
+    AppliedFaceVertex, AppliedTriangleState, FacePromotionLimits,
 };
 
 const MAX_EDGES: usize = 4096;
@@ -165,6 +165,44 @@ fn exact_along(
             .map(|p| p[along])
             .ok_or(SurfaceError::Geometry),
         ConformingVertex::Midpoint { position, .. } => coordinate(position[transverse[along]]),
+        ConformingVertex::FaceSplit {
+            point, position, ..
+        } => {
+            let seam = mesh
+                .seam_points
+                .get(point as usize)
+                .ok_or(SurfaceError::Geometry)?;
+            face_split_along(*seam, position, face_axis, transverse[along])
+        }
+    }
+}
+fn face_split_along(
+    seam: FaceSeamCoordinate,
+    position: [u32; 3],
+    face_axis: usize,
+    along_axis: usize,
+) -> Result<ExactCoordinate, SurfaceError> {
+    if face_axis >= 3 || along_axis >= 3 {
+        return Err(SurfaceError::Geometry);
+    }
+    if usize::from(seam.face_axis) == face_axis {
+        let expected = if seam.upper { REFINED_GRID } else { 0 };
+        if position[face_axis] != expected {
+            return Err(SurfaceError::Geometry);
+        }
+        Ok(seam.along)
+    } else if usize::from(seam.face_axis) == along_axis {
+        let on_upper = match position[face_axis] {
+            0 => false,
+            REFINED_GRID => true,
+            _ => return Err(SurfaceError::Geometry),
+        };
+        if seam.along.compare(endpoint(on_upper)?).map_err(error)? != Ordering::Equal {
+            return Err(SurfaceError::Geometry);
+        }
+        endpoint(seam.upper)
+    } else {
+        Err(SurfaceError::Geometry)
     }
 }
 fn canonical(
@@ -200,6 +238,7 @@ fn verify_representative(
     id: u32,
     along: ExactCoordinate,
     representative: u32,
+    face_axis: usize,
     cancel: &impl Fn() -> bool,
 ) -> Result<(), SurfaceError> {
     let vertex = mesh
@@ -227,6 +266,17 @@ fn verify_representative(
         }
         ConformingVertex::Midpoint { .. } => {
             if along.compare(coordinate(representative)?).map_err(error)? != Ordering::Equal {
+                return Err(SurfaceError::Geometry);
+            }
+        }
+        ConformingVertex::FaceSplit { point, .. } => {
+            let seam = mesh
+                .seam_points
+                .get(*point as usize)
+                .ok_or(SurfaceError::Geometry)?;
+            if usize::from(seam.face_axis) != face_axis
+                && along.compare(coordinate(representative)?).map_err(error)? != Ordering::Equal
+            {
                 return Err(SurfaceError::Geometry);
             }
         }
@@ -285,8 +335,8 @@ fn collect_edges<F: Fn() -> bool>(
                 .iter()
                 .find(|axis| **axis != face_axis)
                 .ok_or(SurfaceError::Geometry)?;
-            verify_representative(mesh, a, ca, pa[along_axis], work.cancel)?;
-            verify_representative(mesh, b, cb, pb[along_axis], work.cancel)?;
+            verify_representative(mesh, a, ca, pa[along_axis], face_axis, work.cancel)?;
+            verify_representative(mesh, b, cb, pb[along_axis], face_axis, work.cancel)?;
             if canonical(
                 chart(mesh),
                 face_axis,
@@ -641,6 +691,38 @@ mod tests {
         ExactCoordinate::from_rational(Rational::new(n, d).unwrap())
             .unwrap()
             .unwrap()
+    }
+
+    #[test]
+    fn prior_face_split_requires_an_exact_corner_on_a_new_face() {
+        let on_corner = FaceSeamCoordinate {
+            face_axis: 0,
+            upper: true,
+            along: rational(0, 1),
+        };
+        let position = [REFINED_GRID, 0, REFINED_GRID / 2];
+        assert!(
+            face_split_along(on_corner, position, 1, 0)
+                .unwrap()
+                .compare(rational(1, 1))
+                .unwrap()
+                .is_eq()
+        );
+        let near_corner = FaceSeamCoordinate {
+            along: rational(1, 1 << 30),
+            ..on_corner
+        };
+        assert!(matches!(
+            face_split_along(near_corner, position, 1, 0),
+            Err(SurfaceError::Geometry)
+        ));
+        assert!(
+            face_split_along(near_corner, position, 0, 1)
+                .unwrap()
+                .compare(near_corner.along)
+                .unwrap()
+                .is_eq()
+        );
     }
 
     #[test]

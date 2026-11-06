@@ -9,12 +9,13 @@ pub use edges::{
     BoundedSurfaceVertex, CellAxisBounds, ChartEdgeStep, ConformingFacetState,
     ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle,
     ConformingVertex, EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint,
-    FacePartitionSpan, FacePlacement, FaceSpanCoverage, PlanarEdge, PlanarHalfEdge,
-    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
-    ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
-    ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph,
-    SharedFacePartition, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
-    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    FacePartitionSpan, FacePlacement, FacePromotionLimits, FaceSpanCoverage, PlanarEdge,
+    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
+    PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
+    ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
+    ProjectedPlanarGraph, RefinedPlanarGraph, SharedFacePartition, SplitPath,
+    SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 /// Intersection of a source-cell zero set with a closed projection fiber.

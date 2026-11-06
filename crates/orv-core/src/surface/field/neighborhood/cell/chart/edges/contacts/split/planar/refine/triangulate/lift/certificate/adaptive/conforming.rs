@@ -5,7 +5,7 @@ mod seam;
 pub use seam::{
     AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan, AppliedFaceTriangle,
     AppliedFaceVertex, AppliedTriangleState, FacePartitionLimits, FacePartitionPoint,
-    FacePartitionSpan, FacePlacement, FaceSpanCoverage, SharedFacePartition,
+    FacePartitionSpan, FacePlacement, FacePromotionLimits, FaceSpanCoverage, SharedFacePartition,
 };
 
 const MAX_VERTICES: usize = 65_536;
@@ -46,12 +46,18 @@ pub enum ConformingVertex {
         parents: [u32; 2],
         position: [u32; 3],
     },
+    /// `point` indexes this mesh's exact face-split provenance.
+    FaceSplit {
+        parents: [u32; 2],
+        point: u32,
+        position: [u32; 3],
+    },
 }
 impl ConformingVertex {
     pub fn position(self) -> Option<[u32; 3]> {
         match self {
             Self::Source { position, .. } => position,
-            Self::Midpoint { position, .. } => Some(position),
+            Self::Midpoint { position, .. } | Self::FaceSplit { position, .. } => Some(position),
         }
     }
 }
@@ -69,6 +75,7 @@ pub enum ConformingStopReason {
     WholeMidpoint,
     OppositeMidpointNormal,
     EndFaceContour,
+    FaceRecertification,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConformingFacetState {
@@ -90,11 +97,19 @@ pub struct ConformingTriangle {
     normal: i8,
     dirty: bool,
 }
-/// Retains every candidate facet and propagates each split to both candidate
-/// owners. Noncandidate source facets, source-cell boundaries, curved topology,
-/// physical-space accuracy and rendering are not resolved by this mesh.
+#[derive(Clone, Copy)]
+struct FaceSeamCoordinate {
+    face_axis: u8,
+    upper: bool,
+    along: ExactCoordinate,
+}
+/// Retains candidate facets and their source-bound adaptive and face lineage.
+/// Noncandidate facets, whole-grid seams and rendering remain unresolved.
 pub struct ConformingSurfaceMesh {
     input: Arc<EnclosedSurfaceGraph>,
+    seam_points: Vec<FaceSeamCoordinate>,
+    lineage: Option<Arc<AppliedFacePair>>,
+    lineage_depth: u8,
     vertices: Vec<ConformingVertex>,
     triangles: Vec<ConformingTriangle>,
     bytes: u64,
@@ -104,6 +119,24 @@ impl ConformingSurfaceMesh {
     pub const POSITION_DENOMINATOR: u32 = REFINED_GRID;
     pub fn input(&self) -> &Arc<EnclosedSurfaceGraph> {
         &self.input
+    }
+    /// The face application retained for exact split provenance, when present.
+    pub fn face_application(&self) -> Option<&Arc<AppliedFacePair>> {
+        self.lineage.as_ref()
+    }
+    pub fn face_lineage_depth(&self) -> u8 {
+        self.lineage_depth
+    }
+    /// Recover the source face and exact transverse coordinate for a face split.
+    pub fn face_split_source(&self, point: u32) -> Option<(FaceKey, ExactCoordinate)> {
+        let seam = self.seam_points.get(point as usize)?;
+        let chart = self.input.input().input().input().input().edges().chart();
+        let face = chart
+            .graph()
+            .cell()
+            .face(usize::from(seam.face_axis), seam.upper)?
+            .0;
+        Some((face, seam.along))
     }
     pub fn vertices(&self) -> &[ConformingVertex] {
         &self.vertices
@@ -454,6 +487,9 @@ impl EnclosedSurfaceGraph {
         check(&cancel)?;
         Ok(ConformingSurfaceMesh {
             input: Arc::clone(self),
+            seam_points: Vec::new(),
+            lineage: None,
+            lineage_depth: 0,
             vertices,
             triangles,
             bytes,

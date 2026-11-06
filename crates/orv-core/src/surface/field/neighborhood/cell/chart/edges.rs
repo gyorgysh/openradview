@@ -9,11 +9,12 @@ pub use contacts::{
     BoundedSurfaceVertex, CellAxisBounds, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
-    FacePlacement, FaceSpanCoverage, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
-    PlanarRegion, PlanarTriangle, PlanarTriangulationLimits, ProjectedContact,
-    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedPlanarGraph,
-    RefinedPlanarGraph, SharedFacePartition, SplitPath, SplitProjectedConstraints, SplitSegment,
-    SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PlanarEdge, PlanarHalfEdge,
+    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
+    ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts,
+    ProjectedPlanarGraph, RefinedPlanarGraph, SharedFacePartition, SplitPath,
+    SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_LINKS: usize = 262_144;

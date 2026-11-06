@@ -9,7 +9,7 @@ pub use refine::{
     BoundedSurfaceVertex, CellAxisBounds, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
-    FacePlacement, FaceSpanCoverage, PlanarRefinementLimits, PlanarTriangle,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PlanarRefinementLimits, PlanarTriangle,
     PlanarTriangulationLimits, RefinedPlanarGraph, SharedFacePartition, SurfaceEnclosureLimits,
     SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };

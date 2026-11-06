@@ -8,7 +8,7 @@ pub use certificate::{
     AppliedFaceTriangle, AppliedFaceVertex, AppliedTriangleState, ConformingFacetState,
     ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle,
     ConformingVertex, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement,
-    FaceSpanCoverage, SharedFacePartition, SurfaceFacetCertificate,
+    FacePromotionLimits, FaceSpanCoverage, SharedFacePartition, SurfaceFacetCertificate,
 };
 
 const MAX_OUTPUT: u64 = 16 * 1024 * 1024;

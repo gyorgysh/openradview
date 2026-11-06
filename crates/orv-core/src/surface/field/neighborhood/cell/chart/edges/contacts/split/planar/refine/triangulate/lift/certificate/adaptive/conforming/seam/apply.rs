@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Atomic application of source-bound face partition requests.
 use super::*;
+mod compose;
+pub use compose::FacePromotionLimits;
 
 const MAX_OUTPUT: u64 = 32 * 1024 * 1024;
 const MAX_CELL_VERTICES: usize = 65_536;

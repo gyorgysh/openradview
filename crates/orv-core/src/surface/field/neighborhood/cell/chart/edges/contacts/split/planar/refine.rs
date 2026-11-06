@@ -9,8 +9,9 @@ pub use triangulate::{
     BoundedSurfaceVertex, CellAxisBounds, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
-    FacePlacement, FaceSpanCoverage, PlanarTriangle, PlanarTriangulationLimits,
-    SharedFacePartition, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PlanarTriangle,
+    PlanarTriangulationLimits, SharedFacePartition, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_BYTES: u64 = 16 * 1024 * 1024;

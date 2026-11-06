@@ -6,8 +6,8 @@ pub use conforming::{
     AppliedFaceCell, AppliedFaceLimits, AppliedFacePair, AppliedFaceSpan, AppliedFaceTriangle,
     AppliedFaceVertex, AppliedTriangleState, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
-    FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage,
-    SharedFacePartition,
+    FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FacePromotionLimits,
+    FaceSpanCoverage, SharedFacePartition,
 };
 
 const MAX_DEPTH: u8 = 8;

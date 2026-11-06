@@ -1551,3 +1551,260 @@ fn face_application_matches_segments_for_all_transverse_axis_pairs() {
     }
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn promoted_cells_preserve_prior_seam_through_a_second_face_exchange() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let field = fractional(source([3, 3, 2], true, false), |[x, y, z]| {
+        if (x % 2 == 0 && y % 2 == 0 && z == 0) || (x == 1 && y == 1 && z == 1) {
+            26
+        } else {
+            -6
+        }
+    });
+    let a = adjacent_conforming_axis(&field, [0, 0, 0], 2, 0, budget.clone());
+    let b = adjacent_conforming_axis(&field, [1, 0, 0], 2, 7, budget.clone());
+    let c = adjacent_conforming_axis(&field, [0, 1, 0], 2, 7, budget.clone());
+    let face_limits = FacePartitionLimits {
+        max_edges_per_cell: 1024,
+        max_points: 2048,
+        ..FacePartitionLimits::default()
+    };
+    let first = Arc::new(
+        a.shared_face_partition_with_budget(&b, 0, face_limits, budget.clone(), || false)
+            .unwrap(),
+    );
+    let first_pair = Arc::new(
+        first
+            .apply_with_budget(AppliedFaceLimits::default(), budget.clone(), || false)
+            .unwrap(),
+    );
+    let baseline = budget.used();
+    let [a1, b1] = first_pair
+        .promote_cells_with_budget(FacePromotionLimits::default(), budget.clone(), || false)
+        .unwrap();
+    assert_eq!(
+        budget.used(),
+        baseline + a1.referenced_bytes() + b1.referenced_bytes()
+    );
+    assert_eq!(a1.face_lineage_depth(), 1);
+    assert!(Arc::ptr_eq(a1.face_application().unwrap(), &first_pair));
+    assert!(
+        a1.vertices()
+            .iter()
+            .chain(b1.vertices())
+            .any(|vertex| matches!(vertex, ConformingVertex::FaceSplit { .. }))
+    );
+    for (side, cell) in [&a1, &b1].into_iter().enumerate() {
+        for vertex in cell.vertices() {
+            if let ConformingVertex::FaceSplit {
+                point, position, ..
+            } = *vertex
+            {
+                let (face, coordinate) = cell.face_split_source(point).unwrap();
+                assert_eq!(face, first.face());
+                assert!(first.points().iter().any(|candidate| {
+                    candidate.coordinate.compare(coordinate).unwrap().is_eq()
+                        && matches!(candidate.placements[side], FacePlacement::Split { position: p, .. } if p == position)
+                }));
+            }
+        }
+    }
+    let first_again = a1
+        .shared_face_partition_with_budget(&b1, 0, face_limits, budget.clone(), || false)
+        .unwrap();
+    assert!(first_again.points().iter().all(|p| {
+        !p.placements
+            .iter()
+            .any(|v| matches!(v, FacePlacement::Split { .. }))
+    }));
+    drop(first_again);
+    let second = Arc::new(
+        a1.shared_face_partition_with_budget(&c, 1, face_limits, budget.clone(), || false)
+            .unwrap(),
+    );
+    let second_pair = Arc::new(
+        second
+            .apply_with_budget(AppliedFaceLimits::default(), budget.clone(), || false)
+            .unwrap(),
+    );
+    let [a2, c1] = second_pair
+        .promote_cells_with_budget(FacePromotionLimits::default(), budget.clone(), || false)
+        .unwrap();
+    assert_eq!(a2.face_lineage_depth(), 2);
+    assert_eq!(c1.face_lineage_depth(), 2);
+    assert!(Arc::ptr_eq(a2.face_application().unwrap(), &second_pair));
+    assert_eq!(&a2.vertices()[..a1.vertices().len()], a1.vertices());
+    for vertex in a1.vertices() {
+        if let ConformingVertex::FaceSplit { point, .. } = *vertex {
+            let (old_face, old_coordinate) = a1.face_split_source(point).unwrap();
+            let (new_face, new_coordinate) = a2.face_split_source(point).unwrap();
+            assert_eq!(old_face, new_face);
+            assert!(old_coordinate.compare(new_coordinate).unwrap().is_eq());
+        }
+    }
+    let first_after = a2
+        .shared_face_partition_with_budget(&b1, 0, face_limits, budget.clone(), || false)
+        .unwrap();
+    assert!(first_after.points().iter().all(|p| {
+        !p.placements
+            .iter()
+            .any(|v| matches!(v, FacePlacement::Split { .. }))
+    }));
+}
+
+#[test]
+fn face_promotion_is_atomic_under_limits_and_cancellation() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let partition = partition_fixture(budget.clone());
+    let pair = Arc::new(
+        partition
+            .apply_with_budget(AppliedFaceLimits::default(), budget.clone(), || false)
+            .unwrap(),
+    );
+    let baseline = budget.used();
+    let calls = Cell::new(0usize);
+    let promoted = pair
+        .promote_cells_with_budget(FacePromotionLimits::default(), budget.clone(), || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .unwrap();
+    let total = calls.get();
+    let bytes = promoted[0].referenced_bytes() + promoted[1].referenced_bytes();
+    let vertices = promoted
+        .iter()
+        .map(|cell| cell.vertices().len())
+        .max()
+        .unwrap();
+    let triangles = promoted
+        .iter()
+        .map(|cell| cell.triangles().len())
+        .max()
+        .unwrap();
+    let splits = promoted
+        .iter()
+        .flat_map(|cell| cell.vertices())
+        .filter(|v| matches!(v, ConformingVertex::FaceSplit { .. }))
+        .count();
+    assert!(splits > 0);
+    drop(promoted);
+    assert_eq!(budget.used(), baseline);
+    let limits = FacePromotionLimits::default();
+    assert!(matches!(
+        pair.promote_cells_with_budget(
+            FacePromotionLimits {
+                max_vertices_per_cell: vertices - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        pair.promote_cells_with_budget(
+            FacePromotionLimits {
+                max_triangles_per_cell: triangles - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        pair.promote_cells_with_budget(
+            FacePromotionLimits {
+                max_seam_points_per_cell: 0,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        pair.promote_cells_with_budget(
+            FacePromotionLimits {
+                max_operations: 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        pair.promote_cells_with_budget(
+            FacePromotionLimits {
+                max_bytes: bytes - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    let small = MemoryBudget::new(bytes);
+    assert!(matches!(
+        pair.promote_cells_with_budget(limits, small.clone(), || false),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(small.used(), 0);
+    for stop in [1, total / 2, total] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            pair.promote_cells_with_budget(limits, budget.clone(), || {
+                calls.set(calls.get() + 1);
+                calls.get() >= stop
+            }),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), baseline);
+    }
+}
+
+#[test]
+fn face_promotion_bounds_lineage_without_publishing_a_partial_pair() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let initial = partition_fixture(budget.clone());
+    let mut left = Arc::clone(&initial.inputs()[0]);
+    let mut right = Arc::clone(&initial.inputs()[1]);
+    let limits = FacePartitionLimits {
+        max_edges_per_cell: 1024,
+        max_points: 2048,
+        ..FacePartitionLimits::default()
+    };
+    for depth in 1..=16 {
+        let partition = Arc::new(
+            left.shared_face_partition_with_budget(&right, 0, limits, budget.clone(), || false)
+                .unwrap(),
+        );
+        let pair = Arc::new(
+            partition
+                .apply_with_budget(AppliedFaceLimits::default(), budget.clone(), || false)
+                .unwrap(),
+        );
+        [left, right] = pair
+            .promote_cells_with_budget(FacePromotionLimits::default(), budget.clone(), || false)
+            .unwrap();
+        assert_eq!(left.face_lineage_depth(), depth);
+        assert_eq!(right.face_lineage_depth(), depth);
+    }
+    let partition = Arc::new(
+        left.shared_face_partition_with_budget(&right, 0, limits, budget.clone(), || false)
+            .unwrap(),
+    );
+    let pair = Arc::new(
+        partition
+            .apply_with_budget(AppliedFaceLimits::default(), budget.clone(), || false)
+            .unwrap(),
+    );
+    let baseline = budget.used();
+    assert!(matches!(
+        pair.promote_cells_with_budget(FacePromotionLimits::default(), budget.clone(), || false),
+        Err(SurfaceError::Limit)
+    ));
+    assert_eq!(budget.used(), baseline);
+}

@@ -9,10 +9,10 @@ pub use planar::{
     BoundedSurfaceVertex, CellAxisBounds, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
-    FacePlacement, FaceSpanCoverage, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
-    PlanarRegion, PlanarTriangle, PlanarTriangulationLimits, ProjectedPlanarGraph,
-    RefinedPlanarGraph, SharedFacePartition, SurfaceEnclosureLimits, SurfaceFacetCertificate,
-    TriangulatedPlanarGraph,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PlanarEdge, PlanarHalfEdge,
+    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
+    ProjectedPlanarGraph, RefinedPlanarGraph, SharedFacePartition, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const NODES: usize = JointSubdivision::MAX_NODES;
