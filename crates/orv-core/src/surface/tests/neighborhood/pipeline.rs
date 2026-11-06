@@ -1919,3 +1919,393 @@ fn mixed_face_application_preserves_shared_coordinates_on_every_axis() {
         }
     }
 }
+
+#[test]
+fn promoted_mixed_candidate_retains_exact_split_and_can_be_repartitioned() {
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let field = fractional(source([3, 3, 2], true, false), |[x, y, z]| {
+        let y = if y == 2 { 0 } else { y };
+        -2 + 4 * y as i16
+            + 4 * z as i16
+            + [-2, 0, 4][x]
+            + if [x, y, z] == [2, 1, 1] { -12 } else { 0 }
+    });
+    let affine = field.affine_cell([0, 0, 0], || false).unwrap();
+    let grid = field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let CandidateCellState::Candidate { mesh } = grid.cells()[0].state else {
+        panic!("expected a candidate");
+    };
+    let candidate = grid.meshes()[usize::from(mesh)].clone();
+    let mut partition = candidate
+        .mixed_face_partition_with_budget(
+            &affine,
+            0,
+            limits().seams.partition,
+            budget.clone(),
+            || false,
+        )
+        .unwrap()
+        .unwrap();
+    // Insert a valid point strictly inside an existing represented candidate edge,
+    // as would happen when a neighboring face contributes an additional split.
+    let (fraction, coordinate, span_index) = (1i16..32)
+        .find_map(|fraction| {
+            let EdgeZero::Point(ratio) =
+                Trilinear::new([-fraction, 64 - fraction, 1, 1, 1, 1, 1, 1])
+                    .unwrap()
+                    .edge(0, 0)
+                    .unwrap()
+            else {
+                return None;
+            };
+            let coordinate = ExactCoordinate::from_rational(ratio).unwrap().unwrap();
+            partition
+                .spans
+                .iter()
+                .position(|span| {
+                    partition.points[span.points[0] as usize]
+                        .coordinate
+                        .compare(coordinate)
+                        .unwrap()
+                        .is_lt()
+                        && partition.points[span.points[1] as usize]
+                            .coordinate
+                            .compare(coordinate)
+                            .unwrap()
+                            .is_gt()
+                        && matches!(span.candidate, FaceSpanCoverage::Present { .. })
+                })
+                .map(|span_index| (fraction, coordinate, span_index))
+        })
+        .expect("fixture should contain a split in a represented edge");
+    let original_span = partition.spans[span_index];
+    let FaceSpanCoverage::Present { triangle, edge } = original_span.candidate else {
+        unreachable!()
+    };
+    let insert = original_span.points[1] as usize;
+    let denominator = ConformingSurfaceMesh::POSITION_DENOMINATOR;
+    let along = denominator * u32::try_from(fraction).unwrap() / 64;
+    let candidate_position = [0, along, denominator / 2 - along];
+    let affine_position = [denominator, candidate_position[1], candidate_position[2]];
+    partition.points.insert(
+        insert,
+        MixedFacePoint {
+            coordinate,
+            affine: MixedAffinePlacement::Split,
+            candidate: FacePlacement::Split {
+                triangle,
+                edge,
+                position: candidate_position,
+            },
+            affine_position: Some(affine_position),
+        },
+    );
+    for span in &mut partition.spans {
+        for point in &mut span.points {
+            if *point >= insert as u32 {
+                *point += 1;
+            }
+        }
+    }
+    let adjusted = partition.spans[span_index];
+    partition.spans[span_index].points = [adjusted.points[0], insert as u32];
+    partition.spans.insert(
+        span_index + 1,
+        MixedFaceSpan {
+            points: [insert as u32, adjusted.points[1]],
+            ..adjusted
+        },
+    );
+    let partition = Arc::new(partition);
+    let applied = partition
+        .apply_mixed_with_budget(0.02, AppliedFaceLimits::default(), budget.clone(), || false)
+        .unwrap()
+        .unwrap();
+    let vertex_id = applied.point_vertices()[insert][0].unwrap();
+    assert!(matches!(
+        applied.candidate().vertices()[vertex_id as usize],
+        AppliedFaceVertex::Split { .. }
+    ));
+    let promoted = applied
+        .promote_candidate_compacted_with_budget(
+            FacePromotionLimits::default(),
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(
+        promoted.physical_tolerance_mm(),
+        candidate.physical_tolerance_mm()
+    );
+    assert_eq!(
+        promoted.triangles().len(),
+        applied.candidate().triangles().len()
+    );
+    let ConformingVertex::FaceSplit {
+        point, position, ..
+    } = promoted.vertices()[vertex_id as usize]
+    else {
+        panic!("candidate split was not retained");
+    };
+    assert_eq!(position, candidate_position);
+    let (face, retained) = promoted.face_split_source(point).unwrap();
+    assert_eq!(face, partition.face());
+    assert!(retained.compare(coordinate).unwrap().is_eq());
+    let again = promoted
+        .mixed_face_partition_with_budget(
+            &affine,
+            0,
+            limits().seams.partition,
+            budget.clone(),
+            || false,
+        )
+        .unwrap()
+        .unwrap();
+    let point = again
+        .points()
+        .iter()
+        .find(|point| point.coordinate.compare(coordinate).unwrap().is_eq())
+        .unwrap();
+    assert_eq!(
+        point.candidate,
+        FacePlacement::Existing { vertex: vertex_id }
+    );
+    let neighbor_grid = field
+        .candidate_grid_with_budget([1, 1, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let CandidateCellState::Candidate { mesh } = neighbor_grid.cells()[0].state else {
+        panic!("expected a second candidate for later face coordination");
+    };
+    let neighbor = neighbor_grid.meshes()[usize::from(mesh)].clone();
+    let before_face = candidate
+        .shared_face_partition_with_budget(
+            &neighbor,
+            1,
+            limits().seams.partition,
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    let next_face = promoted
+        .shared_face_partition_with_budget(
+            &neighbor,
+            1,
+            limits().seams.partition,
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(next_face.face().axis, 1);
+    let batch = CellSeamBatch::coordinate_with_budget(
+        &[promoted.clone(), neighbor.clone()],
+        limits().seams,
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(batch.faces().len(), 1);
+    assert!(!matches!(
+        batch.faces()[0].state,
+        CellFaceState::Unresolved { .. }
+    ));
+    let repeated_partition = Arc::new(
+        batch.cells()[0]
+            .mixed_face_partition_with_budget(
+                &affine,
+                0,
+                limits().seams.partition,
+                budget.clone(),
+                || false,
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    let repeated_application = repeated_partition
+        .apply_mixed_with_budget(0.02, AppliedFaceLimits::default(), budget.clone(), || false)
+        .unwrap()
+        .unwrap();
+    let repeated = repeated_application
+        .promote_candidate_compacted_with_budget(
+            FacePromotionLimits::default(),
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    assert!(repeated.vertices().iter().any(|vertex| {
+        match vertex {
+            ConformingVertex::FaceSplit { point, .. } => repeated
+                .face_split_source(*point)
+                .is_some_and(|(face, exact)| {
+                    face == partition.face() && exact.compare(coordinate).unwrap().is_eq()
+                }),
+            _ => false,
+        }
+    }));
+    for (expected, actual) in applied
+        .candidate()
+        .triangles()
+        .iter()
+        .zip(promoted.triangles())
+    {
+        assert_eq!(expected.vertices, actual.vertices);
+        assert_eq!(expected.source_facet, actual.source_facet);
+        match (expected.state, actual.state) {
+            (
+                AppliedTriangleState::WithinTolerance {
+                    numerator: a,
+                    denominator: b,
+                },
+                ConformingFacetState::WithinTolerance {
+                    numerator: c,
+                    denominator: d,
+                },
+            ) => assert_eq!((a, b), (c, d)),
+            (
+                AppliedTriangleState::Unresolved { certificate: a },
+                ConformingFacetState::Unresolved {
+                    certificate: Some(b),
+                    ..
+                },
+            ) => assert_eq!(a, b),
+            _ => panic!("candidate certification changed during promotion"),
+        }
+    }
+    let retained_bytes = budget.used();
+    let calls = Cell::new(0usize);
+    let counted = applied
+        .promote_candidate_compacted_with_budget(
+            FacePromotionLimits::default(),
+            budget.clone(),
+            || {
+                calls.set(calls.get() + 1);
+                false
+            },
+        )
+        .unwrap();
+    let total_calls = calls.get();
+    drop(counted);
+    for stop in [1, total_calls / 2, total_calls] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            applied.promote_candidate_compacted_with_budget(
+                FacePromotionLimits::default(),
+                budget.clone(),
+                || {
+                    calls.set(calls.get() + 1);
+                    calls.get() >= stop
+                },
+            ),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), retained_bytes);
+    }
+    let empty = MemoryBudget::new(0);
+    assert!(matches!(
+        applied.promote_candidate_compacted_with_budget(
+            FacePromotionLimits::default(),
+            empty.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(empty.used(), 0);
+    assert!(matches!(
+        applied.promote_candidate_compacted_with_budget(
+            FacePromotionLimits {
+                max_seam_points_per_cell: 0,
+                ..Default::default()
+            },
+            budget.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert_eq!(budget.used(), retained_bytes);
+    let axial = Arc::new(
+        candidate
+            .input()
+            .refine_conforming_with_budget(
+                ConformingSurfaceLimits {
+                    tolerance_bits: 6,
+                    max_depth: 4,
+                    max_vertices: 2048,
+                    max_triangles: 2048,
+                    max_operations: 2_000_000,
+                    ..Default::default()
+                },
+                budget.clone(),
+                || false,
+            )
+            .unwrap(),
+    );
+    assert_eq!(axial.axial_tolerance_bits(), Some(6));
+    let axial_partition = Arc::new(
+        axial
+            .mixed_face_partition_with_budget(
+                &affine,
+                0,
+                limits().seams.partition,
+                budget.clone(),
+                || false,
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    let axial_application = axial_partition
+        .apply_mixed_with_budget(
+            0.02,
+            AppliedFaceLimits {
+                tolerance_bits: [12, 8],
+                ..Default::default()
+            },
+            budget.clone(),
+            || false,
+        )
+        .unwrap()
+        .unwrap();
+    let axial_promoted = axial_application
+        .promote_candidate_compacted_with_budget(
+            FacePromotionLimits::default(),
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(axial_promoted.axial_tolerance_bits(), Some(12));
+    drop((axial_promoted, axial_application, axial_partition, axial));
+    assert_eq!(budget.used(), retained_bytes);
+    drop((
+        batch,
+        repeated,
+        repeated_application,
+        repeated_partition,
+        before_face,
+        next_face,
+        neighbor,
+        neighbor_grid,
+        again,
+        applied,
+        partition,
+        candidate,
+        grid,
+    ));
+    assert_eq!(promoted.face_lineage_depth(), 0);
+    assert!(promoted.face_application().is_none());
+    let after_release = promoted
+        .mixed_face_partition_with_budget(
+            &affine,
+            0,
+            limits().seams.partition,
+            budget.clone(),
+            || false,
+        )
+        .unwrap()
+        .unwrap();
+    assert!(after_release.points().iter().any(|point| {
+        point.coordinate.compare(coordinate).unwrap().is_eq()
+            && point.candidate == FacePlacement::Existing { vertex: vertex_id }
+    }));
+    drop((after_release, promoted, affine, field));
+    assert_eq!(budget.used(), 0);
+}

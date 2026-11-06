@@ -607,6 +607,215 @@ impl MixedFacePartition {
             point_vertices,
             spans,
             affine_error_mm: error_mm,
+            candidate_tolerance_bits: limits.tolerance_bits[0],
+            bytes,
+            _reservation: reservation,
+        }))
+    }
+}
+
+impl AppliedMixedFace {
+    /// Materialize the recertified candidate and exact mixed-face coordinates
+    /// for later compatible face exchanges. The returned mesh does not retain
+    /// the application history; callers can retain this result separately.
+    pub fn promote_candidate_compacted(
+        &self,
+        limits: FacePromotionLimits,
+        cancel: impl Fn() -> bool,
+    ) -> Result<Arc<ConformingSurfaceMesh>, SurfaceError> {
+        self.promote_candidate_compacted_with_budget(limits, MemoryBudget::volumes(), cancel)
+    }
+
+    pub(in crate::surface) fn promote_candidate_compacted_with_budget(
+        &self,
+        limits: FacePromotionLimits,
+        budget: Arc<MemoryBudget>,
+        cancel: impl Fn() -> bool,
+    ) -> Result<Arc<ConformingSurfaceMesh>, SurfaceError> {
+        check(&cancel)?;
+        if limits.max_vertices_per_cell > MAX_CELL_VERTICES
+            || limits.max_triangles_per_cell > MAX_CELL_TRIANGLES
+            || limits.max_seam_points_per_cell > MAX_CELL_VERTICES
+            || limits.max_operations == 0
+            || limits.max_operations > MAX_WORK
+            || limits.max_bytes > MAX_OUTPUT
+        {
+            return Err(SurfaceError::Limit);
+        }
+        let source = self.input().candidate();
+        let output = self.candidate();
+        if output.vertices().len() > limits.max_vertices_per_cell
+            || output.triangles().len() > limits.max_triangles_per_cell
+        {
+            return Err(SurfaceError::Limit);
+        }
+        let mut work = Work {
+            used: 0,
+            limit: limits.max_operations,
+            cancel: &cancel,
+        };
+        let mut split_count = 0usize;
+        for vertex in output.vertices() {
+            work.charge(1)?;
+            split_count += usize::from(matches!(vertex, AppliedFaceVertex::Split { .. }));
+        }
+        let seam_count = source
+            .seam_points
+            .len()
+            .checked_add(split_count)
+            .ok_or(SurfaceError::Limit)?;
+        if seam_count > limits.max_seam_points_per_cell {
+            return Err(SurfaceError::Limit);
+        }
+        let bytes = size(
+            &[
+                (
+                    output.vertices().len(),
+                    std::mem::size_of::<ConformingVertex>(),
+                ),
+                (
+                    output.triangles().len(),
+                    std::mem::size_of::<ConformingTriangle>(),
+                ),
+                (seam_count, std::mem::size_of::<FaceSeamCoordinate>()),
+            ],
+            std::mem::size_of::<ConformingSurfaceMesh>()
+                + crate::surface::shared_header_bytes::<ConformingSurfaceMesh>(),
+        )?;
+        if bytes > limits.max_bytes {
+            return Err(SurfaceError::Limit);
+        }
+        let reservation = budget.reserve(bytes).ok_or(SurfaceError::Memory)?;
+        let mut vertices = exact(output.vertices().len())?;
+        let mut triangles = exact(output.triangles().len())?;
+        let mut seam_points = exact(seam_count)?;
+        for point in &source.seam_points {
+            work.charge(1)?;
+            seam_points.push(*point);
+        }
+        let face_axis = usize::from(self.input().face().axis);
+        if face_axis >= 3 {
+            return Err(SurfaceError::Geometry);
+        }
+        for (index, vertex) in output.vertices().iter().copied().enumerate() {
+            work.charge(1)?;
+            match vertex {
+                AppliedFaceVertex::Retained { id, position } => {
+                    if id as usize != index {
+                        return Err(SurfaceError::Geometry);
+                    }
+                    let original = *source
+                        .vertices
+                        .get(id as usize)
+                        .ok_or(SurfaceError::Geometry)?;
+                    if original.position() != position {
+                        return Err(SurfaceError::Geometry);
+                    }
+                    vertices.push(original);
+                }
+                AppliedFaceVertex::Split {
+                    point,
+                    edge,
+                    position,
+                } => {
+                    let input_point = self
+                        .input()
+                        .points()
+                        .get(point as usize)
+                        .ok_or(SurfaceError::Geometry)?;
+                    match input_point.candidate {
+                        FacePlacement::Split {
+                            edge: expected,
+                            position: expected_position,
+                            ..
+                        } if expected == edge && expected_position == position => {}
+                        _ => return Err(SurfaceError::Geometry),
+                    }
+                    if edge.iter().any(|id| *id as usize >= source.vertices.len()) {
+                        return Err(SurfaceError::Geometry);
+                    }
+                    let upper = match position[face_axis] {
+                        0 => false,
+                        REFINED_GRID => true,
+                        _ => return Err(SurfaceError::Geometry),
+                    };
+                    let face = chart(source)
+                        .graph()
+                        .cell()
+                        .face(face_axis, upper)
+                        .ok_or(SurfaceError::Geometry)?
+                        .0;
+                    if face != self.input().face() {
+                        return Err(SurfaceError::Geometry);
+                    }
+                    let id = u32::try_from(seam_points.len()).map_err(|_| SurfaceError::Limit)?;
+                    seam_points.push(FaceSeamCoordinate {
+                        face_axis: face_axis as u8,
+                        upper,
+                        along: input_point.coordinate,
+                    });
+                    vertices.push(ConformingVertex::FaceSplit {
+                        parents: edge,
+                        point: id,
+                        position,
+                    });
+                }
+            }
+        }
+        for triangle in output.triangles() {
+            work.charge(1)?;
+            let original = source
+                .triangles
+                .get(triangle.source_triangle as usize)
+                .ok_or(SurfaceError::Geometry)?;
+            if original.source_facet != triangle.source_facet
+                || triangle
+                    .vertices
+                    .iter()
+                    .any(|id| *id as usize >= vertices.len())
+            {
+                return Err(SurfaceError::Geometry);
+            }
+            let state = match triangle.state {
+                AppliedTriangleState::WithinTolerance {
+                    numerator,
+                    denominator,
+                } => ConformingFacetState::WithinTolerance {
+                    numerator,
+                    denominator,
+                },
+                AppliedTriangleState::Unresolved { certificate } => {
+                    ConformingFacetState::Unresolved {
+                        certificate: Some(certificate),
+                        reason: ConformingStopReason::FaceRecertification,
+                    }
+                }
+            };
+            triangles.push(ConformingTriangle {
+                vertices: triangle.vertices,
+                source_facet: triangle.source_facet,
+                depth: original.depth,
+                state,
+                normal: original.normal,
+                dirty: false,
+            });
+        }
+        if seam_points.len() != seam_count {
+            return Err(SurfaceError::Geometry);
+        }
+        let criterion = match source.criterion {
+            Criterion::PhysicalMm(mm) => Criterion::PhysicalMm(mm),
+            Criterion::AxialBits(_) => Criterion::AxialBits(self.candidate_tolerance_bits),
+        };
+        check(&cancel)?;
+        Ok(Arc::new(ConformingSurfaceMesh {
+            input: Arc::clone(&source.input),
+            seam_points,
+            lineage: None,
+            lineage_depth: 0,
+            criterion,
+            vertices,
+            triangles,
             bytes,
             _reservation: reservation,
         }))

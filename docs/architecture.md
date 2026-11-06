@@ -1205,6 +1205,11 @@ coordinates on other source-cell faces stay on those faces. The retained spans
 preserve missing coverage and post-application candidate certification. The
 result is local CPU geometry, not a complete seam, GPU projection certificate,
 native surface or editing authority.
+`AppliedMixedFace::promote_candidate_compacted` materializes the recertified
+candidate, its existing seam points and the exact coordinates of mixed-face
+splits for subsequent compatible face exchanges. It preserves the candidate's
+applied error criterion while dropping application history; callers that need the
+matching affine result or that history must retain the original application.
 
 `GpuCandidateSurface` uploads within-tolerance triangles of a bounded candidate
 assembly as per-cell immutable triangle descriptors. Exact affine polygons use

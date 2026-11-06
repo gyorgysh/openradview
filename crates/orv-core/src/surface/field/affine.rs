@@ -126,6 +126,7 @@ pub struct AppliedMixedFace {
     pub(in crate::surface) point_vertices: Vec<[Option<u32>; 2]>,
     pub(in crate::surface) spans: Vec<AppliedMixedSpan>,
     pub(in crate::surface) affine_error_mm: f64,
+    pub(in crate::surface) candidate_tolerance_bits: u8,
     pub(in crate::surface) bytes: u64,
     pub(in crate::surface) _reservation: Reservation,
 }
