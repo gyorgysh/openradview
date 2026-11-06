@@ -699,6 +699,13 @@ without floating-point decisions and can refuse unsupported arithmetic. A planar
 mesh vertex can query the chart retained through its source graph. These vertex
 bounds do not resolve whole fibers, certify triangle interiors or coordinate
 neighboring seams.
+`TriangulatedPlanarGraph::enclose_surface` retains that mesh and computes inclusive
+3D local-coordinate boxes for its uniquely defined vertices, using exact coordinate
+comparisons and fiber signs. Empty and whole fibers stay explicit. Each input
+triangle keeps a same-index disposition based on its source region and vertex
+fibers; a candidate is not an interior certificate. Output is separately admitted,
+bounded and cancellable. Curved boundary error, whole-fiber interpretation,
+neighboring seams and rendering remain separate obligations.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

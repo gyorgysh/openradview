@@ -2,7 +2,10 @@
 //! Coordinated curve and straight-cut paths over one source-owned planar graph.
 use super::*;
 mod triangulate;
-pub use triangulate::{PlanarTriangle, PlanarTriangulationLimits, TriangulatedPlanarGraph};
+pub use triangulate::{
+    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph,
+    PlanarTriangle, PlanarTriangulationLimits, SurfaceEnclosureLimits, TriangulatedPlanarGraph,
+};
 
 const MAX_BYTES: u64 = 16 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

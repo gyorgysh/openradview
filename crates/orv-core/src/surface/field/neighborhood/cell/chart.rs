@@ -3,11 +3,12 @@
 use super::*;
 mod edges;
 pub use edges::{
-    ChartEdgeStep, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
-    PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
-    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
-    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
-    SplitProjectedConstraints, SplitSegment, SplitStep, TriangulatedPlanarGraph,
+    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, ChartEdgeStep, EnclosedSurfaceGraph,
+    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
+    PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
+    ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
+    ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath, SplitProjectedConstraints, SplitSegment,
+    SplitStep, SurfaceEnclosureLimits, TriangulatedPlanarGraph,
 };
 
 /// Intersection of a source-cell zero set with a closed projection fiber.

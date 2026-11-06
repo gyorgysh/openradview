@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Exact shared-slice planar triangulation with retained source constraints.
 use super::*;
+mod lift;
+pub use lift::{
+    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph,
+    SurfaceEnclosureLimits,
+};
 
 const MAX_TRIANGLES: usize = 262_144;
 const MAX_BYTES: u64 = 16 * 1024 * 1024;

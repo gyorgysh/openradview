@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod lift;
 use std::collections::{BTreeMap, BTreeSet};
 
 fn xy(input: &RefinedPlanarGraph, id: u32) -> [f64; 2] {

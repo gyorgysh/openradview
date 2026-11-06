@@ -3,8 +3,9 @@
 use super::*;
 mod refine;
 pub use refine::{
+    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph,
     PlanarRefinementLimits, PlanarTriangle, PlanarTriangulationLimits, RefinedPlanarGraph,
-    TriangulatedPlanarGraph,
+    SurfaceEnclosureLimits, TriangulatedPlanarGraph,
 };
 
 const MAX_EDGES: usize = 8192;

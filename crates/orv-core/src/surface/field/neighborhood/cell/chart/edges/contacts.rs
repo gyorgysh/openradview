@@ -3,9 +3,11 @@
 use super::*;
 mod split;
 pub use split::{
-    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
+    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph, PlanarEdge,
+    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
     PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
-    SplitProjectedConstraints, SplitSegment, SplitStep, TriangulatedPlanarGraph,
+    SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
+    TriangulatedPlanarGraph,
 };
 
 const MAX_CONTACTS: usize = 262_144;

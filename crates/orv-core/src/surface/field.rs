@@ -23,16 +23,17 @@ pub use factor::{
     AxisFactor, CellFactorization, CellPhase, CellResidual, FactorPatch, ResidualKind, ZeroBoundary,
 };
 pub use neighborhood::{
-    CellFiber, CellFiberBounds, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge,
-    CellGraphLimits, CellGraphNode, CellGraphRegion, CellGraphState, CellNeighborhood,
-    CellPathLimits, CellPathOrigin, CellPathVertex, CellProjectionChart, ChartEdgeStep,
-    EdgePartition, EdgePoint, NeighborhoodCell, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
+    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, CellFiber, CellFiberBounds,
+    CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
+    CellGraphRegion, CellGraphState, CellNeighborhood, CellPathLimits, CellPathOrigin,
+    CellPathVertex, CellProjectionChart, ChartEdgeStep, EdgePartition, EdgePoint,
+    EnclosedSurfaceGraph, NeighborhoodCell, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
     PlanarRegion, PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
     ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
     ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph, SourceCellGraph,
     SourceFace, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
-    TriangulatedPlanarGraph, WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch,
-    ZeroFacePhase, ZeroFaceSample,
+    SurfaceEnclosureLimits, TriangulatedPlanarGraph, WholeZeroFace, WholeZeroSubdivision,
+    ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
 };
 use std::sync::Arc;
 
