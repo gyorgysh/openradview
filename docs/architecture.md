@@ -1161,6 +1161,17 @@ partial model. Integer readback and vertex-input probes check the descriptor
 contract. These inputs remain distinct from ordered source composition,
 smoothing, physical picking, desktop display and disclosure/export paths.
 
+`GpuCandidateSurface` uploads the within-tolerance triangles of a bounded
+candidate assembly as per-cell immutable vertex streams. Each vertex stores the
+source-cell origin and exact integer subcell numerator; conversion to GPU
+floating-point coordinates is a separate rendering step. Unresolved triangles,
+noncandidate cells and assembly face states remain inspectable rather than
+silently treated as complete coverage. Unchanged integer geometry can reuse a
+GPU chunk across mask revisions while the parent retains the current assembly.
+Triangle and byte limits, source identity, cancellation, admitted GPU buffers
+and bounded upload staging are checked before publishing. These buffers are not
+yet connected to native rendering, picking or physical-coordinate error bounds.
+
 `GpuSurfaceProjector` produces a separate immutable `SurfaceImage` for one exact
 GPU source, mask revision, numeric ID, camera/display state, clip and requested
 size. It renders known cell interfaces two-sided, leaving unknown boundaries
