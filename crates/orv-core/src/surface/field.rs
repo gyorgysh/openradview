@@ -25,9 +25,10 @@ pub use factor::{
 pub use neighborhood::{
     CellFiber, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
     CellGraphRegion, CellGraphState, CellNeighborhood, CellPathLimits, CellPathOrigin,
-    CellPathVertex, CellProjectionChart, EdgePartition, EdgePoint, NeighborhoodCell,
-    RefinedCellGraph, SourceCellGraph, SourceFace, WholeZeroFace, WholeZeroSubdivision,
-    ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
+    CellPathVertex, CellProjectionChart, ChartEdgeStep, EdgePartition, EdgePoint, NeighborhoodCell,
+    ProjectedCellEdges, ProjectedEdge, ProjectedEdgeKind, RefinedCellGraph, SourceCellGraph,
+    SourceFace, WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase,
+    ZeroFaceSample,
 };
 use std::sync::Arc;
 

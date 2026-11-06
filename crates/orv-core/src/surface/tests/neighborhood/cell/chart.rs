@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod edges;
 
 fn coordinate(n: i16, denominator: i16) -> ExactCoordinate {
     let f = Trilinear::new(std::array::from_fn(|i| {

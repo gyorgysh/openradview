@@ -6,7 +6,8 @@ mod zero_face;
 pub use cell::{
     CellFiber, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
     CellGraphRegion, CellGraphState, CellPathLimits, CellPathOrigin, CellPathVertex,
-    CellProjectionChart, RefinedCellGraph, SourceCellGraph,
+    CellProjectionChart, ChartEdgeStep, ProjectedCellEdges, ProjectedEdge, ProjectedEdgeKind,
+    RefinedCellGraph, SourceCellGraph,
 };
 pub use zero_face::{
     WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,

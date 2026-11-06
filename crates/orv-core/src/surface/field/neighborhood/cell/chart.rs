@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Source-owned projection arrangements and exact rational zero fibers.
 use super::*;
+mod edges;
+pub use edges::{ChartEdgeStep, ProjectedCellEdges, ProjectedEdge, ProjectedEdgeKind};
 
 /// Intersection of a source-cell zero set with a closed projection fiber.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,9 +101,34 @@ impl SourceCellGraph {
     ) -> Result<CellProjectionChart, SurfaceError> {
         self.projection_chart_with_budget(axis, MemoryBudget::volumes(), cancel)
     }
+    /// Add exact chart constraints, for example points requested by another
+    /// boundary owner. Original source nodes remain mandatory and share the same
+    /// bounded insertion limit. Callers must still coordinate the full seam.
+    pub fn projection_chart_with_insertions(
+        self: &Arc<Self>,
+        axis: usize,
+        insertions: &[[ExactCoordinate; 2]],
+        cancel: impl Fn() -> bool,
+    ) -> Result<CellProjectionChart, SurfaceError> {
+        self.projection_chart_with_insertions_and_budget(
+            axis,
+            insertions,
+            MemoryBudget::volumes(),
+            cancel,
+        )
+    }
     pub(in crate::surface) fn projection_chart_with_budget(
         self: &Arc<Self>,
         axis: usize,
+        budget: Arc<MemoryBudget>,
+        cancel: impl Fn() -> bool,
+    ) -> Result<CellProjectionChart, SurfaceError> {
+        self.projection_chart_with_insertions_and_budget(axis, &[], budget, cancel)
+    }
+    pub(in crate::surface) fn projection_chart_with_insertions_and_budget(
+        self: &Arc<Self>,
+        axis: usize,
+        insertions: &[[ExactCoordinate; 2]],
         budget: Arc<MemoryBudget>,
         cancel: impl Fn() -> bool,
     ) -> Result<CellProjectionChart, SurfaceError> {
@@ -109,7 +136,12 @@ impl SourceCellGraph {
         if axis >= 3 || self.state != CellGraphState::Finite {
             return Err(SurfaceError::Geometry);
         }
-        if self.nodes.len() > JointSubdivision::MAX_INSERTIONS {
+        let count = self
+            .nodes
+            .len()
+            .checked_add(insertions.len())
+            .ok_or(SurfaceError::Limit)?;
+        if count > JointSubdivision::MAX_INSERTIONS {
             return Err(SurfaceError::Limit);
         }
         let metadata = std::mem::size_of::<CellProjectionChart>() as u64;
@@ -124,11 +156,15 @@ impl SourceCellGraph {
             check(&cancel)?;
             *slot = [node.coordinates[u], node.coordinates[v]];
         }
+        for (slot, point) in points[self.nodes.len()..count].iter_mut().zip(insertions) {
+            check(&cancel)?;
+            *slot = *point;
+        }
         let field = self.cell.interpolant().ok_or(SurfaceError::Geometry)?;
         let lower = field.face(axis, false).ok_or(SurfaceError::Geometry)?;
         let upper = field.face(axis, true).ok_or(SurfaceError::Geometry)?;
         let subdivision = lower
-            .joint_subdivision(upper, &points[..self.nodes.len()], &cancel)
+            .joint_subdivision(upper, &points[..count], &cancel)
             .map_err(error)?;
         check(&cancel)?;
         Ok(CellProjectionChart {
