@@ -11,10 +11,10 @@ pub use triangulate::{RegionTriangle, TriangulatedSubdivision, TriangulationLimi
 
 const GRID_BITS: u32 = 40;
 const GRID: u64 = 1 << GRID_BITS;
-const MAX_BITS: u8 = 24;
+pub(in super::super) const MAX_BITS: u8 = 24;
 const DEPTH: usize = 64;
-const MAX_VERTICES: usize = 65536;
-const MAX_BYTES: u64 = 16 * 1024 * 1024;
+pub(in super::super) const MAX_VERTICES: usize = 65536;
+pub(in super::super) const MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RefinementLimits {
@@ -35,14 +35,14 @@ impl Default for RefinementLimits {
     }
 }
 #[derive(Clone, Copy)]
-struct Enclosed {
-    point: [ExactCoordinate; 2],
-    lower: [u64; 2],
-    upper: [u64; 2],
-    original: Option<u8>,
+pub(in super::super) struct Enclosed {
+    pub(in super::super) point: [ExactCoordinate; 2],
+    pub(in super::super) lower: [u64; 2],
+    pub(in super::super) upper: [u64; 2],
+    pub(in super::super) original: Option<u8>,
 }
 impl Enclosed {
-    fn new(
+    pub(in super::super) fn new(
         point: [ExactCoordinate; 2],
         original: Option<u8>,
         cancel: &impl Fn() -> bool,
@@ -89,15 +89,15 @@ impl Enclosed {
     }
 }
 #[derive(Clone, Copy)]
-struct Segment {
-    a: Enclosed,
-    b: Enclosed,
-    depth: u8,
+pub(in super::super) struct Segment {
+    pub(in super::super) a: Enclosed,
+    pub(in super::super) b: Enclosed,
+    pub(in super::super) depth: u8,
 }
 #[derive(Clone, Copy)]
-struct Range {
-    start: usize,
-    len: usize,
+pub(in super::super) struct Range {
+    pub(in super::super) start: usize,
+    pub(in super::super) len: usize,
 }
 
 /// Completed edge polylines over the same exact region graph. Original node IDs
@@ -139,14 +139,14 @@ impl RefinedSubdivision {
         self.bytes
     }
 }
-fn geometry(error: FieldError) -> SurfaceError {
+pub(in super::super) fn geometry(error: FieldError) -> SurfaceError {
     match error {
         FieldError::Cancelled => SurfaceError::Cancelled,
         FieldError::Capacity => SurfaceError::Limit,
         _ => SurfaceError::Geometry,
     }
 }
-fn check(cancel: &impl Fn() -> bool) -> Result<(), SurfaceError> {
+pub(in super::super) fn check(cancel: &impl Fn() -> bool) -> Result<(), SurfaceError> {
     if cancel() {
         Err(SurfaceError::Cancelled)
     } else {
@@ -193,7 +193,7 @@ fn gradient_lower(constant: i32, slope: i32, lo: u64, hi: u64) -> u128 {
         0
     }
 }
-fn certified(segment: Segment, [_, b, c, d]: [i32; 4], bits: u8) -> bool {
+pub(in super::super) fn certified(segment: Segment, [_, b, c, d]: [i32; 4], bits: u8) -> bool {
     let (lo, hi) = bounds(segment);
     let span = [hi[0] - lo[0], hi[1] - lo[1]];
     let scale = 1u128 << bits;
@@ -211,7 +211,7 @@ fn certified(segment: Segment, [_, b, c, d]: [i32; 4], bits: u8) -> bool {
     let residual = u128::from(d.unsigned_abs()) * u128::from(span[0]) * u128::from(span[1]) * scale;
     gradient != 0 && residual <= 4 * gradient * u128::from(GRID)
 }
-fn split(
+pub(in super::super) fn split(
     segment: Segment,
     [a, b, c, d]: [i32; 4],
     cancel: &impl Fn() -> bool,
@@ -300,7 +300,7 @@ fn bytes(vertices: usize, indices: usize) -> Result<u64, SurfaceError> {
     )
     .map_err(|_| SurfaceError::Limit)
 }
-fn allocate<T>(count: usize) -> Result<Vec<T>, SurfaceError> {
+pub(in super::super) fn allocate<T>(count: usize) -> Result<Vec<T>, SurfaceError> {
     let mut values = Vec::new();
     values
         .try_reserve_exact(count)
@@ -446,4 +446,4 @@ impl PlaneSubdivision {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in super::super) mod tests;

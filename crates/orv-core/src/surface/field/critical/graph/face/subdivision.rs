@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded square subdivision by one bilinear zero set, with directed regions.
 use super::*;
-mod refine;
+pub(super) mod refine;
 pub use refine::{
     RefinedSubdivision, RefinementLimits, RegionTriangle, TriangulatedSubdivision,
     TriangulationLimits,

@@ -696,6 +696,29 @@ or moved to a nearby boundary. Geometry, source ownership and cancellation remai
 separate from coordinated curve refinement, triangle approximation and GPU
 publication; independent chords could otherwise create false crossings.
 
+`JointSubdivision::refine` supplies coordinated edge paths and one exact u-slice
+partition. It begins with every original node's u, including isolated interior
+constraints and the original intersection/domain events. An open event slab has
+at most four nonvertical graphs: two domain edges and one zero graph per field.
+The accepted single-field chord certificate and largest-coordinate dyadic split
+are shared by both refiners. Any selected rational split cuts every active graph;
+vertical edges retain their ordered original constraints. Curves with equal
+heights at both endpoints force an interior split, preserving a lens even at
+coarse detail. Exact endpoint order then prevents chord crossings or collapsed
+regions within each slab. At an isolated constraint's slice, its polygonal
+boundaries remain at their exact curve positions.
+
+The completed result retains the original graph/node prefix, one canonical path
+per edge and the common slice coordinates. Limits remain 65,536 vertices, 16 MiB
+of retained typed storage and precision bits 0..24. Fixed scratch, the bounded cut
+directory and completed output are admitted separately before allocation. A
+128-level work stack covers the two active curves' selected bisections and a
+forced lens split. Checked slice-transfer failures, limits and cancellation
+publish no partial paths and never lower precision. Physical/GPU conversion,
+joint-region triangles and general trilinear connectivity remain separate work.
+The owning extractor must share these completed boundary paths with incident
+patches; this local face result does not establish a conforming whole-grid mesh.
+
 `PlaneSubdivision::refine` converts its edges to certified adaptive polylines.
 Original exact nodes remain the vertex prefix; distinct points are never welded
 by rounded coordinates. Curved bilinear arcs use exact 40-bit dyadic enclosures

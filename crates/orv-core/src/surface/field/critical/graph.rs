@@ -9,8 +9,9 @@ mod wide;
 pub use face::{
     BilinearIntersections, BilinearSlice, CommonZero, ContourNode, ContourSegment, FaceArrangement,
     IntersectionContact, IntersectionPoint, JointEdge, JointRegion, JointSubdivision,
-    PatchHalfEdge, PatchRegion, PlaneSubdivision, RefinedSubdivision, RefinementLimits,
-    RegionTriangle, SubdivisionEdge, TriangulatedSubdivision, TriangulationLimits,
+    PatchHalfEdge, PatchRegion, PlaneSubdivision, RefinedJointSubdivision, RefinedSubdivision,
+    RefinementLimits, RegionTriangle, SubdivisionEdge, TriangulatedSubdivision,
+    TriangulationLimits,
 };
 use wide::radical_sign;
 // Original source expressions and polynomial signs retain their own narrow bound.

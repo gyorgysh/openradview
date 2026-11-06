@@ -85,7 +85,7 @@ fn magnitude(a: Bytes, b: Bytes) -> Bytes {
         (value + 256 * borrow) as u8
     })
 }
-fn within(a: (i128, i128), b: (i128, i128), bits: u8) -> bool {
+pub(in super::super::super) fn within(a: (i128, i128), b: (i128, i128), bits: u8) -> bool {
     assert!(a.0 >= 0 && a.1 > 0 && b.0 >= 0 && b.1 > 0);
     let mut distance = magnitude(
         product(a.0 as u128, b.1 as u128),
@@ -106,7 +106,7 @@ fn within(a: (i128, i128), b: (i128, i128), bits: u8) -> bool {
         .cmp(product(a.1 as u128, b.1 as u128).into_iter().rev())
         != Ordering::Greater
 }
-fn fraction(n: i128, d: i128) -> (i128, i128) {
+pub(in super::super::super) fn fraction(n: i128, d: i128) -> (i128, i128) {
     assert_ne!(d, 0);
     let sign = d.signum();
     let p = (n * sign, d.abs());

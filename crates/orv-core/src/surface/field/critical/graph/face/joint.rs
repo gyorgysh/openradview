@@ -3,6 +3,8 @@
 use super::*;
 use intersections::primitive;
 mod link;
+mod refine;
+pub use refine::RefinedJointSubdivision;
 
 const JOINT_NODES: usize = INSERTIONS + 18;
 // One field creates <=4 regions. Adding two axis factors adds <=2 lines,
@@ -35,6 +37,7 @@ pub struct JointRegion {
 }
 /// Exact curved region graph, not independent straight chords or a GPU mesh.
 /// Every supplied point is retained, including nonzero interior constraints.
+#[derive(Clone)]
 pub struct JointSubdivision {
     fields: [Bilinear; 2],
     nodes: [Option<ContourNode>; JOINT_NODES],
