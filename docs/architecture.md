@@ -542,9 +542,19 @@ cell owners. Bounded integer products select strict bilinear contour pairings;
 exact saddles and zero-corner/edge contacts are explicit outcomes, without an
 epsilon or an invented empty face. Parallel-section determinant coefficients
 and their internal extrema remain exact. These extrema are candidates, not a
-complete body-diagonal connectivity test. No extractor, singularity regularization,
-manifold guarantee, physical-normal conversion or native smooth geometry follows
-from this field layer. The existing exact cell-face view remains independent.
+complete body-diagonal connectivity test. No complete extractor, singularity
+regularization, manifold guarantee or native smooth geometry follows from this
+field layer. The existing exact cell-face view remains independent.
+
+`MaskField::affine_cell` recognizes crossing cells whose eight values are exactly
+an affine field. It intersects the plane and source-centre cube with exact
+rational edge coordinates, retains the resulting convex polygon, and orients
+its fan and inverse-transpose physical normal outward from the selected phase.
+Unknown or invalid corners, no-interior cases and non-affine fields remain
+distinct. Adjacent same-source/revision affine cells can match exact empty,
+point or segment traces on their shared face. Other neighbors remain unresolved;
+this does not establish grid closure, a transition to voxel faces, GPU precision,
+native display or edit authority.
 
 Projection-critical analysis solves the section determinant's bounded integer
 quadratic, retaining irrational roots as a defining polynomial and ordered branch.

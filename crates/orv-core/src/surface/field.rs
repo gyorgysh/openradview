@@ -2,6 +2,7 @@
 //! Exact mask fields and local derived geometry. Local face meshes do not establish
 //! a conforming whole-grid surface, 3D connectivity or edit authority. Critical
 //! strata remain explicit.
+mod affine;
 mod critical;
 mod factor;
 mod neighborhood;
@@ -10,6 +11,7 @@ use crate::{
     mask::{MaskKey, MaskOwner, MaskRevision},
     volume::Volume,
 };
+pub use affine::{AffineCell, AffineDisposition, AffineFace, AffineFaceState, AffineFaceTrace};
 pub use critical::{
     AlgebraicRoot, AnchorLine, AnchorRay, AnchorRing, AnchorStar, BilinearIntersections,
     BilinearSlice, CommonZero, ContourNode, ContourSegment, CriticalGraph, ExactCoordinate,
