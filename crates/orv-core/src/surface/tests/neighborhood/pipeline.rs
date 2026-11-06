@@ -1191,3 +1191,66 @@ fn candidate_grid_is_atomic_under_cancellation_admission_and_invalid_scopes() {
     ));
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn assemblies_retain_affine_planes_and_explicit_cross_box_neighbor_traces() {
+    for mixed in [false, true] {
+        let field = fractional(source([3, 2, 2], true, false), |[x, y, z]| {
+            let offset = [-2, 0, 4][x];
+            -4 + 4 * y as i16
+                + 4 * z as i16
+                + offset
+                + if mixed && [x, y, z] == [2, 1, 1] {
+                    2
+                } else {
+                    0
+                }
+        });
+        let budget = MemoryBudget::new(512 * 1024 * 1024);
+        let left = field
+            .candidate_grid_with_budget([0, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+            .unwrap();
+        let right = field
+            .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+            .unwrap();
+        let assembly = CandidateAssembly::build_with_budget(
+            &[&right, &left],
+            assembly_limits(),
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+        assert_eq!(assembly.cells().len(), 2);
+        assert_eq!(assembly.affine_cells().len(), 2);
+        assert_eq!(
+            assembly.affine_cells()[0].disposition(),
+            AffineDisposition::Plane
+        );
+        assert_eq!(assembly.max_error_mm(), limits().surface.max_error_mm);
+        assert_eq!(assembly.affine_faces().len(), 1);
+        if mixed {
+            assert_eq!(
+                assembly.affine_cells()[1].disposition(),
+                AffineDisposition::NonAffine
+            );
+            assert!(matches!(
+                assembly.affine_faces()[0].state(),
+                AffineFaceState::Unresolved {
+                    positive: AffineDisposition::NonAffine,
+                    ..
+                }
+            ));
+        } else {
+            assert_eq!(
+                assembly.affine_cells()[1].disposition(),
+                AffineDisposition::Plane
+            );
+            assert!(matches!(
+                assembly.affine_faces()[0].state(),
+                AffineFaceState::Matched(AffineFaceTrace::Segment(_))
+            ));
+        }
+        drop((assembly, left, right));
+        assert_eq!(budget.used(), 0);
+    }
+}

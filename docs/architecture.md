@@ -1184,8 +1184,17 @@ partial model. Integer readback and vertex-input probes check the descriptor
 contract. These inputs remain distinct from ordered source composition,
 smoothing, physical picking, desktop display and disclosure/export paths.
 
-`GpuCandidateSurface` uploads the within-tolerance triangles of a bounded
-candidate assembly as per-cell immutable triangle descriptors. Each descriptor
+`CandidateAssembly` also retains each listed cell's affine classification and
+exact traces for listed adjacent pairs involving an affine plane. Faces involving
+non-affine or unavailable neighbors remain unresolved. Unlisted neighbors and
+finite-grid closure are not inferred from absent reports.
+
+`GpuCandidateSurface` uploads within-tolerance triangles of a bounded candidate
+assembly as per-cell immutable triangle descriptors. Exact affine polygons use
+the same integer grid only when a conservative physical displacement bound fits
+the requested tolerance and rounding preserves strict convexity and topology;
+otherwise they remain explicitly unresolved. The retained affine error bound
+excludes later f32 projection and rasterization. Each descriptor
 stores the source-cell origin, three exact integer subcell numerators and the
 eight signed source-field samples; floating-point conversion is a separate
 rendering step. Unresolved triangles,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod acceleration;
+mod affine;
 use super::*;
 use crate::candidate_opaque::{
     CandidateOpaqueImage, CandidateOpaqueRenderer, CandidateOpaqueScene,
@@ -1428,12 +1429,17 @@ fn equal_triangle_layout_with_different_field_samples_is_not_reused() {
             continue;
         };
         let mesh = &second.meshes()[usize::from(mesh)];
-        if same_triangle_layout(&chunk.mesh, mesh) {
+        let ChunkGeometry::Mesh(old_mesh) = &chunk.geometry else {
+            continue;
+        };
+        if same_triangle_layout(old_mesh, mesh) {
             assert_ne!(
-                field_samples(&chunk.mesh).unwrap(),
+                field_samples(old_mesh).unwrap(),
                 field_samples(mesh).unwrap()
             );
-            assert!(compatible(Some(&uploaded), chunk.origin(), mesh).is_none());
+            assert!(
+                compatible(Some(&uploaded), chunk.origin(), &InputGeometry::Mesh(mesh)).is_none()
+            );
             checked += 1;
         }
     }

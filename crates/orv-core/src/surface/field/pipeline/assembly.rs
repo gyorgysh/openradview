@@ -17,6 +17,9 @@ pub struct CandidateAssembly {
     cells: Vec<CandidateCell>,
     base_meshes: Vec<Arc<ConformingSurfaceMesh>>,
     meshes: Meshes,
+    affine: Vec<AffineCell>,
+    affine_faces: Vec<AffineFace>,
+    max_error_mm: f64,
     bytes: u64,
     _reservation: Reservation,
 }
@@ -43,6 +46,20 @@ impl CandidateAssembly {
             _ => &[],
         }
     }
+    /// One source-bound affine classification per cell, in `cells()` order.
+    pub fn affine_cells(&self) -> &[AffineCell] {
+        &self.affine
+    }
+    /// Adjacent listed pairs involving an affine plane. Unlisted neighbors,
+    /// mixed-cell seams and finite-grid closure remain unresolved.
+    pub fn affine_faces(&self) -> &[AffineFace] {
+        &self.affine_faces
+    }
+    pub fn max_error_mm(&self) -> f64 {
+        self.max_error_mm
+    }
+    /// Coordination of the general candidate meshes only. Affine traces are
+    /// reported separately by `affine_faces()`.
     pub fn coordination(&self) -> GridCoordination {
         match &self.meshes {
             Meshes::Empty => GridCoordination::NoCandidates,
@@ -106,7 +123,9 @@ impl CandidateAssembly {
         let bytes = count
             .checked_mul(
                 std::mem::size_of::<CandidateCell>()
-                    + std::mem::size_of::<Arc<ConformingSurfaceMesh>>(),
+                    + std::mem::size_of::<Arc<ConformingSurfaceMesh>>()
+                    + std::mem::size_of::<AffineCell>()
+                    + 3 * std::mem::size_of::<AffineFace>(),
             )
             .and_then(|n| n.checked_add(std::mem::size_of::<Self>()))
             .and_then(|n| u64::try_from(n).ok())
@@ -177,6 +196,55 @@ impl CandidateAssembly {
                 Err(reason) => Meshes::Uncoordinated { reason },
             }
         };
+        let mut affine = exact(count)?;
+        for cell in &cells {
+            if cancel() {
+                return Err(SurfaceError::Cancelled);
+            }
+            affine.push(first.field.affine_cell(cell.origin, &cancel).map_err(
+                |reason| match reason {
+                    FieldError::Cancelled => SurfaceError::Cancelled,
+                    FieldError::Selection => SurfaceError::Selection,
+                    _ => SurfaceError::Geometry,
+                },
+            )?);
+        }
+        let mut face_count = 0usize;
+        for (index, cell) in cells.iter().enumerate() {
+            if cancel() {
+                return Err(SurfaceError::Cancelled);
+            }
+            for axis in 0..3 {
+                if let Some(other) = neighbor(&cells, cell.origin, axis)
+                    && (affine[index].disposition() == AffineDisposition::Plane
+                        || affine[other].disposition() == AffineDisposition::Plane)
+                {
+                    face_count += 1;
+                }
+            }
+        }
+        let mut affine_faces = exact(face_count)?;
+        for (index, cell) in cells.iter().enumerate() {
+            if cancel() {
+                return Err(SurfaceError::Cancelled);
+            }
+            for axis in 0..3 {
+                if let Some(other) = neighbor(&cells, cell.origin, axis)
+                    && (affine[index].disposition() == AffineDisposition::Plane
+                        || affine[other].disposition() == AffineDisposition::Plane)
+                {
+                    affine_faces.push(
+                        affine[index]
+                            .shared_face(&affine[other], axis, &cancel)
+                            .map_err(|reason| match reason {
+                                FieldError::Cancelled => SurfaceError::Cancelled,
+                                FieldError::Selection => SurfaceError::Selection,
+                                _ => SurfaceError::Geometry,
+                            })?,
+                    );
+                }
+            }
+        }
         if cancel() {
             return Err(SurfaceError::Cancelled);
         }
@@ -185,10 +253,22 @@ impl CandidateAssembly {
             cells,
             base_meshes,
             meshes,
+            affine,
+            affine_faces,
+            max_error_mm: first.limits.surface.max_error_mm,
             bytes,
             _reservation: reservation,
         })
     }
+}
+
+fn neighbor(cells: &[CandidateCell], mut origin: [usize; 3], axis: usize) -> Option<usize> {
+    origin[axis] = origin[axis].checked_add(1)?;
+    cells
+        .binary_search_by_key(&(origin[2], origin[1], origin[0]), |cell| {
+            (cell.origin[2], cell.origin[1], cell.origin[0])
+        })
+        .ok()
 }
 
 struct Record {

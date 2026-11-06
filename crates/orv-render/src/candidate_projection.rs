@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Source-centred, partial triangle projection. It does not authorize edits.
 use crate::{
-    candidate_source::{GpuCandidateSurface, MAX_TRIANGLES, TRIANGLE_BYTES},
+    candidate_source::{ChunkGeometry, GpuCandidateSurface, MAX_TRIANGLES, TRIANGLE_BYTES},
     volume::{allocation, flush_upload},
     volume_source::GpuVolumeSource,
 };
@@ -9,7 +9,7 @@ use orv_core::{
     ViewState,
     mask::{MaskKey, MaskRevision},
     resources::{MemoryBudget, Reservation},
-    surface::field::{CandidateCellState, ConformingFacetState, ConformingSurfaceMesh},
+    surface::field::{ConformingFacetState, ConformingSurfaceMesh},
     volume::Volume,
     volume_view::{Camera, PhysicalClip},
 };
@@ -506,41 +506,17 @@ fn plan_work(
     }
     let mut total = 0u64;
     let mut max_triangle_pixels = 0u32;
-    let assembly = request.surface.assembly();
     let denominator = f64::from(ConformingSurfaceMesh::POSITION_DENOMINATOR);
     for chunk in request.surface.chunks() {
         if cancelled() {
             return Err("Cancelled");
         }
         let origin = chunk.origin().map(|v| v as usize);
-        let cell = assembly
-            .cells()
-            .iter()
-            .find(|cell| cell.origin == origin)
-            .ok_or("Candidate chunk has no source cell")?;
-        let CandidateCellState::Candidate { mesh } = cell.state else {
-            return Err("Candidate chunk has no source mesh");
-        };
-        let mesh = assembly
-            .meshes()
-            .get(usize::from(mesh))
-            .ok_or("Candidate mesh index is invalid")?;
         let mut found = 0usize;
-        for (index, triangle) in mesh.triangles().iter().enumerate() {
-            if index.is_multiple_of(256) && cancelled() {
-                return Err("Cancelled");
-            }
-            if !matches!(triangle.state, ConformingFacetState::WithinTolerance { .. }) {
-                continue;
-            }
+        let mut add = |vertices: [[u32; 3]; 3]| -> Result<(), &'static str> {
             let mut minimum = [f64::INFINITY; 2];
             let mut maximum = [f64::NEG_INFINITY; 2];
-            for vertex in triangle.vertices {
-                let local = mesh
-                    .vertices()
-                    .get(vertex as usize)
-                    .and_then(|v| v.position())
-                    .ok_or("Candidate vertex is unavailable")?;
+            for local in vertices {
                 let q: [f64; 3] = std::array::from_fn(|a| {
                     origin[a] as f64 - f64::from(values.uniform[28 + a])
                         + f64::from(local[a]) / denominator
@@ -556,7 +532,7 @@ fn plan_work(
                     maximum[row] = maximum[row].max(pixel);
                 }
             }
-            // The shader expands by one pixel; three also cover the admitted
+            // The shader expands by one pixel; three also cover admitted
             // subpixel projection error and fixed-point raster coverage.
             let span: [u64; 2] = std::array::from_fn(|axis| {
                 let edge = f64::from(request.size[axis]);
@@ -581,6 +557,36 @@ fn plan_work(
             max_triangle_pixels = max_triangle_pixels.max(cost);
             costs.push(cost);
             found += 1;
+            Ok(())
+        };
+        match chunk.geometry() {
+            ChunkGeometry::Mesh(mesh) => {
+                for (index, triangle) in mesh.triangles().iter().enumerate() {
+                    if index.is_multiple_of(256) && cancelled() {
+                        return Err("Cancelled");
+                    }
+                    if !matches!(triangle.state, ConformingFacetState::WithinTolerance { .. }) {
+                        continue;
+                    }
+                    let mut vertices = [[0; 3]; 3];
+                    for (target, vertex) in vertices.iter_mut().zip(triangle.vertices) {
+                        *target = mesh
+                            .vertices()
+                            .get(vertex as usize)
+                            .and_then(|v| v.position())
+                            .ok_or("Candidate vertex is unavailable")?;
+                    }
+                    add(vertices)?;
+                }
+            }
+            ChunkGeometry::Affine(geometry) => {
+                for vertices in geometry.triangles() {
+                    if cancelled() {
+                        return Err("Cancelled");
+                    }
+                    add(vertices)?;
+                }
+            }
         }
         if found != chunk.triangle_count() {
             return Err("Candidate work plan does not match its buffer");

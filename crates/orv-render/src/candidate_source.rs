@@ -12,6 +12,8 @@ use orv_core::{
     },
 };
 use std::sync::Arc;
+mod affine;
+use affine::{AffineGeometry, quantize};
 
 /// Cell origin xyz, three exact subcell xyz numerators and four packed pairs of
 /// signed source-field samples. Coordinates use the mesh position denominator.
@@ -36,13 +38,19 @@ impl Default for CandidateUploadLimits {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CandidateUploadStatistics {
     pub kind: UploadKind,
     pub represented_triangles: usize,
     /// Unresolved candidate triangles are not uploaded as certified geometry.
     pub unresolved_triangles: usize,
     pub noncandidate_cells: usize,
+    /// Complete local affine polygons included in the partial assembly.
+    pub affine_cells: usize,
+    /// Affine polygons refused for precision, degeneracy or topology.
+    pub unresolved_affine_cells: usize,
+    /// Conservative source-space quantization bound for represented affine cells.
+    pub affine_error_upper_mm: f64,
     pub uploaded_chunks: usize,
     pub reused_chunks: usize,
     pub removed_chunks: usize,
@@ -57,7 +65,7 @@ pub struct CandidateUploadStatistics {
 /// geometry object; the parent assembly supplies the current revision.
 pub struct GpuCandidateChunk {
     source: Arc<GpuVolumeSource>,
-    mesh: Arc<ConformingSurfaceMesh>,
+    geometry: ChunkGeometry,
     origin: [u32; 3],
     buffer: wgpu::Buffer,
     triangles: usize,
@@ -66,7 +74,14 @@ pub struct GpuCandidateChunk {
     _gpu: allocation::GpuReservation,
     _metadata: Reservation,
 }
+pub(crate) enum ChunkGeometry {
+    Mesh(Arc<ConformingSurfaceMesh>),
+    Affine(AffineGeometry),
+}
 impl GpuCandidateChunk {
+    pub(crate) fn geometry(&self) -> &ChunkGeometry {
+        &self.geometry
+    }
     pub fn source(&self) -> &Arc<GpuVolumeSource> {
         &self.source
     }
@@ -93,6 +108,8 @@ pub struct GpuCandidateSurface {
     source: Arc<GpuVolumeSource>,
     assembly: Arc<CandidateAssembly>,
     chunks: Vec<Arc<GpuCandidateChunk>>,
+    affine_error_upper_mm: f64,
+    unresolved_affine_cells: usize,
     _directory: Reservation,
 }
 impl GpuCandidateSurface {
@@ -104,6 +121,15 @@ impl GpuCandidateSurface {
     }
     pub fn chunks(&self) -> &[Arc<GpuCandidateChunk>] {
         &self.chunks
+    }
+    /// Source-space quantization bound; excludes projection and f32 GPU error.
+    pub fn affine_error_upper_mm(&self) -> f64 {
+        self.affine_error_upper_mm
+    }
+    /// Exact affine planes not admitted because their integer representation
+    /// exceeds the requested tolerance or would change local topology.
+    pub fn unresolved_affine_cells(&self) -> usize {
+        self.unresolved_affine_cells
     }
     pub fn chunk(&self, origin: [u32; 3]) -> Option<&Arc<GpuCandidateChunk>> {
         self.chunks.iter().find(|chunk| chunk.origin == origin)
@@ -148,6 +174,9 @@ impl GpuCandidateSurface {
             represented_triangles: 0,
             unresolved_triangles: 0,
             noncandidate_cells: 0,
+            affine_cells: 0,
+            unresolved_affine_cells: 0,
+            affine_error_upper_mm: 0.,
             uploaded_chunks: 0,
             reused_chunks: 0,
             removed_chunks: 0,
@@ -162,20 +191,22 @@ impl GpuCandidateSurface {
         let mut total_bytes = 0u64;
         let mut largest_upload = 0u64;
         let mut retained_origins = 0usize;
-        for cell in assembly.cells() {
+        for (index, cell) in assembly.cells().iter().enumerate() {
             if cancelled() {
                 return Err("Cancelled");
             }
-            let CandidateCellState::Candidate { mesh } = cell.state else {
+            let (geometry, refused) = select(&assembly, index, &source)?;
+            stats.unresolved_affine_cells += usize::from(refused);
+            let Some(geometry) = geometry else {
                 stats.noncandidate_cells += 1;
                 continue;
             };
-            let mesh = assembly
-                .meshes()
-                .get(usize::from(mesh))
-                .ok_or("Candidate mesh index is invalid")?;
+            if let InputGeometry::Affine(affine) = &geometry {
+                stats.affine_cells += 1;
+                stats.affine_error_upper_mm = stats.affine_error_upper_mm.max(affine.error_mm);
+            }
             let origin = checked_origin(cell.origin, source.volume().dimensions())?;
-            let (represented, unresolved) = inspect(mesh, &cancelled)?;
+            let (represented, unresolved) = geometry.inspect(&cancelled)?;
             stats.represented_triangles = stats
                 .represented_triangles
                 .checked_add(represented)
@@ -199,7 +230,7 @@ impl GpuCandidateSurface {
             if bytes > device.limits().max_buffer_size {
                 return Err("Candidate geometry exceeds this GPU's buffer limit");
             }
-            if compatible(related, origin, mesh).is_some() {
+            if compatible(related, origin, &geometry).is_some() {
                 stats.reused_chunks += 1;
             } else {
                 let admitted = aligned(bytes)?;
@@ -241,7 +272,7 @@ impl GpuCandidateSurface {
                 queue,
             )?)
         };
-        let count = assembly.meshes().len();
+        let count = stats.uploaded_chunks + stats.reused_chunks;
         let directory_bytes = count
             .checked_mul(std::mem::size_of::<Arc<GpuCandidateChunk>>())
             .and_then(|v| {
@@ -262,27 +293,20 @@ impl GpuCandidateSurface {
             return Err("Candidate directory allocation exceeded its budget");
         }
         let mut pending = 0u64;
-        for cell in assembly.cells() {
+        for (index, cell) in assembly.cells().iter().enumerate() {
             if cancelled() {
                 return Err("Cancelled");
             }
-            let CandidateCellState::Candidate { mesh } = cell.state else {
+            let (geometry, _) = select(&assembly, index, &source)?;
+            let Some(geometry) = geometry else {
                 continue;
             };
-            let mesh = assembly
-                .meshes()
-                .get(usize::from(mesh))
-                .ok_or("Candidate mesh index is invalid")?;
             let origin = checked_origin(cell.origin, source.volume().dimensions())?;
-            let represented = mesh
-                .triangles()
-                .iter()
-                .filter(|t| matches!(t.state, ConformingFacetState::WithinTolerance { .. }))
-                .count();
+            let (represented, _) = geometry.inspect(&cancelled)?;
             if represented == 0 {
                 continue;
             }
-            if let Some(old) = compatible(related, origin, mesh) {
+            if let Some(old) = compatible(related, origin, &geometry) {
                 chunks.push(old);
                 continue;
             }
@@ -303,12 +327,12 @@ impl GpuCandidateSurface {
                     mapped_at_creation: true,
                 },
             )?;
-            let result = pack(&buffer, mesh, origin, represented, &cancelled);
+            let result = geometry.pack(&buffer, origin, represented, &cancelled);
             buffer.unmap();
             result?;
             chunks.push(Arc::new(GpuCandidateChunk {
                 source: source.clone(),
-                mesh: mesh.clone(),
+                geometry: geometry.owned(),
                 origin,
                 buffer,
                 triangles: represented,
@@ -337,6 +361,8 @@ impl GpuCandidateSurface {
                 source,
                 assembly,
                 chunks,
+                affine_error_upper_mm: stats.affine_error_upper_mm,
+                unresolved_affine_cells: stats.unresolved_affine_cells,
                 _directory: directory,
             }),
             stats,
@@ -344,17 +370,77 @@ impl GpuCandidateSurface {
     }
 }
 
+enum InputGeometry<'a> {
+    Mesh(&'a Arc<ConformingSurfaceMesh>),
+    Affine(AffineGeometry),
+}
+impl InputGeometry<'_> {
+    fn inspect(&self, cancelled: &impl Fn() -> bool) -> Result<(usize, usize), &'static str> {
+        match self {
+            Self::Mesh(mesh) => inspect(mesh, cancelled),
+            Self::Affine(geometry) => Ok((geometry.triangle_count(), 0)),
+        }
+    }
+    fn pack(
+        &self,
+        buffer: &wgpu::Buffer,
+        origin: [u32; 3],
+        count: usize,
+        cancel: &impl Fn() -> bool,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Mesh(mesh) => pack(buffer, mesh, origin, count, cancel),
+            Self::Affine(geometry) => pack_affine(buffer, geometry, origin, count, cancel),
+        }
+    }
+    fn owned(self) -> ChunkGeometry {
+        match self {
+            Self::Mesh(mesh) => ChunkGeometry::Mesh(mesh.clone()),
+            Self::Affine(geometry) => ChunkGeometry::Affine(geometry),
+        }
+    }
+}
+fn select<'a>(
+    assembly: &'a CandidateAssembly,
+    index: usize,
+    source: &GpuVolumeSource,
+) -> Result<(Option<InputGeometry<'a>>, bool), &'static str> {
+    let cell = assembly
+        .cells()
+        .get(index)
+        .ok_or("Candidate cell index is invalid")?;
+    let affine = assembly
+        .affine_cells()
+        .get(index)
+        .ok_or("Affine candidate index is invalid")?;
+    let is_plane = affine.disposition() == orv_core::surface::field::AffineDisposition::Plane;
+    if let Some(geometry) = quantize(affine, source.volume(), assembly.max_error_mm())? {
+        return Ok((Some(InputGeometry::Affine(geometry)), false));
+    }
+    if let CandidateCellState::Candidate { mesh } = cell.state {
+        let mesh = assembly
+            .meshes()
+            .get(usize::from(mesh))
+            .ok_or("Candidate mesh index is invalid")?;
+        return Ok((Some(InputGeometry::Mesh(mesh)), is_plane));
+    }
+    Ok((None, is_plane))
+}
 fn compatible(
     previous: Option<&Arc<GpuCandidateSurface>>,
     origin: [u32; 3],
-    mesh: &Arc<ConformingSurfaceMesh>,
+    geometry: &InputGeometry<'_>,
 ) -> Option<Arc<GpuCandidateChunk>> {
     previous
         .and_then(|old| old.chunk(origin))
-        .filter(|old| {
-            Arc::ptr_eq(&old.mesh, mesh)
-                || (same_triangle_layout(&old.mesh, mesh)
-                    && matches!((field_samples(&old.mesh), field_samples(mesh)), (Ok(a), Ok(b)) if a == b))
+        .filter(|old| match (&old.geometry, geometry) {
+            (ChunkGeometry::Affine(a), InputGeometry::Affine(b)) => a == b,
+            (ChunkGeometry::Mesh(a), InputGeometry::Mesh(b)) => {
+                Arc::ptr_eq(a, b)
+                    || (same_triangle_layout(a, b)
+                        && matches!((field_samples(a),field_samples(b)),(Ok(a),Ok(b)) if a == b))
+            }
+            _ => false,
         })
         .cloned()
 }
@@ -441,6 +527,37 @@ fn packed_samples(values: [i16; 8]) -> [u32; 4] {
     std::array::from_fn(|i| {
         u32::from(values[2 * i] as u16) | (u32::from(values[2 * i + 1] as u16) << 16)
     })
+}
+fn pack_affine(
+    buffer: &wgpu::Buffer,
+    geometry: &AffineGeometry,
+    origin: [u32; 3],
+    triangles: usize,
+    cancelled: &impl Fn() -> bool,
+) -> Result<(), &'static str> {
+    let mut mapped = buffer
+        .get_mapped_range_mut(..)
+        .map_err(|_| "Could not map affine geometry upload")?;
+    if mapped.len() as u64 != triangle_bytes(triangles)? || triangles != geometry.triangle_count() {
+        return Err("Affine mapping size differs from its geometry");
+    }
+    for (index, vertices) in geometry.triangles().enumerate() {
+        if cancelled() {
+            return Err("Cancelled");
+        }
+        let mut words = [0u32; 16];
+        words[..3].copy_from_slice(&origin);
+        for (vertex, position) in vertices.into_iter().enumerate() {
+            words[3 + 3 * vertex..6 + 3 * vertex].copy_from_slice(&position);
+        }
+        words[12..].copy_from_slice(&packed_samples(geometry.samples));
+        let encoded = words.map(u32::to_le_bytes);
+        let start = index * TRIANGLE_BYTES as usize;
+        mapped
+            .slice(start..start + TRIANGLE_BYTES as usize)
+            .copy_from_slice(encoded.as_flattened());
+    }
+    Ok(())
 }
 fn pack(
     buffer: &wgpu::Buffer,
