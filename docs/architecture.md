@@ -660,8 +660,19 @@ node and gives coincident pieces one shared segment ID. Per-source directed path
 retain ownership, collapsed paths retain their original height endpoints, and a
 coincident axis-aligned chart edge is linked without merging curved arcs solely
 by endpoints. Its input, rebuilt chart and edge directory retain separate charges;
-scratch and final typed output are admitted with bounded sizes. This is not yet a
-face-connected planar arrangement, certified 3D surface or shared seam and has
+scratch and final typed output are admitted with bounded sizes.
+
+`SplitProjectedConstraints::planar_graph` joins the chart's exact curve edges
+with the split straight cuts, using the existing exact chart tangent order and
+cardinal source-ray directions to construct a rotation system. Twin and next
+half-edges form closed boundary walks, each retaining its original chart region
+and field signs; the exterior is explicit. Separate curves remain separate even
+when their endpoints coincide. The graph requires a connected edge-bearing
+component: disconnected inputs are refused rather than assigning multi-boundary
+faces incorrectly. Isolated chart constraints remain in the retained input.
+Output is limited to 8,192 edges and 16 MiB of separately admitted typed storage;
+scratch is admitted as well. Cancellation or inconsistent connectivity publishes
+no partial graph. This is not yet a certified 3D surface or shared seam and has
 no rendering or source-edit authority.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one

@@ -73,7 +73,14 @@ impl JointSubdivision {
             owner: Some(owner),
         })
     }
-    fn angle_compare(&self, a: u8, b: u8) -> Result<Ordering, FieldError> {
+    pub(in crate::surface::field) fn half_octant(&self, id: u8) -> Result<u8, FieldError> {
+        Ok(self.ray(id)?.octant)
+    }
+    pub(in crate::surface::field) fn angle_compare(
+        &self,
+        a: u8,
+        b: u8,
+    ) -> Result<Ordering, FieldError> {
         let ra = self.ray(a)?;
         let rb = self.ray(b)?;
         if ra.octant != rb.octant {

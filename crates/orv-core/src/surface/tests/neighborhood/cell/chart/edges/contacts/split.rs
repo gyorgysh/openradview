@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod planar;
 use std::collections::BTreeSet;
 
 fn same2(a: [ExactCoordinate; 2], b: [ExactCoordinate; 2]) -> bool {

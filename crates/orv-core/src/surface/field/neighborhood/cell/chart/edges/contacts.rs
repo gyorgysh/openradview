@@ -2,7 +2,10 @@
 //! Exact contacts between projected constraints and end-face zero sets.
 use super::*;
 mod split;
-pub use split::{SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep};
+pub use split::{
+    PlanarEdge, PlanarHalfEdge, PlanarRegion, ProjectedPlanarGraph, SplitPath,
+    SplitProjectedConstraints, SplitSegment, SplitStep,
+};
 
 const MAX_CONTACTS: usize = 262_144;
 const MAX_BYTES: u64 = 32 * 1024 * 1024;
