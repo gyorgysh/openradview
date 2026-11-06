@@ -21,7 +21,7 @@ fn sample_scalar(point:vec3f)->vec2f {
                 let weight=w.x*w.y*w.z;
                 if weight==0. { continue; }
                 let index=select(a,b,hi);
-                if p.origin.w>0.5 && textureLoad(validity,index,0).r==0u { return vec2f(0.); }
+                if p.origin.w>0.5 && (textureLoad(validity,index,0).r & 1u)==0u { return vec2f(0.); }
                 value+=weight*textureLoad(source,index,0).r;
             }
         }

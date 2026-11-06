@@ -24,6 +24,7 @@ use orv_render::{
     volume_source::GpuVolumeSource,
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     sync::{Arc, mpsc},
     time::{Duration, Instant},
@@ -355,14 +356,21 @@ fn main() -> Result<()> {
             };
             let a = dense.render(scene.clone(), || false)?;
             let b = fast.render(scene.clone(), || false)?;
-            let comparison = verify(
-                &read(&source, a.texture(), 8)?,
-                &read(&source, b.texture(), 8)?,
-            )?;
+            let (comparison, image_sha256) = {
+                let dense_pixels = read(&source, a.texture(), 8)?;
+                let fast_pixels = read(&source, b.texture(), 8)?;
+                (
+                    verify(&dense_pixels, &fast_pixels)?,
+                    Sha256::digest(&*dense_pixels)
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>(),
+                )
+            };
             drop(a);
             drop(b);
             let timings = measure([&dense, &fast], &scene, if side == 512 { 8 } else { 4 })?;
-            cases.push(json!({"source":kind,"size":[side,side],"candidate_triangles":stats.represented_triangles,"candidate_pixels":hits,"transparent_tiles":ranges.transparent_tiles(),"source_fixture_ms":source_ms,"source_gpu_upload_ms":upload_ms,"candidate_assembly_ms":assembly_ms,"candidate_upload_ms":geometry_upload_ms,"cpu_ranges_ms":cpu_classify_ms,"gpu_ranges_ms":gpu_classify_ms,"candidate_projection_ms":project_ms,"dense":timings[0],"accelerated":timings[1],"pixel_comparison":comparison}));
+            cases.push(json!({"source":kind,"size":[side,side],"candidate_triangles":stats.represented_triangles,"candidate_pixels":hits,"transparent_tiles":ranges.transparent_tiles(),"source_fixture_ms":source_ms,"source_gpu_upload_ms":upload_ms,"candidate_assembly_ms":assembly_ms,"candidate_upload_ms":geometry_upload_ms,"cpu_ranges_ms":cpu_classify_ms,"gpu_ranges_ms":gpu_classify_ms,"candidate_projection_ms":project_ms,"dense":timings[0],"accelerated":timings[1],"pixel_comparison":comparison,"dense_sha256":image_sha256}));
             eprintln!("Verified {kind} {side}");
         }
     }

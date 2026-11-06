@@ -54,7 +54,7 @@ fn sample_fixed(pixel:vec2u,sample_index:u32)->FixedSample {
         for(var z=before.z;z<=after.z;z++) {for(var y=before.y;y<=after.y;y++) {for(var x=before.x;x<=after.x;x++) {
             let address=clamp(vec3i(x,y,z),vec3i(0),maximum);
             magnitude=max(magnitude,abs(textureLoad(source,address,0).r));
-            if p.origin.w>0.5 && textureLoad(validity,address,0).r==0u {repair=true;}
+            if p.origin.w>0.5 && (textureLoad(validity,address,0).r & 1u)==0u {repair=true;}
         }}}
     }
     var value=0.;var absolute=0.;
@@ -63,7 +63,7 @@ fn sample_fixed(pixel:vec2u,sample_index:u32)->FixedSample {
         let weights=select(low,high,upper);let weight=weights.x*weights.y*weights.z;
         if weight==0. {continue;}
         let address=min(base+vec3i(vec3u(x,y,z)),maximum);
-        if p.origin.w>0.5 && textureLoad(validity,address,0).r==0u {return FixedSample(0.,false,repair,0.);}
+        if p.origin.w>0.5 && (textureLoad(validity,address,0).r & 1u)==0u {return FixedSample(0.,false,repair,0.);}
         let raw=textureLoad(source,address,0).r;
         magnitude=max(magnitude,abs(raw));value+=raw*weight;absolute+=abs(raw*weight);
     }}}

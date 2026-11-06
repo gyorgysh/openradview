@@ -1270,3 +1270,146 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
     assert!(checked > 10000);
     assert!(fallback >= 128);
 }
+
+#[test]
+fn packed_validity_matches_independent_eight_vertex_checks_at_nodes_and_interiors() {
+    let (device, queue) = device(|_| {});
+    let volume = source([512, 2, 2], false, 0., |[x, y, z]| {
+        let pattern = x / 2;
+        let corner = (x % 2) + 2 * y + 4 * z;
+        (1., pattern & (1 << corner) != 0)
+    });
+    let gpu = GpuVolumeSource::new(&device, &queue, volume.clone(), || false).unwrap();
+    let code = format!(
+        "{}\n{}\n{}",
+        crate::VOLUME_SAMPLING_SHADER,
+        crate::material_volume::optics_shader(true, false),
+        r#"
+@group(0) @binding(2) var output:texture_storage_2d<rgba32float,write>;
+fn old_valid(point:vec3f)->bool {
+    let maximum=vec3i(textureDimensions(source))-1;
+    let q=clamp(point,vec3f(0.),vec3f(maximum));
+    let a=vec3i(floor(q));let b=min(a+1,maximum);let t=fract(q);
+    for(var z=0u;z<2u;z++) {for(var y=0u;y<2u;y++) {for(var x=0u;x<2u;x++) {
+        let hi=vec3<bool>(x==1u,y==1u,z==1u);
+        let w=select(vec3f(1.)-t,t,hi);
+        if w.x*w.y*w.z>0. && (textureLoad(validity,select(a,b,hi),0).r & 1u)==0u {return false;}
+    }}}
+    return true;
+}
+@compute @workgroup_size(8,8,1)
+fn main(@builtin(global_invocation_id) gid:vec3u) {
+    if gid.x>=1280u || gid.y>=25u {return;}
+    let fractions=array<f32,5>(0.,0.25,0.5,0.99999994,1.);
+    let point=vec3f(f32((gid.x/5u)*2u)+fractions[gid.x%5u],fractions[gid.y%5u],fractions[gid.y/5u]);
+    textureStore(output,vec2i(gid.xy),vec4f(select(0.,1.,scalar_valid(point)),select(0.,1.,stencil_valid(scalar_stencil(point))),select(0.,1.,old_valid(point)),1.));
+}"#
+    );
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("packed validity reference"),
+        source: wgpu::ShaderSource::Wgsl(code.into()),
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: None,
+        layout: None,
+        module: &shader,
+        entry_point: Some("main"),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 1280,
+            height: 25,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba32Float,
+        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let mut values = [0f32; 336];
+    values[27] = 1.;
+    let uniform = allocation::initialized_buffer(
+        &device,
+        "packed validity parameters",
+        bytemuck::cast_slice(&values),
+        wgpu::BufferUsages::UNIFORM,
+    )
+    .unwrap();
+    let bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&gpu.source),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: uniform.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(
+                    &texture.create_view(&Default::default()),
+                ),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&gpu.validity),
+            },
+        ],
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bindings, &[]);
+        pass.dispatch_workgroups(160, 4, 1);
+    }
+    queue.submit([encoder.finish()]);
+    let data = bytes(&gpu, &texture, 16);
+    let fractions = [0f32, 0.25, 0.5, 0.99999994, 1.];
+    for (index, word) in data.as_chunks::<16>().0.iter().enumerate() {
+        let px = index % 1280;
+        let py = index / 1280;
+        let point = [
+            (2 * (px / 5)) as f32 + fractions[px % 5],
+            fractions[py % 5],
+            fractions[py / 5],
+        ];
+        let lower = point.map(|v| v.floor() as usize);
+        let mut expected = true;
+        for corner in 0..8 {
+            let mut weight = 1f32;
+            let mut coordinate = [0; 3];
+            for axis in 0..3 {
+                let high = (corner >> axis) & 1;
+                let fraction = point[axis].fract();
+                weight *= if high == 1 { fraction } else { 1. - fraction };
+                coordinate[axis] = (lower[axis] + high).min([511, 1, 1][axis]);
+            }
+            if weight > 0.
+                && !volume.frames()[coordinate[2]].has_sample(coordinate[1] * 512 + coordinate[0])
+            {
+                expected = false;
+            }
+        }
+        let actual: [f32; 4] =
+            std::array::from_fn(|i| f32::from_le_bytes(word[i * 4..i * 4 + 4].try_into().unwrap()));
+        assert_eq!(
+            actual,
+            [
+                u8::from(expected) as f32,
+                u8::from(expected) as f32,
+                u8::from(expected) as f32,
+                1.
+            ],
+            "point {point:?}"
+        );
+    }
+}

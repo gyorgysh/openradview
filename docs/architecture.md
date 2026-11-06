@@ -29,6 +29,10 @@ allow derived rendering to be checked independently of a GPU shader.
 source VOI tables, with its creating device/queue. Projection renderers can share
 it without another source allocation. Source staging and per-renderer outputs
 have separate reservations, retired only after submitted work completes.
+When validity is present, each texture byte packs the eight clamped positive
+stencil vertices, with the source voxel in bit zero. Interpolation tests only
+nonzero-weight contributors; direct voxel users read bit zero. Packing uses one
+admitted CPU plane on the worker and does not add a second GPU validity volume.
 Core `ReformatGrid` prepares physical geometry, dimensions and slab sampling
 without image allocation; CPU resampling uses that same grid. An opaque RAM-only
 owner binds each grid to the exact source volume. Equal geometry does not make

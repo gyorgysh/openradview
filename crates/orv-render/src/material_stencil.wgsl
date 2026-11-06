@@ -23,10 +23,5 @@ fn stencil_scalar(stencil:ScalarStencil)->f32 {
 }
 fn stencil_valid(stencil:ScalarStencil)->bool {
     if p.sampling.w<.5 {return true;}
-    for(var z=0u;z<2u;z++) {for(var y=0u;y<2u;y++) {for(var x=0u;x<2u;x++) {
-        let hi=vec3<bool>(x==1u,y==1u,z==1u);
-        let w=select(vec3f(1.)-stencil.fraction,stencil.fraction,hi);
-        if w.x*w.y*w.z>0. && textureLoad(validity,vec3i(select(stencil.lower,stencil.upper,hi)),0).r==0u {return false;}
-    }}}
-    return true;
+    return packed_stencil_valid(vec3i(stencil.lower),stencil.fraction);
 }
