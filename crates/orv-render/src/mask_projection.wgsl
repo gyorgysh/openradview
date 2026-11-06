@@ -9,6 +9,10 @@ struct Params {
 @group(0) @binding(3) var cells:texture_storage_2d<rgba32uint,write>;
 @group(0) @binding(4) var depths:texture_storage_2d<r32float,write>;
 const ERROR:u32=0xffffffffu;
+// Neighboring cells share one integer half-grid face before conversion to f32.
+fn face_time(face:i32,origin:f32,direction:f32)->f32 {
+    return (f32(face)*0.5-origin)/direction;
+}
 fn store(pixel:vec2i,cell:vec3i,id:u32,distance:f32) {
     textureStore(cells,pixel,vec4u(vec3u(max(cell,vec3i(0))),id));
     textureStore(depths,pixel,vec4f(distance,0.,0.,1.));
@@ -29,7 +33,7 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
         if direction[axis]==0. {
             if origin[axis]<minimum || origin[axis]>=maximum {store(pixel,vec3i(0),0u,0.);return;}
         } else {
-            let a=(minimum-origin[axis])/direction[axis];let b=(maximum-origin[axis])/direction[axis];
+            let a=face_time(-1,origin[axis],direction[axis]);let b=face_time(2*dimensions[axis]-1,origin[axis],direction[axis]);
             near=max(near,min(a,b));far=min(far,max(a,b));
         }
     }
@@ -53,12 +57,12 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
     for(var axis=0u;axis<3u;axis+=1u) {
         if direction[axis]==0. {continue;}
         for(var adjust=0u;adjust<3u;adjust+=1u) {
-            let a=(f32(cell[axis])-0.5-origin[axis])/direction[axis];let b=(f32(cell[axis])+0.5-origin[axis])/direction[axis];
+            let a=face_time(2*cell[axis]-1,origin[axis],direction[axis]);let b=face_time(2*cell[axis]+1,origin[axis],direction[axis]);
             if near<min(a,b) {cell[axis]-=step[axis];}
             else if near>=max(a,b) {cell[axis]+=step[axis];}
             else {break;}
         }
-        let a=(f32(cell[axis])-0.5-origin[axis])/direction[axis];let b=(f32(cell[axis])+0.5-origin[axis])/direction[axis];
+        let a=face_time(2*cell[axis]-1,origin[axis],direction[axis]);let b=face_time(2*cell[axis]+1,origin[axis],direction[axis]);
         if near<min(a,b) || near>=max(a,b) {store(pixel,vec3i(0),ERROR,0.);return;}
         // Retain the validated exit. Recomputing it with a signed half-step
         // can round differently at a clipped face on a fast-math backend.
@@ -78,7 +82,7 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
         for(var axis=0u;axis<3u;axis+=1u) {
             if crossing[axis]<=next {
                 cell[axis]+=step[axis];
-                crossing[axis]=(f32(cell[axis])+f32(step[axis])*0.5-origin[axis])/direction[axis];
+                crossing[axis]=face_time(2*cell[axis]+step[axis],origin[axis],direction[axis]);
             }
         }
     }

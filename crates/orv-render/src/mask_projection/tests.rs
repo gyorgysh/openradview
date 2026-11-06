@@ -16,6 +16,77 @@ fn device() -> (wgpu::Device, wgpu::Queue) {
         .expect("Actual GPU required");
     pollster::block_on(adapter.request_device(&crate::device_descriptor(&adapter))).unwrap()
 }
+
+#[test]
+fn included_ct_empty_mask_rays_are_resolved_at_workbench_sizes() {
+    let study = orv_core::load::load_zip(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../assets/demos/nlst-ct.zip"
+        )),
+        &std::sync::atomic::AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    let source = Arc::new(Volume::new(study.series[0].frames.clone()).unwrap());
+    let labels = Arc::new(Labels::empty(source.clone()).unwrap());
+    let (device, queue) = device();
+    let gpu = GpuVolumeSource::new(&device, &queue, source.clone(), || false).unwrap();
+    let (labels, _) = GpuLabels::upload(gpu.clone(), labels, None, || false).unwrap();
+    let mut projector = GpuMaskProjector::new(gpu.clone()).unwrap();
+    let mut camera = Camera::fit(&source);
+    camera.yaw_degrees = 25.;
+    camera.pitch_degrees = 15.;
+    for height in 64..=256 {
+        let size = [512, height];
+        camera
+            .fit_to_volume(&source, f64::from(size[0]) / f64::from(size[1]))
+            .unwrap();
+        let request = MaskProjection {
+            input: MaskInput::Manual(labels.clone()),
+            number: 1,
+            camera: camera.clone(),
+            display: ViewState::default(),
+            clip: None,
+            size,
+        };
+        let mut encoder = device.create_command_encoder(&Default::default());
+        let image = projector
+            .encode_rows(&mut encoder, &request, 0, 0..size[1])
+            .unwrap()
+            .unwrap();
+        queue.submit([encoder.finish()]);
+        let (cells, _) = read(&device, &queue, &image);
+        assert!(
+            cells.iter().all(|cell| cell[3] == 0),
+            "empty mask contains an invalid or unexpected hit at size {size:?}"
+        );
+    }
+    let mut painted = Labels::empty(source.clone()).unwrap();
+    for z in [3, 4] {
+        painted.paint(z, &[[181., 1.]], 3, 1, || false).unwrap();
+    }
+    let (painted, _) = GpuLabels::upload(gpu, Arc::new(painted), None, || false).unwrap();
+    let size = [512, 108];
+    camera
+        .fit_to_volume(&source, f64::from(size[0]) / f64::from(size[1]))
+        .unwrap();
+    let request = MaskProjection {
+        input: MaskInput::Manual(painted),
+        number: 1,
+        camera,
+        display: ViewState::default(),
+        clip: None,
+        size,
+    };
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let image = projector
+        .encode_rows(&mut encoder, &request, 0, 0..size[1])
+        .unwrap()
+        .unwrap();
+    queue.submit([encoder.finish()]);
+    assert!(compare(&device, &queue, &image) > 0);
+}
 fn source(sheared: bool, reversed: bool, masked: bool, offset: f64) -> Arc<Volume> {
     source_with_row_spacing(sheared, reversed, masked, offset, 1.5)
 }

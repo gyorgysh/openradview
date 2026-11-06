@@ -7,85 +7,43 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 
-- **Include/exclude seeds.** On one scalar source image, choose a rectangle and
-  enter or pick include and exclude points. Review the proposed label overlay,
-  then Apply or Discard; Apply is one undoable edit. Missing samples and other
-  labels are barriers. The bounded calculation can refuse a region that does not
-  converge and does not recognize anatomy.
-- **Surface erase stamps.** In MPR + 3D, choose a physical radius and click a
-  visible face of an applied manual label. Review a separate preview before
-  Apply or Cancel; each applied change adds one Undo step. Only the original
-  visible cell layer inside the radius can change. Covering planes, foreground
-  opacity and ambiguous hits can block editing. Hidden IDs and supplied masks
-  cannot be edited with this tool.
-- **Source planes in 3D.** Show the completed thin axial, coronal and sagittal
-  images inside the linked 3D material view, with individual visibility controls
-  and the same MPR contrast and inversion. Source planes and one region's cell
-  faces share depth ordering and clipping. This view retains its requested
-  resolution and selected quality during movement, showing complete images as
-  they become ready. Slab projections show an unavailable reason. Region picks
-  respect covering source planes and foreground opacity. Volume or MIP hides
-  the planes.
-- **Linked 3D cuts.** In MPR + 3D, keep either side of each completed MPR plane
-  through **3D settings → Cut at linked MPR planes**. Cuts follow the point and
-  intersect the separate manual clipping bounds. Resetting linked cuts preserves
-  those bounds. Source images, labels and brush scope are unchanged; cut surfaces
-  stay open. Conflicting bounds show an explicit empty view.
-- **Physical label edits.** In MPR + 3D, preview a sphere or a disk with a chosen
-  radius and thickness in millimetres at the linked point, or draw a continuous
-  physical sweep on one thin plane. The proposal appears
-  on the planes and manual 3D region before Apply; Undo and Redo keep the same
-  map revisions. Hidden IDs, other labels and missing source samples are
-  preserved. Moving the point or leaving the layout discards an unapplied edit.
-- **Cell faces and linked picking.** Display a region's source-grid faces with
-  optional lighting. With **Pick surface** enabled, click a visible face to
-  inspect its source cell; in MPR + 3D, the three planes follow that cell's centre.
-  Picking waits for the current completed view and refuses obscured or ambiguous
-  hits, including faces covered by a source plane. Missing and unknown
-  boundaries stay open. Labels are unchanged.
-- **MPR + 3D.** View the three linked planes beside a local 3D projection of the
-  same volume. The projected cursor follows their physical position; 3D keeps
-  separate camera and appearance controls. Manual and supplied region selection
-  uses the same labels panel. The guides have no depth test or editing action;
-  region display still shows one opaque ID. Combined views stay local.
-
-- **Regions in 3D.** Display one manual label or supplied mask ID over a scalar
-  material view. GPU preparation runs on a background worker and shows complete
-  frames. Fractional masks use half their declared maximum. This view stays local
-  and has no picture export or agent sharing yet.
-- **3D materials and lighting.** For scalar volumes, map intensity points to
-  brightness and opacity per millimetre, with optional lighting for depth cues.
-  The material view uses a larger interaction image and refines in bounded tiles.
-  It stays local; picture export and agent sharing use **Volume** or **MIP**.
+- **MPR + 3D.** View three linked planes beside a 3D view of the same volume.
+  Show thin source planes in 3D, or cut the 3D view at the linked point.
+- **Regions in 3D.** Show one manual label or supplied segment at a time over a
+  scalar material view. Cell faces can be lit and selected to move the linked
+  MPR point. Missing boundaries remain open, and foreground material or source
+  planes can block a selection.
+- **Physical label editing.** Preview a sphere, disk or drawn path in MPR + 3D,
+  then apply or discard it. A separate surface stamp erases one visible cell
+  layer. Applied edits can be undone and redone; supplied masks remain read-only.
+- **3D appearance.** Adjust the brightness and opacity of scalar values and add
+  lighting for depth cues. These controls do not change the source images.
+- **Include and exclude seeds.** Mark points on one scalar source image and
+  preview a proposed region before applying it. Missing samples and other labels
+  act as barriers. This tool uses image values; it does not identify anatomy.
 
 ### Changed
 
-- Oblique movement retains the requested image detail and slab samples. Scalar
-  previews use GPU resampling where supported, with a CPU fallback; the settled
-  frame uses the CPU for exact-view sharing.
-- Linked MPR uses GPU resampling where supported and keeps its requested image
-  detail and slab samples during movement. Unchanged planes reuse their completed
-  images. Unsupported sources/devices use the same sampling on the CPU.
-- Fractional segmentation imports retain their original values and probability
-  or occupancy meaning in memory. Counts and overlays still use values at or
-  above half the declared maximum.
-- Manual label editing shares unchanged tiles between revisions and keeps up to
-  16 undo/redo steps. Strokes that change no cells preserve the history; returning
-  to the last exported revision clears the unsaved indicator.
+- Linked MPR and oblique views retain their requested image detail and slab
+  sampling while moving. Supported scalar views use GPU resampling, with a CPU
+  fallback. Unchanged linked planes reuse their completed images.
+- Fractional segmentation imports retain their original values and whether they
+  represent probability or occupancy. Overlays and counts use half the declared
+  maximum as the membership threshold.
+- Label editing keeps up to 16 undo and redo steps. Returning to the last exported
+  revision clears the unsaved indicator.
 
 ### Fixed
 
-- Oblique setup failures remain visible after another view request. Errors from
-  superseded MPR or oblique interaction no longer replace the newer view.
-- 3D camera drags retain movement delivered in the same frame as button release,
-  including short gestures. Pan keeps the originating button and Space state.
-- Volume-camera turns at exact multiples of 90° avoid tiny off-axis errors that
-  could incorrectly hide valid samples beside missing data.
-- Manual label controls recognize acquired planes whose stored decimal positions
-  differ slightly from the fitted regular volume grid.
-- Thin-plane linked MPR keeps its requested image detail while moving the
-  crosshair or a plane slider. Planes whose position did not change reuse their
-  images instead of being resampled and uploaded again.
+- A 3D region could fail to appear at certain window sizes when a ray crossed a
+  cell boundary. The source image remained visible when this happened.
+- An oblique setup error could disappear after another request, leaving the view
+  waiting. Errors from older MPR or oblique requests no longer interrupt a newer
+  view.
+- Short 3D camera drags could lose the last movement on release.
+- Exact quarter-turn camera angles could incorrectly hide valid samples next to
+  missing data. Label controls also handle small rounding differences in acquired
+  plane positions.
 
 ## 1.3.0 - 2026-11-03
 
