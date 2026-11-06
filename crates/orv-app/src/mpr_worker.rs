@@ -268,13 +268,18 @@ impl MprWorker {
         self.shared.changed.notify_one();
     }
     pub fn take(&self) -> Option<Result<MprSnapshot, String>> {
-        let result = lock(&self.shared.work).result.take()?;
+        let mut work = lock(&self.shared.work);
+        let result = work.result.take()?;
         if self.shared.suspended.load(Ordering::Relaxed) {
             return None;
         }
         if result.as_ref().is_ok_and(|s| {
             s.canonical_requested != self.shared.canonical.load(Ordering::Relaxed)
                 || (!s.preview && s.generation != self.generation())
+                || work.latest.as_ref().is_some_and(|latest| {
+                    s.reformat_side != latest.reformat_side
+                        || s.images.iter().any(|image| image.slab != latest.slab)
+                })
         }) {
             return None;
         }

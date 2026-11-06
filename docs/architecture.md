@@ -1902,8 +1902,10 @@ uploading that image. Both thin and slab interaction retain the requested spatia
 sampling and all declared slab intervals. Updates remain provisional for
 measurements and exact-view sharing until input is quiet; settling reuses the same
 completed pixels. A coherent set completes despite newer pointer input, preventing
-starvation, while study closure or a backend-mode change cancels it. The idle
-worker waits on a condition variable.
+starvation, while study closure or a backend-mode change cancels it. A newly
+completed preview for an older position is accepted only if its requested side
+and slab settings still match the latest request. Oblique previews follow the
+same sampling rule. The idle worker waits on a condition variable.
 Scalar slabs sample bounded discrete extrema or a mean along an explicit physical
 plane normal, excluding missing samples before display mapping. The mean sums at
 most 257 finite samples in f64 and divides by the valid count. Slab hashes keep

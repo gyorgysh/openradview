@@ -34,6 +34,7 @@ struct Request {
 #[derive(Default)]
 struct Work {
     request: Option<Request>,
+    latest_sampling: Option<(u32, Option<orv_core::slab::Slab>)>,
     result: Option<Result<Snapshot, String>>,
     terminal_error: Option<String>,
     gpu_context: Option<(wgpu::Device, wgpu::Queue)>,
@@ -183,6 +184,7 @@ impl Worker {
         let mut work = lock(&self.shared.work);
         let generation = self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1;
         work.result = work.terminal_error.as_ref().map(|error| Err(error.clone()));
+        work.latest_sampling = Some((side, slab));
         work.request = Some(Request {
             plane,
             generation,
@@ -204,11 +206,14 @@ impl Worker {
         }
     }
     pub fn take(&self) -> Option<Result<Snapshot, String>> {
-        let result = lock(&self.shared.work).result.take()?;
-        if result
-            .as_ref()
-            .is_ok_and(|s| !s.preview && s.generation != self.generation())
-        {
+        let mut work = lock(&self.shared.work);
+        let result = work.result.take()?;
+        if result.as_ref().is_ok_and(|s| {
+            (!s.preview && s.generation != self.generation())
+                || work
+                    .latest_sampling
+                    .is_some_and(|(side, slab)| s.reformat_side != side || s.image.slab != slab)
+        }) {
             return None;
         }
         Some(result)

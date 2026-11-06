@@ -141,6 +141,48 @@ fn superseded_preview_errors_do_not_replace_a_newer_target() {
 }
 
 #[test]
+fn stale_preview_cannot_replace_a_different_projection_or_resolution() {
+    use orv_core::slab::{Slab, SlabProjection};
+    let producer = Worker::start(frames(), egui::Context::default());
+    let mut snapshot = wait(&producer).unwrap();
+    drop(producer);
+    let worker = Worker {
+        shared: Arc::new(Shared::default()),
+    };
+    snapshot.preview = true;
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 4.,
+        intervals: 40,
+    };
+    for (side, projection) in [(512, Some(slab)), (256, None)] {
+        worker.request_projection(snapshot.plane.clone(), side, projection, true);
+        lock(&worker.shared.work).result = Some(Ok(snapshot.clone()));
+        assert!(worker.take().is_none(), "incompatible preview was accepted");
+    }
+    let next_plane = ObliquePlane::from_angles(snapshot.volume.center(), [0., 0., 15.]).unwrap();
+    worker.request_projection(next_plane.clone(), 512, None, true);
+    lock(&worker.shared.work).result = Some(Ok(snapshot.clone()));
+    assert!(worker.take().unwrap().unwrap().preview);
+
+    Arc::make_mut(&mut snapshot.image).slab = Some(slab);
+    for projection in [
+        None,
+        Some(Slab {
+            thickness_mm: 8.,
+            ..slab
+        }),
+    ] {
+        worker.request_projection(next_plane.clone(), 512, projection, true);
+        lock(&worker.shared.work).result = Some(Ok(snapshot.clone()));
+        assert!(worker.take().is_none(), "old slab preview was accepted");
+    }
+    worker.request_projection(next_plane, 512, Some(slab), true);
+    lock(&worker.shared.work).result = Some(Ok(snapshot));
+    assert!(worker.take().unwrap().unwrap().preview);
+}
+
+#[test]
 fn interactive_slabs_refine_after_quiet_and_drop_busy_private_sources() {
     use orv_core::slab::*;
     let worker = Worker::start(frames(), egui::Context::default());

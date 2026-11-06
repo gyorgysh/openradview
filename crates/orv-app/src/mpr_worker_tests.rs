@@ -278,6 +278,52 @@ fn completed_preview_can_be_drawn_while_newer_input_is_queued_but_stale_full_res
 }
 
 #[test]
+fn stale_preview_cannot_replace_a_different_projection_or_resolution() {
+    use orv_core::slab::{Slab, SlabProjection};
+    let mut producer = MprWorker::start(frames(), egui::Context::default());
+    let mut snapshot = wait(&producer).unwrap();
+    let handle = producer.worker.take().unwrap();
+    drop(producer);
+    handle.join().unwrap();
+    let worker = MprWorker {
+        shared: Arc::new(Shared::default()),
+        worker: None,
+    };
+    snapshot.preview = true;
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 4.,
+        intervals: 40,
+    };
+    for (side, projection) in [(512, Some(slab)), (256, None)] {
+        worker.request_slab(snapshot.point, side, projection);
+        lock(&worker.shared.work).result = Some(Ok(snapshot.clone()));
+        assert!(worker.take().is_none(), "incompatible preview was accepted");
+    }
+    worker.request_slab([2., 3., 4.], 512, None);
+    lock(&worker.shared.work).result = Some(Ok(snapshot.clone()));
+    assert!(worker.take().unwrap().unwrap().preview);
+
+    for image in &mut snapshot.images {
+        Arc::make_mut(image).slab = Some(slab);
+    }
+    for projection in [
+        None,
+        Some(Slab {
+            thickness_mm: 8.,
+            ..slab
+        }),
+    ] {
+        worker.request_slab(snapshot.point, 512, projection);
+        lock(&worker.shared.work).result = Some(Ok(snapshot.clone()));
+        assert!(worker.take().is_none(), "old slab preview was accepted");
+    }
+    worker.request_slab([2., 3., 4.], 512, Some(slab));
+    lock(&worker.shared.work).result = Some(Ok(snapshot));
+    assert!(worker.take().unwrap().unwrap().preview);
+}
+
+#[test]
 fn slab_worker_keeps_every_requested_sample_and_resolution_during_navigation() {
     use orv_core::slab::*;
     let worker = MprWorker::start(frames(), egui::Context::default());

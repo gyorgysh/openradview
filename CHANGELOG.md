@@ -36,6 +36,8 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
+- Linked MPR and oblique views no longer accept an older moving preview with a
+  different slab setting or image resolution after those settings change.
 - A 3D region could fail to appear at certain window sizes when a ray crossed a
   cell boundary. The source image remained visible when this happened.
 - An oblique setup error could disappear after another request, leaving the view
