@@ -571,6 +571,22 @@ do not determine which intervening surface sectors lie inside the cell; one-side
 face limits and complete cell-face contours remain necessary. Surface patch
 connectivity and finite-grid policy are separate requirements.
 
+`RegularTangents` compares signed axial directions with regular face-contour
+directions at one regular zero point. With outward normal n, these are `e_i`
+(requiring n_i=0) and `n cross e_j` (requiring a nonzero face gradient). Dot and
+cross-dot-n signs reduce to exact derivative signs after removing positive norm
+factors. An arbitrary valid reference selects a counterclockwise order without
+angles, approximate normals or a width increase. Invalid and vanishing directions
+are refused. Equal directions remain equal across representations; callers must
+prove geometric identity before merging curves or creating distinct half-edges.
+
+Regular anchor stars use this same comparison with the original positive-axis
+reference, retaining their previous start and cyclic order. Ascending face-contour
+directions account for transverse-axis parity, while cell-boundary directions use
+the outward cell-face side. These are constant-size direction operations without
+allocation. They do not determine curvature, inside-cell sectors, complete
+source-cell contour ownership or a surface patch triangulation.
+
 `ExactCoordinate::compare` also orders coordinates from unrelated quadratic
 fields in neighboring cells. Compatible fields retain the common-radical fast
 path. Otherwise, rationalization gives a positive denominator and the difference

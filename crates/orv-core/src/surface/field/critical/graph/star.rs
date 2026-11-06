@@ -167,33 +167,36 @@ impl CriticalGraph {
         }
         let mut rings = [AnchorRing::empty(); 2];
         if signs != [0; 3] {
-            let mut axes = [0; 2];
-            let mut count = 0;
-            for (axis, sign) in signs.into_iter().enumerate() {
-                if sign == 0 {
-                    *axes.get_mut(count).ok_or(FieldError::Arithmetic)? = axis;
-                    count += 1;
-                }
-            }
-            match count {
-                1 => {
-                    for positive in [true, false] {
-                        rings[0].push(rays[slot(axes[0], positive)])?;
+            let order = RegularTangents::new(signs)?;
+            let axis = signs
+                .iter()
+                .position(|s| *s == 0)
+                .ok_or(FieldError::Arithmetic)?;
+            let reference = TangentRay::Axis {
+                axis: axis as u8,
+                positive: true,
+            };
+            let tangent = |ray: AnchorRay| TangentRay::Axis {
+                axis: ray.axis,
+                positive: ray.positive,
+            };
+            for ray in rays.into_iter().flatten() {
+                check_cancel(&cancel)?;
+                rings[0].push(Some(ray))?;
+                let mut at = rings[0].count - 1;
+                while at > 0 {
+                    check_cancel(&cancel)?;
+                    match order.compare(
+                        reference,
+                        tangent(rings[0].rays[at]),
+                        tangent(rings[0].rays[at - 1]),
+                    )? {
+                        Ordering::Less => rings[0].rays.swap(at, at - 1),
+                        Ordering::Equal => return Err(FieldError::Arithmetic),
+                        Ordering::Greater => break,
                     }
+                    at -= 1;
                 }
-                2 => {
-                    let k = 3 - axes[0] - axes[1];
-                    let forward = -signs[k] * if k == 1 { -1 } else { 1 } > 0;
-                    for (axis, positive) in [
-                        (axes[0], true),
-                        (axes[1], forward),
-                        (axes[0], false),
-                        (axes[1], !forward),
-                    ] {
-                        rings[0].push(rays[slot(axis, positive)])?;
-                    }
-                }
-                _ => return Err(FieldError::Arithmetic),
             }
             check_cancel(&cancel)?;
             return Ok(AnchorStar::Regular {

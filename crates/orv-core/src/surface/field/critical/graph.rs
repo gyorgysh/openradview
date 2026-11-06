@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 mod compare;
 mod face;
 mod star;
+mod tangent;
 mod wide;
 pub use face::{
     BilinearIntersections, BilinearSlice, CommonZero, ContourNode, ContourSegment, FaceArrangement,
@@ -15,6 +16,7 @@ pub use face::{
     TriangulatedSubdivision, TriangulationLimits,
 };
 pub use star::{AnchorRay, AnchorRing, AnchorStar};
+pub use tangent::{RegularTangents, TangentRay};
 use wide::radical_sign;
 // Original source expressions and polynomial signs retain their own narrow bound.
 // One graph evaluation of an original expression needs at most3121200 per form.

@@ -15,8 +15,9 @@ pub use critical::{
     FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode, IntersectionContact,
     IntersectionPoint, JointEdge, JointRegion, JointSubdivision, LimitContours, PatchHalfEdge,
     PatchRegion, PlaneSubdivision, ProjectionAnalysis, ProjectionPoint, RefinedJointSubdivision,
-    RefinedSubdivision, RefinementLimits, RegionTriangle, SubdivisionEdge,
-    TriangulatedJointSubdivision, TriangulatedSubdivision, TriangulationLimits, WholeSection,
+    RefinedSubdivision, RefinementLimits, RegionTriangle, RegularTangents, SubdivisionEdge,
+    TangentRay, TriangulatedJointSubdivision, TriangulatedSubdivision, TriangulationLimits,
+    WholeSection,
 };
 pub use factor::{
     AxisFactor, CellFactorization, CellPhase, CellResidual, FactorPatch, ResidualKind, ZeroBoundary,
