@@ -276,6 +276,24 @@ keeps its proposal for inspection; leaving the layout discards it. Visible-surfa
 correction remains a separate tool; these volume/plane sweeps can reach hidden
 cells and do not claim surface visibility as mutation authority.
 
+`Labels::seeded_region` is a worker-only, two-class propagation primitive on a
+rectangular acquired scalar slice. Include and exclude seeds are fixed; source
+padding and competing IDs are barriers. Four-neighbor synchronous updates use
+scalar-domain affinity scaled by the valid, unprotected rectangle's range. A
+constant range has unit affinity. Equal strength preserves an existing class;
+equally strong improvements favor exclusion. Zero-strength attacks do not label
+cells. The display window is not an input.
+
+The calculation admits its two iteration buffers and retained seed/result masks
+before allocation. The rectangle is limited to 1,048,576 cells, with bounded
+iterations and 67,108,864 cell updates. Missing, contradictory or protected seeds,
+cancellation, memory pressure and nonconvergence return no proposal. A completed
+proposal retains the original label/source owner, seed set, parameters and class
+decisions. Apply builds a private revision, preserving barriers, unclassified
+cells and other IDs. Its caller must match the original base to the current
+revision before publishing. This primitive does not yet provide seed controls or
+an anatomical model in the native viewer.
+
 Agent panel/review/live sessions and unseen inbound requests select canonical CPU
 reconstruction. Backend changes increment the request generation, invalidate the
 plane cache and reject old-mode previews; the GPU source stays available for local

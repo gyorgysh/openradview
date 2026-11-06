@@ -6,6 +6,7 @@ mod export;
 mod physical;
 mod regions;
 mod sampling;
+mod seeded;
 mod statistics;
 mod surface;
 mod tiles;
@@ -17,6 +18,7 @@ pub use regions::{
     LabelScope, LabelSelection, RegionOperation, SelectionRequest, SelectionSummary,
 };
 pub use sampling::{LabelPlane, MAX_PLANE_PIXELS};
+pub use seeded::{SeedClass, SeedPoint, SeededRegion, SeededRequest, SeededSummary};
 pub use statistics::{LabelCount, LabelStatistics};
 pub use surface::{FaceErase, FaceEraseSelection, FaceEraseSummary, MAX_ERASE_FACES};
 pub use tiles::{
