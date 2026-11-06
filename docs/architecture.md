@@ -1162,15 +1162,25 @@ contract. These inputs remain distinct from ordered source composition,
 smoothing, physical picking, desktop display and disclosure/export paths.
 
 `GpuCandidateSurface` uploads the within-tolerance triangles of a bounded
-candidate assembly as per-cell immutable vertex streams. Each vertex stores the
-source-cell origin and exact integer subcell numerator; conversion to GPU
+candidate assembly as per-cell immutable triangle descriptors. Each descriptor
+stores the source-cell origin and three exact integer subcell numerators; conversion to GPU
 floating-point coordinates is a separate rendering step. Unresolved triangles,
 noncandidate cells and assembly face states remain inspectable rather than
 silently treated as complete coverage. Unchanged integer geometry can reuse a
 GPU chunk across mask revisions while the parent retains the current assembly.
 Triangle and byte limits, source identity, cancellation, admitted GPU buffers
-and bounded upload staging are checked before publishing. These buffers are not
-yet connected to native rendering, picking or physical-coordinate error bounds.
+and bounded upload staging are checked before publishing.
+
+`GpuCandidateProjector` projects represented candidates using source-centred
+physical camera coordinates. A guarded screen rectangle identifies candidate
+pixels; each fragment intersects the corresponding source-cell triangle before
+writing its source-cell ID and physical depth. Views whose conservative screen
+coordinate error exceeds half the guard are refused. A worker counts conservative
+rectangle pixel work before allocation and divides draws into bounded fenced batches;
+views exceeding the frame work limit are refused. The reported vertex reconstruction
+bound excludes projection, rasterization, intersection, clipping, source-surface
+error and world-origin rounding. The image retains the incomplete assembly and
+is separate from source composition, native display and edit authority.
 
 `GpuSurfaceProjector` produces a separate immutable `SurfaceImage` for one exact
 GPU source, mask revision, numeric ID, camera/display state, clip and requested

@@ -13,9 +13,9 @@ use orv_core::{
 };
 use std::sync::Arc;
 
-/// Cell origin xyz followed by exact subcell numerator xyz, all little-endian u32.
+/// Cell origin xyz followed by three exact subcell xyz numerators, all u32.
 /// Subcell coordinates use `ConformingSurfaceMesh::POSITION_DENOMINATOR`.
-pub const VERTEX_BYTES: u64 = 24;
+pub const TRIANGLE_BYTES: u64 = 48;
 pub const MAX_TRIANGLES: usize = 1_000_000;
 pub const MAX_BYTES: u64 = 128 * 1024 * 1024;
 const ALIGNMENT: u64 = 4096;
@@ -375,7 +375,7 @@ fn checked_origin(origin: [usize; 3], dimensions: [usize; 3]) -> Result<[u32; 3]
 fn triangle_bytes(triangles: usize) -> Result<u64, &'static str> {
     u64::try_from(triangles)
         .ok()
-        .and_then(|n| n.checked_mul(3 * VERTEX_BYTES))
+        .and_then(|n| n.checked_mul(TRIANGLE_BYTES))
         .ok_or("Candidate geometry size overflow")
 }
 fn aligned(bytes: u64) -> Result<u64, &'static str> {
@@ -435,29 +435,24 @@ fn pack(
         if !matches!(triangle.state, ConformingFacetState::WithinTolerance { .. }) {
             continue;
         }
-        for id in triangle.vertices {
+        let mut words = [0u32; 12];
+        words[..3].copy_from_slice(&origin);
+        for (vertex, id) in triangle.vertices.into_iter().enumerate() {
             let position = mesh
                 .vertices()
                 .get(id as usize)
                 .and_then(|v| v.position())
                 .ok_or("Candidate vertex is unavailable")?;
-            let words = [
-                origin[0],
-                origin[1],
-                origin[2],
-                position[0],
-                position[1],
-                position[2],
-            ]
-            .map(u32::to_le_bytes);
-            let start = index * VERTEX_BYTES as usize;
-            mapped
-                .slice(start..start + VERTEX_BYTES as usize)
-                .copy_from_slice(words.as_flattened());
-            index += 1;
+            words[3 + 3 * vertex..6 + 3 * vertex].copy_from_slice(&position);
         }
+        let encoded = words.map(u32::to_le_bytes);
+        let start = index * TRIANGLE_BYTES as usize;
+        mapped
+            .slice(start..start + TRIANGLE_BYTES as usize)
+            .copy_from_slice(encoded.as_flattened());
+        index += 1;
     }
-    if index != triangles * 3 {
+    if index != triangles {
         return Err("Candidate triangle count changed during upload");
     }
     Ok(())

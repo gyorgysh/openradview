@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::candidate_projection::{CandidateImage, CandidateProjection, GpuCandidateProjector};
 use orv_core::{
+    ViewState,
     labels::Labels,
     mask::MaskOwner,
     segments::{FractionalEncoding, FractionalKind, Segments},
@@ -12,6 +14,7 @@ use orv_core::{
         RefinementLimits, SurfaceEnclosureLimits,
     },
     volume::Volume,
+    volume_view::{Camera, PhysicalClip},
 };
 use std::{
     cell::Cell,
@@ -35,6 +38,9 @@ fn volume() -> Arc<Volume> {
     volume_dimensions([3, 3, 2])
 }
 fn volume_dimensions(dimensions: [u32; 3]) -> Arc<Volume> {
+    volume_geometry(dimensions, 1000., true, true)
+}
+fn volume_geometry(dimensions: [u32; 3], offset: f64, shear: bool, reverse: bool) -> Arc<Volume> {
     let template = demo_study().series.remove(0).frames.remove(0);
     Arc::new(
         Volume::new(
@@ -45,8 +51,16 @@ fn volume_dimensions(dimensions: [u32; 3]) -> Arc<Volume> {
                     frame.height = dimensions[1];
                     frame.pixels = vec![10.; (dimensions[0] * dimensions[1]) as usize].into();
                     frame.geometry = Some(Geometry {
-                        position: [1000. + z as f64 * 0.25, -2000., 3000. + z as f64 * 2.],
-                        orientation: [-1., 0., 0., 0., 1., 0.],
+                        position: [
+                            offset + if shear { z as f64 * 0.25 } else { 0. },
+                            -2. * offset + if shear { z as f64 * 0.5 } else { 0. },
+                            3. * offset + z as f64 * 2.,
+                        ],
+                        orientation: if reverse {
+                            [-1., 0., 0., 0., 1., 0.]
+                        } else {
+                            [1., 0., 0., 0., 1., 0.]
+                        },
                         spacing: [1.5, 0.75],
                         frame_of_reference: Some("generated candidate geometry".into()),
                         nifti_transform: None,
@@ -186,7 +200,53 @@ fn mapped(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
     buffer.unmap();
     bytes
 }
-fn read(source: &GpuVolumeSource, chunk: &GpuCandidateChunk) -> Vec<[u32; 6]> {
+fn texture_bytes(source: &GpuVolumeSource, texture: &wgpu::Texture, bpp: u32) -> Vec<u8> {
+    let size = texture.size();
+    let stride = (size.width * bpp).div_ceil(256) * 256;
+    let buffer = source.device().create_buffer(&wgpu::BufferDescriptor {
+        label: Some("generated candidate projection readback"),
+        size: u64::from(stride) * u64::from(size.height),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = source.device().create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(stride),
+                rows_per_image: Some(size.height),
+            },
+        },
+        size,
+    );
+    source.queue().submit([encoder.finish()]);
+    mapped(source.device(), &buffer)
+        .chunks_exact(stride as usize)
+        .flat_map(|row| row[..(size.width * bpp) as usize].iter().copied())
+        .collect()
+}
+fn image_pixels(image: &CandidateImage) -> (Vec<[u32; 4]>, Vec<f32>) {
+    let source = image.request().surface.source();
+    let cells = texture_bytes(source, image.cells(), 16)
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .map(|bytes| {
+            std::array::from_fn(|i| u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap()))
+        })
+        .collect();
+    let depth = texture_bytes(source, image.depth(), 4)
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|bytes| f32::from_le_bytes(*bytes))
+        .collect();
+    (cells, depth)
+}
+fn read(source: &GpuVolumeSource, chunk: &GpuCandidateChunk) -> Vec<[u32; 12]> {
     let device = source.device();
     let output = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("candidate integer readback"),
@@ -198,7 +258,7 @@ fn read(source: &GpuVolumeSource, chunk: &GpuCandidateChunk) -> Vec<[u32; 6]> {
     encoder.copy_buffer_to_buffer(chunk.buffer(), 0, &output, 0, chunk.data_bytes());
     source.queue().submit([encoder.finish()]);
     mapped(device, &output)
-        .as_chunks::<24>()
+        .as_chunks::<48>()
         .0
         .iter()
         .map(|bytes| {
@@ -208,7 +268,7 @@ fn read(source: &GpuVolumeSource, chunk: &GpuCandidateChunk) -> Vec<[u32; 6]> {
 }
 
 /// Checks integer vertex-attribute consumption, not physical projection or visibility.
-fn vertex_probe(source: &GpuVolumeSource, chunk: &GpuCandidateChunk, expected: &[[u32; 6]]) {
+fn vertex_probe(source: &GpuVolumeSource, chunk: &GpuCandidateChunk, expected: &[[u32; 12]]) {
     let device = source.device();
     let width = 64u32;
     let count = u32::try_from(expected.len()).unwrap();
@@ -264,7 +324,7 @@ struct Output {{ @location(0) cell:vec4u, @location(1) local:vec4u }};
             entry_point: Some("vs"),
             compilation_options: Default::default(),
             buffers: &[Some(wgpu::VertexBufferLayout {
-                array_stride: VERTEX_BYTES,
+                array_stride: TRIANGLE_BYTES,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &[
                     wgpu::VertexAttribute {
@@ -370,7 +430,7 @@ struct Output {{ @location(0) cell:vec4u, @location(1) local:vec4u }};
         }
     }
 }
-fn expected(assembly: &CandidateAssembly, origin: [u32; 3]) -> Vec<[u32; 6]> {
+fn expected(assembly: &CandidateAssembly, origin: [u32; 3]) -> Vec<[u32; 12]> {
     let cell = assembly
         .cells()
         .iter()
@@ -383,20 +443,377 @@ fn expected(assembly: &CandidateAssembly, origin: [u32; 3]) -> Vec<[u32; 6]> {
     mesh.triangles()
         .iter()
         .filter(|triangle| matches!(triangle.state, ConformingFacetState::WithinTolerance { .. }))
-        .flat_map(|triangle| {
-            triangle.vertices.map(|id| {
-                let position = mesh.vertices()[id as usize].position().unwrap();
-                [
-                    origin[0],
-                    origin[1],
-                    origin[2],
-                    position[0],
-                    position[1],
-                    position[2],
-                ]
-            })
+        .map(|triangle| {
+            let mut words = [0u32; 12];
+            words[..3].copy_from_slice(&origin);
+            for (i, id) in triangle.vertices.into_iter().enumerate() {
+                words[3 + 3 * i..6 + 3 * i]
+                    .copy_from_slice(&mesh.vertices()[id as usize].position().unwrap());
+            }
+            words
         })
         .collect()
+}
+
+fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a.into_iter().zip(b).map(|(a, b)| a * b).sum()
+}
+fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    std::array::from_fn(|i| a[i] - b[i])
+}
+fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+struct ReferenceHit {
+    cell: [u32; 3],
+    depth: f64,
+    margin: f64,
+}
+// Independent f64 ray/triangle intersection in source coordinates. Edge contacts
+// have implementation-defined raster coverage and are excluded from strict checks.
+fn reference(
+    request: &CandidateProjection,
+    pixel: [u32; 2],
+    edge_slack: f64,
+    clip_slack: f64,
+) -> Option<ReferenceHit> {
+    let source = request.surface.source().volume();
+    let frame = request
+        .camera
+        .frame(
+            &request.display,
+            f64::from(request.size[0]) / f64::from(request.size[1]),
+        )
+        .unwrap();
+    let (world, direction) = frame.ray(std::array::from_fn(|a| {
+        (f64::from(pixel[a]) + 0.5) / f64::from(request.size[a])
+    }));
+    let origin = source.world_to_voxel(world);
+    let vector = source.world_vector_to_voxel(direction);
+    let denominator = f64::from(ConformingSurfaceMesh::POSITION_DENOMINATOR);
+    let mut best: Option<(f64, ReferenceHit)> = None;
+    for cell in request.surface.assembly().cells() {
+        let CandidateCellState::Candidate { mesh } = cell.state else {
+            continue;
+        };
+        let mesh = &request.surface.assembly().meshes()[usize::from(mesh)];
+        for triangle in mesh.triangles() {
+            if !matches!(triangle.state, ConformingFacetState::WithinTolerance { .. }) {
+                continue;
+            }
+            let points = triangle.vertices.map(|id| {
+                let local = mesh.vertices()[id as usize].position().unwrap();
+                std::array::from_fn(|a| cell.origin[a] as f64 + f64::from(local[a]) / denominator)
+            });
+            let e1 = sub(points[1], points[0]);
+            let e2 = sub(points[2], points[0]);
+            let p = cross(vector, e2);
+            let determinant = dot(e1, p);
+            if determinant.abs() < 1e-12 {
+                continue;
+            }
+            let delta = sub(origin, points[0]);
+            let u = dot(delta, p) / determinant;
+            let q = cross(delta, e1);
+            let v = dot(vector, q) / determinant;
+            let margin = u.min(v).min(1. - u - v);
+            if margin < -edge_slack {
+                continue;
+            }
+            let t = dot(e2, q) / determinant;
+            let voxel = std::array::from_fn(|a| origin[a] + vector[a] * t);
+            let world_point = source.voxel_to_world(voxel);
+            if request.clip.as_ref().is_some_and(|clip| {
+                (0..3).any(|a| {
+                    world_point[a] < clip.minimum_mm[a] - clip_slack
+                        || world_point[a] > clip.maximum_mm[a] + clip_slack
+                })
+            }) {
+                continue;
+            }
+            let depth = dot(sub(world_point, source.center()), direction);
+            if best.as_ref().is_none_or(|(prior, _)| t < *prior) {
+                best = Some((
+                    t,
+                    ReferenceHit {
+                        cell: cell.origin.map(|v| v as u32),
+                        depth,
+                        margin,
+                    },
+                ));
+            }
+        }
+    }
+    best.map(|(_, hit)| hit)
+}
+
+fn assert_projection(image: &CandidateImage) {
+    let request = image.request();
+    let (cells, depths) = image_pixels(image);
+    let mut interior = 0usize;
+    for (i, (cell, depth)) in cells.iter().zip(&depths).enumerate() {
+        let pixel = [i as u32 % request.size[0], i as u32 / request.size[0]];
+        if cell[3] != 0 {
+            assert!(
+                reference(request, pixel, 0.002, 0.001).is_some(),
+                "unexpected hit at {pixel:?}"
+            );
+        }
+        if let Some(hit) = reference(request, pixel, 0., 0.)
+            && hit.margin > 0.001
+        {
+            interior += 1;
+            assert_eq!(cell[..3], hit.cell, "pixel {pixel:?}");
+            assert_eq!(
+                cell[3],
+                u32::from(request.surface.assembly().field().key().number)
+            );
+            assert!(
+                (f64::from(*depth) - hit.depth).abs() < 0.001,
+                "pixel {pixel:?}: {depth} vs {}",
+                hit.depth
+            );
+        }
+    }
+    assert!(
+        interior > 10,
+        "the fixture must exercise interior triangle coverage"
+    );
+}
+fn assert_vertex_bound(image: &CandidateImage) {
+    let source = image.request().surface.source();
+    let volume = source.volume();
+    let basis: [[f64; 3]; 3] = std::array::from_fn(|axis| {
+        let mut vector = [0.; 3];
+        vector[axis] = 1.;
+        volume.voxel_vector_to_world(vector)
+    });
+    let center = volume.dimensions().map(|d| (d - 1) as f64 * 0.5);
+    let denominator = f64::from(ConformingSurfaceMesh::POSITION_DENOMINATOR);
+    for chunk in image.request().surface.chunks() {
+        for words in read(source, chunk) {
+            for vertex in 0..3 {
+                let local = 3 + 3 * vertex;
+                let exact_q = std::array::from_fn(|a| {
+                    f64::from(words[a]) - center[a] + f64::from(words[local + a]) / denominator
+                });
+                let float_q: [f32; 3] = std::array::from_fn(|a| {
+                    words[a] as f32 - center[a] as f32
+                        + words[local + a] as f32 / denominator as f32
+                });
+                let exact = volume.voxel_vector_to_world(exact_q);
+                let approximate: [f64; 3] = std::array::from_fn(|world| {
+                    f64::from(
+                        basis[0][world] as f32 * float_q[0]
+                            + basis[1][world] as f32 * float_q[1]
+                            + basis[2][world] as f32 * float_q[2],
+                    )
+                });
+                let error: f64 = exact
+                    .into_iter()
+                    .zip(approximate)
+                    .map(|(a, b)| (a - b).abs())
+                    .sum();
+                assert!(
+                    error <= image.vertex_error_upper_mm(),
+                    "{error} > {}",
+                    image.vertex_error_upper_mm()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn actual_gpu_candidate_projection_matches_physical_ray_triangles() {
+    let (device, queue) = device();
+    for (offset, shear, reverse, yaw, pitch) in [
+        (0., false, false, 0., 0.),
+        (1_000_000., true, true, 27., -17.),
+    ] {
+        let cpu = volume_geometry([3, 3, 2], offset, shear, reverse);
+        let source = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false).unwrap();
+        let assembly = geometry(cpu.clone(), 1000., 2);
+        let (surface, upload) = GpuCandidateSurface::upload(
+            source.clone(),
+            assembly,
+            None,
+            CandidateUploadLimits::default(),
+            || false,
+        )
+        .unwrap();
+        assert!(upload.represented_triangles > 0);
+        let projector = GpuCandidateProjector::new(source).unwrap();
+        let mut camera = Camera::fit(&cpu);
+        camera.yaw_degrees = yaw;
+        camera.pitch_degrees = pitch;
+        let request = CandidateProjection {
+            surface,
+            camera,
+            display: ViewState {
+                pan: [0.021, -0.017],
+                ..Default::default()
+            },
+            clip: None,
+            size: [83, 79],
+        };
+        let image = projector.render(request.clone(), || false).unwrap();
+        assert_eq!(image.statistics().triangles, upload.represented_triangles);
+        assert!(image.statistics().candidate_pixels > 0);
+        assert!(matches!(
+            projector.render_with_limit(
+                request.clone(),
+                image.statistics().candidate_pixels - 1,
+                || false
+            ),
+            Err("Candidate projection exceeds its bounded pixel-work limit")
+        ));
+        assert!(image.vertex_error_upper_mm() > 0. && image.vertex_error_upper_mm() < 0.01);
+        assert_vertex_bound(&image);
+        assert_projection(&image);
+        let old = image_pixels(&image);
+        if offset == 0. {
+            let cap = u64::from(image.statistics().max_triangle_pixels);
+            assert!(image.statistics().candidate_pixels > cap);
+            let batched = projector
+                .render_with_budgets(
+                    request.clone(),
+                    crate::candidate_projection::MAX_FRAME_CANDIDATE_PIXELS,
+                    cap,
+                    || false,
+                )
+                .unwrap();
+            assert!(batched.statistics().fenced_batches > 1);
+            assert_eq!(image_pixels(&batched), old);
+        }
+        let center = cpu.center();
+        let mut clipped = request;
+        clipped.clip = Some(PhysicalClip {
+            minimum_mm: [center[0] - 10., center[1] - 10., center[2] - 10.],
+            maximum_mm: [center[0] + 0.25, center[1] + 10., center[2] + 10.],
+        });
+        let clipped = projector.render(clipped, || false).unwrap();
+        assert_projection(&clipped);
+        assert_eq!(image_pixels(&image), old);
+    }
+}
+
+#[test]
+fn candidate_projection_is_stable_under_large_world_translation() {
+    let (device, queue) = device();
+    let mut results = Vec::new();
+    for offset in [0., 1_000_000.] {
+        let cpu = volume_geometry([3, 3, 2], offset, true, true);
+        let source = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false).unwrap();
+        let (surface, _) = GpuCandidateSurface::upload(
+            source.clone(),
+            geometry(cpu.clone(), 1000., 2),
+            None,
+            CandidateUploadLimits::default(),
+            || false,
+        )
+        .unwrap();
+        let mut camera = Camera::fit(&cpu);
+        camera.yaw_degrees = 27.;
+        camera.pitch_degrees = -17.;
+        let image = GpuCandidateProjector::new(source)
+            .unwrap()
+            .render(
+                CandidateProjection {
+                    surface,
+                    camera,
+                    display: ViewState::default(),
+                    clip: None,
+                    size: [83, 79],
+                },
+                || false,
+            )
+            .unwrap();
+        results.push(image_pixels(&image));
+    }
+    assert_eq!(results[0].0, results[1].0);
+    for (a, b) in results[0].1.iter().zip(&results[1].1) {
+        assert!((a - b).abs() < 1e-5);
+    }
+}
+
+#[test]
+fn candidate_projection_handles_empty_sources_scopes_and_cancellation() {
+    let (device, queue) = device();
+    let cpu = volume();
+    let source = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false).unwrap();
+    let field = MaskField::new(
+        MaskOwner::Manual(Arc::new(Labels::empty(cpu.clone()).unwrap())),
+        1,
+    )
+    .unwrap();
+    let limits = grid_limits(1000., 2);
+    let grid = field
+        .candidate_grid([0; 3], [2, 2, 1], 2, limits, || false)
+        .unwrap();
+    let (surface, _) = GpuCandidateSurface::upload(
+        source.clone(),
+        assembly(&grid, limits.seams),
+        None,
+        CandidateUploadLimits::default(),
+        || false,
+    )
+    .unwrap();
+    assert!(surface.chunks().is_empty());
+    let projector = GpuCandidateProjector::new(source.clone()).unwrap();
+    let request = CandidateProjection {
+        surface,
+        camera: Camera::fit(&cpu),
+        display: ViewState::default(),
+        clip: None,
+        size: [41, 37],
+    };
+    let image = projector.render(request.clone(), || false).unwrap();
+    assert_eq!(image.statistics().triangles, 0);
+    assert!(image_pixels(&image).0.iter().all(|v| *v == [0; 4]));
+    assert!(projector.render(request.clone(), || true).is_err());
+    let gpu_before = MemoryBudget::gpu().used();
+    let cpu_before = MemoryBudget::volumes().used();
+    let entered = AtomicBool::new(false);
+    assert!(matches!(
+        projector.render(request.clone(), || {
+            let allocated = MemoryBudget::gpu().used() > gpu_before;
+            entered.fetch_or(allocated, Ordering::AcqRel);
+            allocated
+        }),
+        Err("Cancelled")
+    ));
+    assert!(entered.load(Ordering::Acquire));
+    fence(&device);
+    assert_eq!(MemoryBudget::gpu().used(), gpu_before);
+    assert_eq!(MemoryBudget::volumes().used(), cpu_before);
+    let mut invalid = request.clone();
+    invalid.size = [0, 37];
+    assert!(projector.render(invalid, || false).is_err());
+    let mut invalid = request.clone();
+    invalid.camera.vertical_span_mm = 0.0001;
+    invalid.display.zoom = 50.;
+    assert!(matches!(
+        projector.render(invalid, || false),
+        Err("Candidate screen projection exceeds GPU coordinate precision")
+    ));
+    let mut invalid = request.clone();
+    invalid.clip = Some(PhysicalClip {
+        minimum_mm: [1.; 3],
+        maximum_mm: [0.; 3],
+    });
+    assert!(projector.render(invalid, || false).is_err());
+    let other = GpuVolumeSource::new(&device, &queue, volume(), || false).unwrap();
+    assert!(
+        GpuCandidateProjector::new(other)
+            .unwrap()
+            .render(request, || false)
+            .is_err()
+    );
 }
 
 #[test]
