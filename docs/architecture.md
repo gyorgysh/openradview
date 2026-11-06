@@ -698,7 +698,8 @@ height when found. The bounded bilinear sign predicate evaluates each midpoint
 without floating-point decisions and can refuse unsupported arithmetic. A planar
 mesh vertex can query the chart retained through its source graph. These vertex
 bounds do not resolve whole fibers, certify triangle interiors or coordinate
-neighboring seams.
+neighboring seams. Exact local coordinate endpoints retain the degenerate interval
+0 or 1, so source-face vertices are not displaced into a cell by midpoint selection.
 `TriangulatedPlanarGraph::enclose_surface` retains that mesh and computes inclusive
 3D local-coordinate boxes for its uniquely defined vertices, using exact coordinate
 comparisons and fiber signs. Empty and whole fibers stay explicit. Each input
@@ -729,7 +730,10 @@ edges; rounded coordinates are not welded. Splitting a shared candidate edge
 updates both owners before either child is recertified. Limits, work exhaustion,
 singular midpoints and incompatible neighbors remain unresolved rather than
 loosening tolerance. Output and scratch are admitted separately. Noncandidate
-facets remain in the retained source, and cross-cell seams, curved-boundary
+facets remain in the retained source. A proposed split on a projection end-face
+edge is allowed only if exact field values at both endpoints and the midpoint
+prove its quadratic chord lies on the face zero contour; otherwise it remains
+unresolved until source-contour-aware refinement. Cross-cell seams, curved-boundary
 topology, physical-space accuracy and native rendering remain separate work.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one

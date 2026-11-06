@@ -39,6 +39,7 @@ pub enum AdaptiveStopReason {
     EmptyMidpoint,
     WholeMidpoint,
     OppositeMidpointNormal,
+    EndFaceContour,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdaptiveFacetState {
@@ -103,6 +104,28 @@ fn longest_edge(vertices: [[u32; 3]; 3], u: usize, v: usize) -> (usize, usize, u
     best
 }
 
+// An end-face edge may approximate a curved source contour. Its chord
+// midpoint is not generally on that contour and must not move into the cell.
+fn end_face_edge(a: [u32; 3], b: [u32; 3], axis: usize) -> bool {
+    (a[axis] == 0 && b[axis] == 0) || (a[axis] == REFINED_GRID && b[axis] == REFINED_GRID)
+}
+
+// The source face is bilinear, so its restriction to a chord is quadratic.
+// Three exact zeros prove the entire chord lies on that source face contour.
+fn face_chord_is_zero(values: [i16; 8], a: [u32; 3], b: [u32; 3]) -> Result<bool, SurfaceError> {
+    let mut middle = [0u32; 3];
+    for d in 0..3 {
+        let sum = a[d].checked_add(b[d]).ok_or(SurfaceError::Limit)?;
+        if sum % 2 != 0 {
+            return Err(SurfaceError::Geometry);
+        }
+        middle[d] = sum / 2;
+    }
+    Ok([a, middle, b]
+        .into_iter()
+        .all(|point| field_value(values, point, REFINED_GRID) == 0))
+}
+
 fn midpoint(
     chart: &CellProjectionChart,
     a: [u32; 3],
@@ -112,6 +135,16 @@ fn midpoint(
 ) -> Result<Result<[u32; 3], AdaptiveStopReason>, SurfaceError> {
     check(cancel)?;
     let axis = usize::from(chart.axis());
+    if end_face_edge(a, b, axis) {
+        let field = chart
+            .graph()
+            .cell()
+            .interpolant()
+            .ok_or(SurfaceError::Geometry)?;
+        if !face_chord_is_zero(field.values(), a, b)? {
+            return Ok(Err(AdaptiveStopReason::EndFaceContour));
+        }
+    }
     let [u, v] = chart.transverse_axes();
     let mut p = [0u32; 3];
     for d in [u, v] {
@@ -349,6 +382,37 @@ impl EnclosedSurfaceGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn end_face_chords_are_not_resampled_as_interior_points() {
+        for axis in 0..3 {
+            let a = [0; 3];
+            let mut b = [REFINED_GRID; 3];
+            b[axis] = 0;
+            assert!(end_face_edge(a, b, axis));
+            let mut upper = [0; 3];
+            upper[axis] = REFINED_GRID;
+            assert!(end_face_edge(upper, [REFINED_GRID; 3], axis));
+            assert!(!end_face_edge(a, [REFINED_GRID; 3], axis));
+        }
+    }
+
+    #[test]
+    fn face_chord_zero_test_distinguishes_lines_from_curves() {
+        let n = REFINED_GRID;
+        let a = [n / 2, 0, 0];
+        let b = [n / 2, n, 0];
+        // F on the lower face is 2x - 1.
+        let line = [-1, 1, -1, 1, 1, 1, 1, 1];
+        assert_eq!(face_chord_is_zero(line, a, b), Ok(true));
+        // F on the lower face is 4xy - 1: both endpoints are on the
+        // contour but their chord midpoint is not.
+        let curved = [-1, -1, -1, 3, 1, 1, 1, 1];
+        assert_eq!(
+            face_chord_is_zero(curved, [n / 4, n, 0], [n, n / 4, 0]),
+            Ok(false)
+        );
+    }
 
     #[test]
     fn midpoint_fibers_preserve_distinct_singular_cases() {

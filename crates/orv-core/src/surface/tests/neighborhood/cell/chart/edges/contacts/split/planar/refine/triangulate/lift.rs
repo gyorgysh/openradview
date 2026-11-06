@@ -16,6 +16,7 @@ fn source_bound_vertex_boxes_enclose_independent_field_values_on_all_axes() {
     let budget = MemoryBudget::new(128 * 1024 * 1024);
     let values = [26, -6, -6, -6, -6, -6, -6, 26];
     let mut candidates = 0;
+    let mut exact_faces = 0;
     for axis in 0..3 {
         let mesh = input(axis, budget.clone());
         let before = budget.used();
@@ -58,6 +59,21 @@ fn source_bound_vertex_boxes_enclose_independent_field_values_on_all_axes() {
                     );
                     for (bounds, coordinate) in [(axes[u], point[0]), (axes[v], point[1])] {
                         let value = coordinate.approximate().unwrap();
+                        if let Some(ratio) = coordinate.rational_value()
+                            && (ratio.numerator() == 0
+                                || i128::from(ratio.numerator()) == i128::from(ratio.denominator()))
+                        {
+                            let endpoint = u32::from(ratio.numerator() != 0);
+                            assert_eq!(
+                                bounds,
+                                CellAxisBounds {
+                                    lower: endpoint,
+                                    upper: endpoint,
+                                    denominator: 1
+                                }
+                            );
+                            exact_faces += 1;
+                        }
                         assert!(bounds.upper - bounds.lower <= 1);
                         assert!(
                             value >= f64::from(bounds.lower) / f64::from(bounds.denominator) - 1e-9
@@ -95,6 +111,7 @@ fn source_bound_vertex_boxes_enclose_independent_field_values_on_all_axes() {
         assert_eq!(budget.used(), before);
     }
     assert!(candidates > 0);
+    assert!(exact_faces > 0);
     assert_eq!(budget.used(), 0);
 }
 
@@ -736,4 +753,96 @@ fn shared_refinement_limits_and_cancellation_keep_the_input_intact() {
             ..
         }
     )));
+}
+
+fn adjacent_mesh(
+    field: &MaskField,
+    lower: [usize; 3],
+    budget: Arc<MemoryBudget>,
+) -> Arc<TriangulatedPlanarGraph> {
+    let graph = Arc::new(build(field, lower, budget.clone()));
+    let chart = Arc::new(
+        graph
+            .projection_chart_with_budget(2, budget.clone(), || false)
+            .unwrap(),
+    );
+    let edges = Arc::new(
+        chart
+            .project_edges_with_budget(budget.clone(), || false)
+            .unwrap(),
+    );
+    let contacts = Arc::new(
+        edges
+            .contacts_with_budget(budget.clone(), || false)
+            .unwrap(),
+    );
+    let split = Arc::new(
+        contacts
+            .split_with_budget(budget.clone(), || false)
+            .unwrap(),
+    );
+    let planar = Arc::new(
+        split
+            .planar_graph_with_budget(budget.clone(), || false)
+            .unwrap(),
+    );
+    let refined = Arc::new(
+        planar
+            .refine_with_budget(limits(6), budget.clone(), || false)
+            .unwrap(),
+    );
+    Arc::new(
+        refined
+            .triangulate_with_budget(PlanarTriangulationLimits::default(), budget, || false)
+            .unwrap(),
+    )
+}
+
+#[test]
+fn neighboring_cells_keep_matching_source_face_vertices_on_the_exact_face() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let source = source([3, 2, 2], true, false);
+    let field = fractional(source, |[x, y, z]| {
+        if (x == 0 && y == 0 && z == 0)
+            || (x == 1 && y == 1 && z == 1)
+            || (x == 2 && y == 0 && z == 0)
+        {
+            26
+        } else {
+            -6
+        }
+    });
+    let left = adjacent_mesh(&field, [0, 0, 0], budget.clone());
+    let right = adjacent_mesh(&field, [1, 0, 0], budget.clone());
+    let a = left
+        .enclose_surface_with_budget(SurfaceEnclosureLimits::default(), budget.clone(), || false)
+        .unwrap();
+    let b = right
+        .enclose_surface_with_budget(SurfaceEnclosureLimits::default(), budget.clone(), || false)
+        .unwrap();
+    let mut matched = 0usize;
+    for i in 0..left.input().vertex_count() {
+        let p = *left.input().vertex(i as u32).unwrap();
+        if !p[0].compare(coordinate(1, 1)).unwrap().is_eq() {
+            continue;
+        }
+        for j in 0..right.input().vertex_count() {
+            let q = *right.input().vertex(j as u32).unwrap();
+            if !q[0].compare(coordinate(0, 1)).unwrap().is_eq()
+                || !p[1].compare(q[1]).unwrap().is_eq()
+            {
+                continue;
+            }
+            if let (Some(x), Some(y)) = (
+                a.vertex_lattice_point(i as u32).unwrap(),
+                b.vertex_lattice_point(j as u32).unwrap(),
+            ) {
+                assert_eq!(x[0], EnclosedSurfaceGraph::POSITION_DENOMINATOR);
+                assert_eq!(y[0], 0);
+                assert_eq!([x[1], x[2]], [y[1], y[2]]);
+                matched += 1;
+            }
+        }
+    }
+    assert!(matched > 0);
 }

@@ -62,6 +62,7 @@ pub enum ConformingStopReason {
     EmptyMidpoint,
     WholeMidpoint,
     OppositeMidpointNormal,
+    EndFaceContour,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConformingFacetState {
@@ -156,6 +157,7 @@ fn midpoint_reason(reason: AdaptiveStopReason) -> Result<ConformingStopReason, S
         AdaptiveStopReason::OppositeMidpointNormal => {
             Ok(ConformingStopReason::OppositeMidpointNormal)
         }
+        AdaptiveStopReason::EndFaceContour => Ok(ConformingStopReason::EndFaceContour),
         _ => Err(SurfaceError::Geometry),
     }
 }

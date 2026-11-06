@@ -87,6 +87,17 @@ fn coordinate_bounds(
     bits: u8,
     cancel: &impl Fn() -> bool,
 ) -> Result<CellAxisBounds, SurfaceError> {
+    check(cancel)?;
+    for upper in [false, true] {
+        if value.compare(endpoint(upper)?).map_err(error)? == Ordering::Equal {
+            let position = u32::from(upper);
+            return Ok(CellAxisBounds {
+                lower: position,
+                upper: position,
+                denominator: 1,
+            });
+        }
+    }
     let (mut lower, mut upper, mut denominator) = (0u32, 1u32, 1u32);
     for _ in 0..bits {
         check(cancel)?;
@@ -276,6 +287,16 @@ mod tests {
             let point = coordinate(n, d);
             for bits in 0..=16 {
                 let b = coordinate_bounds(point, bits, &|| false).unwrap();
+                if n == 0 || n == d {
+                    assert_eq!(
+                        b,
+                        CellAxisBounds {
+                            lower: n as u32,
+                            upper: n as u32,
+                            denominator: 1
+                        }
+                    );
+                }
                 assert!(b.upper - b.lower <= 1);
                 assert_ne!(
                     point
