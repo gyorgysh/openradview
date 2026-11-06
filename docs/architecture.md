@@ -622,6 +622,26 @@ their proved axis lines. No floating angle, chord or area selects connectivity.
 Bounds are 80 combined raw insertions, 89 nodes, 92 edges, 184 half-edges and four
 regions. Cancellation or inconsistent inputs return no partial subdivision.
 
+`PlaneSubdivision::refine` converts its edges to certified adaptive polylines.
+Original exact nodes remain the vertex prefix; distinct points are never welded
+by rounded coordinates. Curved bilinear arcs use exact 40-bit dyadic enclosures
+and rational curve points. The chord residual is bounded by `|D*du*dv|/4`;
+lower bounds on the transverse derivatives turn it into a coordinate-error
+certificate. A small monotone bounding box is a separate sufficient certificate.
+Straight edges need no added vertices, and nearly flat arcs can remain sparse.
+The bound is max-coordinate Hausdorff error `2^-precision_bits` in the unit
+square, for bits 0..24. Physical-affine and GPU quantization error are separate.
+
+The worker counts complete prospective vertices/indices before reserving output
+and allocating. Shared volume admission charges fixed scratch and retained typed
+storage separately, including a fixed-size subdivision copy. Limits are 65,536
+vertices and 16 MiB per result; callers can lower them. Errors or cancellation
+discard unpublished work and release reservations without changing the input or
+reducing requested precision. Canonical edge paths are deterministic for the
+same complete insertion union and detail; owning geometry must share the
+completed path across incident patches. This is not triangulation, a GPU mesh,
+source-edit authority or a whole-grid geometry admission policy.
+
 `Trilinear::phase` uses the inclusive F>=0 level, matching retained fractional
 half-maximum ties. Nonnegative corners select the complete closed cell; strictly
 negative corners select none. Nonpositive corners with zeros select only all-zero

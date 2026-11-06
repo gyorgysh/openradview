@@ -3,7 +3,10 @@
 use super::*;
 use compare::bilinear_sign;
 mod subdivision;
-pub use subdivision::{PatchHalfEdge, PatchRegion, PlaneSubdivision, SubdivisionEdge};
+pub use subdivision::{
+    PatchHalfEdge, PatchRegion, PlaneSubdivision, RefinedSubdivision, RefinementLimits,
+    SubdivisionEdge,
+};
 
 // A source face unions two <=18-node graphs and four <=10-point edge
 // partitions: at most76 raw insertions, before numerical deduplication.
@@ -52,6 +55,7 @@ impl ContourSegment {
 /// Exact points and connections on a bilinear face. Curved segments follow the
 /// face's zero curve, not the straight chord between their endpoints. A whole
 /// zero face is two-dimensional and has no invented one-dimensional contour.
+#[derive(Clone)]
 pub struct FaceArrangement {
     field: Bilinear,
     nodes: [Option<ContourNode>; NODES],

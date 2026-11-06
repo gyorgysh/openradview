@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded square subdivision by one bilinear zero set, with directed regions.
 use super::*;
+mod refine;
+pub use refine::{RefinedSubdivision, RefinementLimits};
 
 // At most four regions: two factor lines cross, or at most two noncrossing
 // hyperbola arcs meet the boundary. E<=V+3, including retained isolated points.
@@ -39,6 +41,7 @@ pub struct PatchRegion {
 /// A subdivision with exact curve arcs. Boundary points need not lie on F=0;
 /// contour points must. Curved arcs are not straight chords or triangles.
 /// Interior points of a whole zero field remain isolated retained constraints.
+#[derive(Clone)]
 pub struct PlaneSubdivision {
     arena: FaceArrangement,
     edges: [Option<SubdivisionEdge>; EDGES],

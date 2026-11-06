@@ -8,7 +8,7 @@ mod face;
 mod wide;
 pub use face::{
     ContourNode, ContourSegment, FaceArrangement, PatchHalfEdge, PatchRegion, PlaneSubdivision,
-    SubdivisionEdge,
+    RefinedSubdivision, RefinementLimits, SubdivisionEdge,
 };
 use wide::radical_sign;
 const MAX_FORM: u32 = 2040;
