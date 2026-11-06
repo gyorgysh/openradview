@@ -2309,3 +2309,364 @@ fn promoted_mixed_candidate_retains_exact_split_and_can_be_repartitioned() {
     drop((after_release, promoted, affine, field));
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn affine_face_merge_keeps_neighbor_boundaries_and_rejects_duplicates() {
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    fn sample([x, y, z]: [usize; 3]) -> i16 {
+        -10 + 4 * x as i16
+            + 4 * y as i16
+            + 8 * z as i16
+            + if [x, y, z] == [2, 1, 1] { -24 } else { 0 }
+            + if [x, y, z] == [1, 2, 1] { -24 } else { 0 }
+            + if [x, y, z] == [1, 1, 2] { -24 } else { 0 }
+    }
+    let field = fractional(source([3, 3, 3], true, false), sample);
+    let affine = field.affine_cell([0, 0, 0], || false).unwrap();
+    assert_eq!(affine.disposition(), AffineDisposition::Plane);
+    let mut grids = Vec::new();
+    let mut applications = Vec::new();
+    for (origin, axis, projection) in [([1, 0, 0], 0, 2), ([0, 1, 0], 1, 2), ([0, 0, 1], 2, 0)] {
+        let grid = field
+            .candidate_grid_with_budget(
+                origin,
+                [1; 3],
+                projection,
+                limits(),
+                budget.clone(),
+                || false,
+            )
+            .unwrap();
+        let CandidateCellState::Candidate { mesh } = grid.cells()[0].state else {
+            panic!(
+                "expected candidate on face {axis}: {:?}",
+                grid.cells()[0].state
+            );
+        };
+        let partition = Arc::new(
+            grid.meshes()[usize::from(mesh)]
+                .mixed_face_partition_with_budget(
+                    &affine,
+                    axis,
+                    limits().seams.partition,
+                    budget.clone(),
+                    || false,
+                )
+                .unwrap()
+                .expect("expected a transverse segment"),
+        );
+        let applied = Arc::new(
+            partition
+                .apply_mixed_with_budget(0.02, AppliedFaceLimits::default(), budget.clone(), || {
+                    false
+                })
+                .unwrap()
+                .expect("face application should pass"),
+        );
+        assert!(
+            applied
+                .spans()
+                .iter()
+                .any(|span| span.segments.iter().all(Option::is_some))
+        );
+        assert!(
+            partition
+                .points()
+                .iter()
+                .any(|point| point.affine == MixedAffinePlacement::Split
+                    && point.affine_position.is_some())
+        );
+        grids.push(grid);
+        applications.push(applied);
+    }
+    let merged = AffineFaceMesh::merge_with_budget(
+        &applications,
+        0.02,
+        AffineFaceMergeLimits::default(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap()
+    .expect("the faces should agree");
+    assert_eq!(merged.applications().len(), 3);
+    assert_eq!(merged.affine().cell().origin(), [0, 0, 0]);
+    assert!(merged.error_mm() <= 0.02);
+    let boundary = &merged.vertices()[..merged.boundary_vertices()];
+    assert!(boundary.len() > affine.vertices().len());
+    assert_eq!(merged.triangles().len(), boundary.len() - 2);
+    let corners: Vec<[u32; 3]> = affine
+        .vertices()
+        .iter()
+        .map(|point| {
+            point.map(|coordinate| {
+                let numerator = u64::try_from(coordinate.numerator()).unwrap();
+                let denominator = coordinate.denominator();
+                let grid = u64::from(ConformingSurfaceMesh::POSITION_DENOMINATOR);
+                u32::try_from((2 * numerator * grid + denominator) / (2 * denominator)).unwrap()
+            })
+        })
+        .collect();
+    for corner in &corners {
+        let index = boundary
+            .iter()
+            .position(|position| position == corner)
+            .unwrap();
+        let previous = boundary[(index + boundary.len() - 1) % boundary.len()];
+        let next = boundary[(index + 1) % boundary.len()];
+        assert!(!corners.contains(&previous) || !corners.contains(&next));
+    }
+    let area = |a: [u32; 3], b: [u32; 3], c: [u32; 3]| {
+        (i128::from(b[0]) - i128::from(a[0])) * (i128::from(c[1]) - i128::from(a[1]))
+            - (i128::from(b[1]) - i128::from(a[1])) * (i128::from(c[0]) - i128::from(a[0]))
+    };
+    let boundary_area: i128 = (1..boundary.len() - 1)
+        .map(|i| area(boundary[0], boundary[i], boundary[i + 1]))
+        .sum();
+    let mut edges = BTreeMap::<(u32, u32), usize>::new();
+    let mut triangle_area = 0i128;
+    for triangle in merged.triangles() {
+        let [a, b, c] = triangle.map(|id| merged.vertices()[id as usize]);
+        let signed = area(a, b, c);
+        assert_eq!(signed.signum(), boundary_area.signum());
+        triangle_area += signed;
+        for [u, v] in [
+            [triangle[0], triangle[1]],
+            [triangle[1], triangle[2]],
+            [triangle[2], triangle[0]],
+        ] {
+            *edges.entry((u.min(v), u.max(v))).or_default() += 1;
+        }
+    }
+    assert_ne!(boundary_area, 0);
+    assert_eq!(triangle_area, boundary_area);
+    for i in 0..boundary.len() {
+        let j = (i + 1) % boundary.len();
+        assert_eq!(edges.remove(&(i.min(j) as u32, i.max(j) as u32)), Some(1));
+    }
+    assert!(edges.values().all(|count| *count == 2));
+    for (application_id, application) in applications.iter().enumerate() {
+        let mapping = merged.face_point_vertices(application_id).unwrap();
+        assert_eq!(mapping.len(), application.input().points().len());
+        for (point, mapped) in application.input().points().iter().zip(mapping) {
+            if point.affine != MixedAffinePlacement::Outside
+                && let Some(position) = point.affine_position
+            {
+                assert_eq!(merged.vertices()[mapped.unwrap() as usize], position);
+                let t = point.coordinate.approximate().unwrap();
+                let exact = match application.input().face().axis {
+                    0 => [1.0, t, (6.0 - 4.0 * t) / 8.0],
+                    1 => [t, 1.0, (6.0 - 4.0 * t) / 8.0],
+                    2 => [(2.0 - 4.0 * t) / 4.0, t, 1.0],
+                    _ => panic!("invalid face"),
+                };
+                let grid = f64::from(ConformingSurfaceMesh::POSITION_DENOMINATOR);
+                let actual = position.map(|value| f64::from(value) / grid);
+                let difference = std::array::from_fn(|axis| actual[axis] - exact[axis]);
+                let physical: f64 = field
+                    .source()
+                    .voxel_vector_to_world(difference)
+                    .into_iter()
+                    .map(f64::abs)
+                    .sum();
+                assert!(physical <= merged.error_mm() + 1e-10);
+            }
+            if matches!(point.affine, MixedAffinePlacement::Endpoint(_)) {
+                assert!(mapped.is_some());
+            }
+        }
+        for span in application.spans() {
+            let Some(affine_edge) = span.segments[1] else {
+                continue;
+            };
+            let positions = affine_edge.map(|id| application.affine_vertices()[id as usize]);
+            assert!(
+                boundary.iter().enumerate().any(|(i, point)| {
+                    (*point == positions[0] && boundary[(i + 1) % boundary.len()] == positions[1])
+                        || (*point == positions[1]
+                            && boundary[(i + 1) % boundary.len()] == positions[0])
+                }),
+                "a represented face segment disappeared from the merged boundary"
+            );
+        }
+    }
+    let reversed = AffineFaceMesh::merge_with_budget(
+        &[
+            applications[2].clone(),
+            applications[1].clone(),
+            applications[0].clone(),
+        ],
+        0.02,
+        AffineFaceMergeLimits::default(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(reversed.vertices(), merged.vertices());
+    assert_eq!(reversed.triangles(), merged.triangles());
+    assert_eq!(reversed.error_mm(), merged.error_mm());
+    assert_eq!(
+        merged.face_point_vertices(0),
+        reversed.face_point_vertices(2)
+    );
+    assert_eq!(
+        merged.face_point_vertices(1),
+        reversed.face_point_vertices(1)
+    );
+    assert_eq!(
+        merged.face_point_vertices(2),
+        reversed.face_point_vertices(0)
+    );
+    assert!(merged.face_point_vertices(3).is_none());
+    let used = budget.used();
+    let other_field = fractional(field.source().clone(), sample);
+    let other_affine = other_field.affine_cell([0, 0, 0], || false).unwrap();
+    let other_grid = other_field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let CandidateCellState::Candidate { mesh } = other_grid.cells()[0].state else {
+        panic!("expected a candidate from the other mask");
+    };
+    let other_partition = Arc::new(
+        other_grid.meshes()[usize::from(mesh)]
+            .mixed_face_partition_with_budget(
+                &other_affine,
+                0,
+                limits().seams.partition,
+                budget.clone(),
+                || false,
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    let other_application = Arc::new(
+        other_partition
+            .apply_mixed_with_budget(0.02, AppliedFaceLimits::default(), budget.clone(), || false)
+            .unwrap()
+            .unwrap(),
+    );
+    assert!(matches!(
+        AffineFaceMesh::merge_with_budget(
+            &[applications[1].clone(), other_application.clone()],
+            0.02,
+            AffineFaceMergeLimits::default(),
+            budget.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Geometry)
+    ));
+    drop((
+        other_application,
+        other_partition,
+        other_grid,
+        other_affine,
+        other_field,
+    ));
+    assert_eq!(budget.used(), used);
+    if merged.error_mm() > 0.0 {
+        assert!(matches!(
+            AffineFaceMesh::merge_with_budget(
+                &applications,
+                0.0,
+                AffineFaceMergeLimits::default(),
+                budget.clone(),
+                || false,
+            ),
+            Ok(Err(AffineFaceMergeRefusal::PhysicalTolerance))
+        ));
+        assert_eq!(budget.used(), used);
+    }
+    let calls = Cell::new(0usize);
+    let counted = AffineFaceMesh::merge_with_budget(
+        &applications,
+        0.02,
+        AffineFaceMergeLimits::default(),
+        budget.clone(),
+        || {
+            calls.set(calls.get() + 1);
+            false
+        },
+    )
+    .unwrap()
+    .unwrap();
+    let total_calls = calls.get();
+    drop(counted);
+    for stop in [1, total_calls / 2, total_calls] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            AffineFaceMesh::merge_with_budget(
+                &applications,
+                0.02,
+                AffineFaceMergeLimits::default(),
+                budget.clone(),
+                || {
+                    calls.set(calls.get() + 1);
+                    calls.get() >= stop
+                },
+            ),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), used);
+    }
+    assert!(matches!(
+        AffineFaceMesh::merge_with_budget(
+            &[applications[0].clone(), applications[0].clone()],
+            0.02,
+            AffineFaceMergeLimits::default(),
+            budget.clone(),
+            || false,
+        ),
+        Ok(Err(AffineFaceMergeRefusal::DuplicateEdge))
+    ));
+    assert_eq!(budget.used(), used);
+    assert!(matches!(
+        AffineFaceMesh::merge_with_budget(
+            &applications,
+            0.02,
+            AffineFaceMergeLimits {
+                max_operations: 1,
+                ..Default::default()
+            },
+            budget.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        AffineFaceMesh::merge_with_budget(
+            &applications,
+            0.02,
+            AffineFaceMergeLimits::default(),
+            budget.clone(),
+            || true,
+        ),
+        Err(SurfaceError::Cancelled)
+    ));
+    let empty = MemoryBudget::new(0);
+    assert!(matches!(
+        AffineFaceMesh::merge_with_budget(
+            &applications,
+            0.02,
+            AffineFaceMergeLimits::default(),
+            empty.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(empty.used(), 0);
+    let scratch_refused = MemoryBudget::new(merged.referenced_bytes());
+    assert!(matches!(
+        AffineFaceMesh::merge_with_budget(
+            &applications,
+            0.02,
+            AffineFaceMergeLimits::default(),
+            scratch_refused.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(scratch_refused.used(), 0);
+    assert_eq!(budget.used(), used);
+    drop((reversed, merged, applications, grids, affine, field));
+    assert_eq!(budget.used(), 0);
+}

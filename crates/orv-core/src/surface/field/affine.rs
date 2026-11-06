@@ -130,6 +130,78 @@ pub struct AppliedMixedFace {
     pub(in crate::surface) bytes: u64,
     pub(in crate::surface) _reservation: Reservation,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AffineFaceMergeLimits {
+    pub max_faces: usize,
+    pub max_vertices: usize,
+    pub max_operations: usize,
+    /// Additional retained geometry; applications are admitted separately.
+    pub max_bytes: u64,
+}
+impl Default for AffineFaceMergeLimits {
+    fn default() -> Self {
+        Self {
+            max_faces: 6,
+            max_vertices: 65_536,
+            max_operations: 2_000_000,
+            max_bytes: 32 * 1024 * 1024,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AffineFaceMergeRefusal {
+    DuplicateEdge,
+    ConflictingCorner,
+    PhysicalTolerance,
+    Topology,
+}
+
+/// One source-bound planar polygon rebuilt from checked neighboring face results.
+/// Candidate coverage, other faces and whole-grid closure remain separate.
+pub struct AffineFaceMesh {
+    pub(in crate::surface) affine: AffineCell,
+    pub(in crate::surface) applications: Vec<Arc<AppliedMixedFace>>,
+    pub(in crate::surface) vertices: Vec<[u32; 3]>,
+    pub(in crate::surface) boundary_vertices: usize,
+    pub(in crate::surface) triangles: Vec<[u32; 3]>,
+    pub(in crate::surface) point_offsets: Vec<usize>,
+    pub(in crate::surface) point_vertices: Vec<Option<u32>>,
+    pub(in crate::surface) error_mm: f64,
+    pub(in crate::surface) bytes: u64,
+    pub(in crate::surface) _reservation: Reservation,
+}
+impl AffineFaceMesh {
+    pub fn affine(&self) -> &AffineCell {
+        &self.affine
+    }
+    pub fn applications(&self) -> &[Arc<AppliedMixedFace>] {
+        &self.applications
+    }
+    pub fn vertices(&self) -> &[[u32; 3]] {
+        &self.vertices
+    }
+    pub fn boundary_vertices(&self) -> usize {
+        self.boundary_vertices
+    }
+    pub fn triangles(&self) -> &[[u32; 3]] {
+        &self.triangles
+    }
+    /// Merged boundary vertex for each point of the selected input face.
+    /// Outside points and unrepresented interior points remain absent.
+    pub fn face_point_vertices(&self, application: usize) -> Option<&[Option<u32>]> {
+        let start = *self.point_offsets.get(application)?;
+        let end = *self.point_offsets.get(application.checked_add(1)?)?;
+        self.point_vertices.get(start..end)
+    }
+    pub fn error_mm(&self) -> f64 {
+        self.error_mm
+    }
+    pub fn referenced_bytes(&self) -> u64 {
+        self.bytes
+    }
+}
 impl AppliedMixedFace {
     pub fn input(&self) -> &Arc<MixedFacePartition> {
         &self.input

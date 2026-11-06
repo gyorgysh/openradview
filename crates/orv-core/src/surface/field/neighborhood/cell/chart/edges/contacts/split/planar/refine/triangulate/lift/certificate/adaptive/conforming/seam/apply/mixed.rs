@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Atomic mixed-face application with bounded physical and topology checks.
 use super::*;
+mod merge;
 use crate::surface::field::{
     AppliedMixedFace, AppliedMixedSpan, MixedAffinePlacement, MixedFaceApplyRefusal,
     MixedFacePartition, Rational,

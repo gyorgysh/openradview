@@ -12,9 +12,10 @@ use crate::{
     volume::Volume,
 };
 pub use affine::{
-    AffineCell, AffineDisposition, AffineFace, AffineFaceState, AffineFaceTrace, AppliedMixedFace,
-    AppliedMixedSpan, MixedAffinePlacement, MixedFaceApplyRefusal, MixedFacePartition,
-    MixedFacePoint, MixedFaceSpan, MixedFaceUnsupported,
+    AffineCell, AffineDisposition, AffineFace, AffineFaceMergeLimits, AffineFaceMergeRefusal,
+    AffineFaceMesh, AffineFaceState, AffineFaceTrace, AppliedMixedFace, AppliedMixedSpan,
+    MixedAffinePlacement, MixedFaceApplyRefusal, MixedFacePartition, MixedFacePoint, MixedFaceSpan,
+    MixedFaceUnsupported,
 };
 pub use critical::{
     AlgebraicRoot, AnchorLine, AnchorRay, AnchorRing, AnchorStar, BilinearIntersections,

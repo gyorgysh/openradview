@@ -1210,6 +1210,13 @@ candidate, its existing seam points and the exact coordinates of mixed-face
 splits for subsequent compatible face exchanges. It preserves the candidate's
 applied error criterion while dropping application history; callers that need the
 matching affine result or that history must retain the original application.
+`AffineFaceMesh::merge` reconstructs one affine cell from checked applications
+on distinct polygon edges and maps each face's partition points into the merged
+boundary. Shared candidate corners must agree. The triangulation preserves the
+original exact edge topology and bounds physical displacement; duplicate edges,
+conflicting corners and insufficient resources remain explicit refusals.
+The result retains its face applications but does not certify missing coverage,
+coordinate a whole grid or provide GPU or native display.
 
 `GpuCandidateSurface` uploads within-tolerance triangles of a bounded candidate
 assembly as per-cell immutable triangle descriptors. Exact affine polygons use
