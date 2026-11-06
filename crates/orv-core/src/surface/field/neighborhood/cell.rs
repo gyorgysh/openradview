@@ -11,9 +11,10 @@ mod collect;
 mod link;
 mod refine;
 pub use chart::{
-    CellFiber, CellProjectionChart, ChartEdgeStep, PlanarEdge, PlanarHalfEdge, PlanarRegion,
-    ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
-    ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, SplitPath,
+    CellFiber, CellProjectionChart, ChartEdgeStep, PlanarEdge, PlanarHalfEdge,
+    PlanarRefinementLimits, PlanarRegion, ProjectedCellEdges, ProjectedContact,
+    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
+    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
     SplitProjectedConstraints, SplitSegment, SplitStep,
 };
 pub use refine::{CellPathLimits, CellPathOrigin, CellPathVertex, RefinedCellGraph};

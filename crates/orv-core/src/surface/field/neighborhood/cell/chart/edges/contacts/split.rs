@@ -2,7 +2,10 @@
 //! Shared exact nodes and split straight constraints over a rebuilt chart.
 use super::*;
 mod planar;
-pub use planar::{PlanarEdge, PlanarHalfEdge, PlanarRegion, ProjectedPlanarGraph};
+pub use planar::{
+    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, ProjectedPlanarGraph,
+    RefinedPlanarGraph,
+};
 
 const NODES: usize = JointSubdivision::MAX_NODES;
 const MAX_STEPS: usize = 262_144;

@@ -26,11 +26,12 @@ pub use neighborhood::{
     CellFiber, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
     CellGraphRegion, CellGraphState, CellNeighborhood, CellPathLimits, CellPathOrigin,
     CellPathVertex, CellProjectionChart, ChartEdgeStep, EdgePartition, EdgePoint, NeighborhoodCell,
-    PlanarEdge, PlanarHalfEdge, PlanarRegion, ProjectedCellEdges, ProjectedContact,
-    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
-    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph, SourceCellGraph, SourceFace,
-    SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep, WholeZeroFace,
-    WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
+    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, ProjectedCellEdges,
+    ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts,
+    ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph,
+    SourceCellGraph, SourceFace, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
+    WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase,
+    ZeroFaceSample,
 };
 use std::sync::Arc;
 

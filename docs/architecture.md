@@ -672,8 +672,16 @@ component: disconnected inputs are refused rather than assigning multi-boundary
 faces incorrectly. Isolated chart constraints remain in the retained input.
 Output is limited to 8,192 edges and 16 MiB of separately admitted typed storage;
 scratch is admitted as well. Cancellation or inconsistent connectivity publishes
-no partial graph. This is not yet a certified 3D surface or shared seam and has
-no rendering or source-edit authority.
+no partial graph. `ProjectedPlanarGraph::refine` reuses the two-field curve
+refiner's coordinated slice partition and inserts the same slices into horizontal
+source cuts; vertical cuts retain their original endpoints. For each added slice
+point, an unexpected field or square-boundary contact is refused; the earlier
+contact and split stages supply the complete intersection constraints. Each original
+planar edge has one retained path and each region traverses those paths in its
+original half-edge direction, including repeated visits at contacts or bridges.
+Curve and additional path storage are admitted separately, and limits never lower
+requested detail. This boundary refinement does not certify a 3D surface interior
+or shared seam and has no rendering or source-edit authority.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

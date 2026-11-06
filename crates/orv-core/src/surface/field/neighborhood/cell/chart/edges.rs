@@ -3,9 +3,9 @@
 use super::*;
 mod contacts;
 pub use contacts::{
-    PlanarEdge, PlanarHalfEdge, PlanarRegion, ProjectedContact, ProjectedContactGeometry,
-    ProjectedContactOwner, ProjectedContacts, ProjectedPlanarGraph, SplitPath,
-    SplitProjectedConstraints, SplitSegment, SplitStep,
+    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, ProjectedContact,
+    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedPlanarGraph,
+    RefinedPlanarGraph, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
 };
 
 const MAX_LINKS: usize = 262_144;

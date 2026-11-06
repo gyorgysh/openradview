@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod refine;
 use std::collections::BTreeSet;
 
 fn verify(split: &Arc<SplitProjectedConstraints>, output: &ProjectedPlanarGraph) -> bool {

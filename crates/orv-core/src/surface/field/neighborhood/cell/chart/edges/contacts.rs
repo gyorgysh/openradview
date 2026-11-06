@@ -3,8 +3,8 @@
 use super::*;
 mod split;
 pub use split::{
-    PlanarEdge, PlanarHalfEdge, PlanarRegion, ProjectedPlanarGraph, SplitPath,
-    SplitProjectedConstraints, SplitSegment, SplitStep,
+    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, ProjectedPlanarGraph,
+    RefinedPlanarGraph, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
 };
 
 const MAX_CONTACTS: usize = 262_144;

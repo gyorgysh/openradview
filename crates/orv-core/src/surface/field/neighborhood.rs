@@ -6,10 +6,11 @@ mod zero_face;
 pub use cell::{
     CellFiber, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
     CellGraphRegion, CellGraphState, CellPathLimits, CellPathOrigin, CellPathVertex,
-    CellProjectionChart, ChartEdgeStep, PlanarEdge, PlanarHalfEdge, PlanarRegion,
-    ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
-    ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph,
-    SourceCellGraph, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
+    CellProjectionChart, ChartEdgeStep, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
+    PlanarRegion, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
+    ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
+    ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph, SourceCellGraph, SplitPath,
+    SplitProjectedConstraints, SplitSegment, SplitStep,
 };
 pub use zero_face::{
     WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,

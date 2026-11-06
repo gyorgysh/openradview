@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Connected planar rotation system over exact chart curves and source cuts.
 use super::*;
+mod refine;
+pub use refine::{PlanarRefinementLimits, RefinedPlanarGraph};
 
 const MAX_EDGES: usize = 8192;
 const MAX_BYTES: u64 = 16 * 1024 * 1024;
