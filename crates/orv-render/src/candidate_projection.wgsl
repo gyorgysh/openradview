@@ -7,6 +7,23 @@ struct Params {
     gradient_x:vec4f, gradient_y:vec4f, gradient_z:vec4f,
 };
 @group(0) @binding(0) var<uniform> p:Params;
+// Carry exact cell-boundary coordinates before conversion, so either owner of
+// a shared grid vertex reconstructs the same source-centred position.
+fn centered_point(cell:vec3u, local:vec3u)->vec3f {
+    let grid=u32(CANDIDATE_DENOMINATOR);
+    let whole=local/vec3u(grid);
+    let fraction=local%vec3u(grid);
+    return vec3f(cell+whole)-p.center.xyz+vec3f(fraction)/CANDIDATE_DENOMINATOR;
+}
+// Evaluate both owners' shared edge in the same endpoint order, including on
+// hardware that contracts multiplication and subtraction differently.
+fn edge_less(a:vec3u,b:vec3u)->bool {
+    return a.x<b.x || (a.x==b.x && (a.y<b.y || (a.y==b.y && a.z<b.z)));
+}
+fn oriented_edge(a:vec2f,b:vec2f,ka:vec3u,kb:vec3u)->f32 {
+    if edge_less(ka,kb) { return a.x*b.y-a.y*b.x; }
+    return -(b.x*a.y-b.y*a.x);
+}
 struct Vertex {
     @builtin(position) position:vec4f,
     @location(0) @interpolate(flat) cell:vec3u,
@@ -19,11 +36,10 @@ struct Vertex {
               @location(2) b:vec3u, @location(3) c:vec3u,
               @location(4) samples:vec4u,
               @builtin(vertex_index) vertex:u32)->Vertex {
-    let base=vec3f(cell)-p.center.xyz;
     let points=array<vec3u,3>(a,b,c);
     var minimum=vec2f(1e30); var maximum=vec2f(-1e30);
     for(var i=0u;i<3u;i++) {
-        let h=vec4f(base+vec3f(points[i])/CANDIDATE_DENOMINATOR,1.);
+        let h=vec4f(centered_point(cell,points[i]),1.);
         let xy=vec2f(dot(p.x,h),dot(p.y,h));
         minimum=min(minimum,xy); maximum=max(maximum,xy);
     }
@@ -52,19 +68,33 @@ struct Pixel { @location(0) cell:vec4u, @location(1) depth:f32, @location(2) nor
 @fragment fn fs(input:Vertex)->Pixel {
     let uv=pixel_ray_offset(vec2i(input.position.xy),vec2u(vec2f(p.ray_down.w,p.ray_direction.w)));
     let base=vec3f(input.cell)-p.center.xyz;
-    let origin=p.ray_origin.xyz+p.ray_right.xyz*uv.x+p.ray_down.xyz*uv.y-base;
+    let origin=p.ray_origin.xyz+p.ray_right.xyz*uv.x+p.ray_down.xyz*uv.y;
     let direction=p.ray_direction.xyz;
-    let a=vec3f(input.a)/CANDIDATE_DENOMINATOR;
-    let b=vec3f(input.b)/CANDIDATE_DENOMINATOR;
-    let c=vec3f(input.c)/CANDIDATE_DENOMINATOR;
-    let e1=b-a; let e2=c-a; let cross_direction=cross(direction,e2);
-    let determinant=dot(e1,cross_direction);
+    let a=centered_point(input.cell,input.a)-origin;
+    let b=centered_point(input.cell,input.b)-origin;
+    let c=centered_point(input.cell,input.c)-origin;
+    // Project along the dominant ray axis. Both triangles at a shared edge
+    // then evaluate that edge from the same two centred endpoints.
+    let ad=abs(direction);
+    var kz=0u;
+    if ad.y>ad.x { kz=1u; }
+    if ad.z>ad[kz] { kz=2u; }
+    if direction[kz]==0. { discard; }
+    var kx=(kz+1u)%3u; var ky=(kx+1u)%3u;
+    if direction[kz]<0. { let swap=kx; kx=ky; ky=swap; }
+    let shear=vec2f(direction[kx],direction[ky])/direction[kz];
+    let pa=vec2f(a[kx],a[ky])-shear*a[kz];
+    let pb=vec2f(b[kx],b[ky])-shear*b[kz];
+    let pc=vec2f(c[kx],c[ky])-shear*c[kz];
+    let weights=vec3f(oriented_edge(pb,pc,input.b,input.c),
+                      oriented_edge(pc,pa,input.c,input.a),
+                      oriented_edge(pa,pb,input.a,input.b));
+    if any(weights<vec3f(0.)) && any(weights>vec3f(0.)) { discard; }
+    let determinant=weights.x+weights.y+weights.z;
     if determinant==0. { discard; }
-    let delta=origin-a; let u=dot(delta,cross_direction)/determinant;
-    let cross_delta=cross(delta,e1); let v=dot(direction,cross_delta)/determinant;
-    if !(u>=0. && v>=0. && u+v<=1.) { discard; }
-    // Reconstruct on the triangle instead of subtracting a long ray distance.
-    let point=clamp(a+u*e1+v*e2,vec3f(0.),vec3f(1.));
+    let bary=weights/determinant;
+    // Reconstruct in cell-local coordinates to retain local gradient precision.
+    let point=clamp((vec3f(input.a)*bary.x+vec3f(input.b)*bary.y+vec3f(input.c)*bary.z)/CANDIDATE_DENOMINATOR,vec3f(0.),vec3f(1.));
     let h=vec4f(base+point,1.);
     let world=vec3f(dot(p.world_x,h),dot(p.world_y,h),dot(p.world_z,h));
     let hardware_depth=dot(p.z,h);

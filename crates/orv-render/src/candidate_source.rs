@@ -8,7 +8,8 @@ use crate::{
 use orv_core::{
     resources::{MemoryBudget, Reservation},
     surface::field::{
-        CandidateAssembly, CandidateCellState, ConformingFacetState, ConformingSurfaceMesh,
+        AffineFaceMesh, CandidateAssembly, CandidateCellState, ConformingFacetState,
+        ConformingSurfaceMesh, MixedAffineState, MixedCoordination, MixedFaceState,
     },
 };
 use std::sync::Arc;
@@ -47,7 +48,11 @@ pub struct CandidateUploadStatistics {
     pub noncandidate_cells: usize,
     /// Complete local affine polygons included in the partial assembly.
     pub affine_cells: usize,
-    /// Affine polygons refused for precision, degeneracy or topology.
+    /// Affine polygons taken from the retained mixed-face coordination.
+    pub coordinated_affine_cells: usize,
+    /// Listed mixed faces with absent, uncertified or unresolved coverage.
+    pub incomplete_mixed_faces: usize,
+    /// Affine polygons withheld for precision, topology or unresolved coordination.
     pub unresolved_affine_cells: usize,
     /// Conservative source-space quantization bound for represented affine cells.
     pub affine_error_upper_mm: f64,
@@ -77,6 +82,7 @@ pub struct GpuCandidateChunk {
 pub(crate) enum ChunkGeometry {
     Mesh(Arc<ConformingSurfaceMesh>),
     Affine(AffineGeometry),
+    Coordinated(Arc<AffineFaceMesh>),
 }
 impl GpuCandidateChunk {
     pub(crate) fn geometry(&self) -> &ChunkGeometry {
@@ -107,6 +113,7 @@ impl GpuCandidateChunk {
 pub struct GpuCandidateSurface {
     source: Arc<GpuVolumeSource>,
     assembly: Arc<CandidateAssembly>,
+    coordination: Option<Arc<MixedCoordination>>,
     chunks: Vec<Arc<GpuCandidateChunk>>,
     affine_error_upper_mm: f64,
     unresolved_affine_cells: usize,
@@ -119,6 +126,11 @@ impl GpuCandidateSurface {
     pub fn assembly(&self) -> &Arc<CandidateAssembly> {
         &self.assembly
     }
+    /// Mixed-face snapshot used for this upload, when present. Its reports
+    /// describe partial coverage and must be inspected separately.
+    pub fn coordination(&self) -> Option<&Arc<MixedCoordination>> {
+        self.coordination.as_ref()
+    }
     pub fn chunks(&self) -> &[Arc<GpuCandidateChunk>] {
         &self.chunks
     }
@@ -126,8 +138,8 @@ impl GpuCandidateSurface {
     pub fn affine_error_upper_mm(&self) -> f64 {
         self.affine_error_upper_mm
     }
-    /// Exact affine planes not admitted because their integer representation
-    /// exceeds the requested tolerance or would change local topology.
+    /// Exact affine planes withheld for precision, topology or unresolved
+    /// mixed-face coordination.
     pub fn unresolved_affine_cells(&self) -> usize {
         self.unresolved_affine_cells
     }
@@ -143,6 +155,38 @@ impl GpuCandidateSurface {
     pub fn upload(
         source: Arc<GpuVolumeSource>,
         assembly: Arc<CandidateAssembly>,
+        previous: Option<Arc<Self>>,
+        limits: CandidateUploadLimits,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<(Arc<Self>, CandidateUploadStatistics), &'static str> {
+        Self::upload_inner(source, assembly, None, previous, limits, cancelled)
+    }
+
+    /// Worker-only upload of one source-bound mixed coordination snapshot.
+    /// Unresolved listed planar cells are withheld rather than independently
+    /// quantized against potentially incompatible candidate boundaries.
+    pub fn upload_coordinated(
+        source: Arc<GpuVolumeSource>,
+        coordination: Arc<MixedCoordination>,
+        previous: Option<Arc<Self>>,
+        limits: CandidateUploadLimits,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<(Arc<Self>, CandidateUploadStatistics), &'static str> {
+        let assembly = Arc::clone(coordination.assembly());
+        Self::upload_inner(
+            source,
+            assembly,
+            Some(coordination),
+            previous,
+            limits,
+            cancelled,
+        )
+    }
+
+    fn upload_inner(
+        source: Arc<GpuVolumeSource>,
+        assembly: Arc<CandidateAssembly>,
+        coordination: Option<Arc<MixedCoordination>>,
         previous: Option<Arc<Self>>,
         limits: CandidateUploadLimits,
         cancelled: impl Fn() -> bool,
@@ -175,6 +219,29 @@ impl GpuCandidateSurface {
             unresolved_triangles: 0,
             noncandidate_cells: 0,
             affine_cells: 0,
+            coordinated_affine_cells: 0,
+            incomplete_mixed_faces: coordination.as_ref().map_or(0, |value| {
+                value
+                    .faces()
+                    .iter()
+                    .filter(|face| match face.state() {
+                        MixedFaceState::Applied {
+                            points,
+                            spans,
+                            missing_points,
+                            missing_spans,
+                            uncertified_spans,
+                        } => {
+                            points == 0
+                                || spans == 0
+                                || missing_points != 0
+                                || missing_spans != 0
+                                || uncertified_spans != 0
+                        }
+                        MixedFaceState::Unresolved { .. } => true,
+                    })
+                    .count()
+            }),
             unresolved_affine_cells: 0,
             affine_error_upper_mm: 0.,
             uploaded_chunks: 0,
@@ -195,7 +262,7 @@ impl GpuCandidateSurface {
             if cancelled() {
                 return Err("Cancelled");
             }
-            let (geometry, refused) = select(&assembly, index, &source)?;
+            let (geometry, refused) = select(&assembly, coordination.as_deref(), index, &source)?;
             stats.unresolved_affine_cells += usize::from(refused);
             let Some(geometry) = geometry else {
                 stats.noncandidate_cells += 1;
@@ -204,6 +271,11 @@ impl GpuCandidateSurface {
             if let InputGeometry::Affine(affine) = &geometry {
                 stats.affine_cells += 1;
                 stats.affine_error_upper_mm = stats.affine_error_upper_mm.max(affine.error_mm);
+            }
+            if let InputGeometry::Coordinated(affine) = &geometry {
+                stats.affine_cells += 1;
+                stats.coordinated_affine_cells += 1;
+                stats.affine_error_upper_mm = stats.affine_error_upper_mm.max(affine.error_mm());
             }
             let origin = checked_origin(cell.origin, source.volume().dimensions())?;
             let (represented, unresolved) = geometry.inspect(&cancelled)?;
@@ -252,7 +324,12 @@ impl GpuCandidateSurface {
                 .len()
                 .checked_sub(retained_origins)
                 .ok_or("Candidate geometry contains duplicate cells")?;
-            if Arc::ptr_eq(&old.assembly, &assembly) {
+            let same_snapshot = match (&old.coordination, &coordination) {
+                (None, None) => Arc::ptr_eq(&old.assembly, &assembly),
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            };
+            if same_snapshot {
                 if cancelled() {
                     return Err("Cancelled");
                 }
@@ -297,7 +374,7 @@ impl GpuCandidateSurface {
             if cancelled() {
                 return Err("Cancelled");
             }
-            let (geometry, _) = select(&assembly, index, &source)?;
+            let (geometry, _) = select(&assembly, coordination.as_deref(), index, &source)?;
             let Some(geometry) = geometry else {
                 continue;
             };
@@ -360,6 +437,7 @@ impl GpuCandidateSurface {
             Arc::new(Self {
                 source,
                 assembly,
+                coordination,
                 chunks,
                 affine_error_upper_mm: stats.affine_error_upper_mm,
                 unresolved_affine_cells: stats.unresolved_affine_cells,
@@ -373,12 +451,16 @@ impl GpuCandidateSurface {
 enum InputGeometry<'a> {
     Mesh(&'a Arc<ConformingSurfaceMesh>),
     Affine(AffineGeometry),
+    Coordinated(&'a Arc<AffineFaceMesh>),
 }
 impl InputGeometry<'_> {
     fn inspect(&self, cancelled: &impl Fn() -> bool) -> Result<(usize, usize), &'static str> {
         match self {
             Self::Mesh(mesh) => inspect(mesh, cancelled),
             Self::Affine(geometry) => Ok((geometry.triangle_count(), 0)),
+            Self::Coordinated(geometry) => {
+                inspect_coordinated(geometry, cancelled).map(|count| (count, 0))
+            }
         }
     }
     fn pack(
@@ -391,17 +473,22 @@ impl InputGeometry<'_> {
         match self {
             Self::Mesh(mesh) => pack(buffer, mesh, origin, count, cancel),
             Self::Affine(geometry) => pack_affine(buffer, geometry, origin, count, cancel),
+            Self::Coordinated(geometry) => {
+                pack_coordinated(buffer, geometry, origin, count, cancel)
+            }
         }
     }
     fn owned(self) -> ChunkGeometry {
         match self {
             Self::Mesh(mesh) => ChunkGeometry::Mesh(mesh.clone()),
             Self::Affine(geometry) => ChunkGeometry::Affine(geometry),
+            Self::Coordinated(geometry) => ChunkGeometry::Coordinated(geometry.clone()),
         }
     }
 }
 fn select<'a>(
     assembly: &'a CandidateAssembly,
+    coordination: Option<&'a MixedCoordination>,
     index: usize,
     source: &GpuVolumeSource,
 ) -> Result<(Option<InputGeometry<'a>>, bool), &'static str> {
@@ -414,12 +501,66 @@ fn select<'a>(
         .get(index)
         .ok_or("Affine candidate index is invalid")?;
     let is_plane = affine.disposition() == orv_core::surface::field::AffineDisposition::Plane;
+    if let Some(coordination) = coordination {
+        let state = coordination
+            .affine_states()
+            .get(index)
+            .ok_or("Mixed affine state is unavailable")?;
+        let coordinated = coordination
+            .affine_meshes()
+            .get(index)
+            .ok_or("Mixed affine geometry state is unavailable")?;
+        match state {
+            MixedAffineState::Ready { .. } => {
+                let geometry = coordinated
+                    .as_ref()
+                    .ok_or("Coordinated affine geometry is unavailable")?;
+                if !is_plane
+                    || geometry.affine().cell() != affine.cell()
+                    || !Arc::ptr_eq(
+                        geometry.affine().field().source(),
+                        assembly.field().source(),
+                    )
+                    || geometry.affine().field().key() != assembly.field().key()
+                    || geometry.affine().field().revision() != assembly.field().revision()
+                    || !geometry.error_mm().is_finite()
+                    || geometry.error_mm() < 0.0
+                    || geometry.error_mm() > assembly.max_error_mm()
+                {
+                    return Err("Coordinated affine geometry has an invalid scope");
+                }
+                return Ok((Some(InputGeometry::Coordinated(geometry)), false));
+            }
+            MixedAffineState::NoReadyFaces { listed } if *listed != 0 => {
+                if !is_plane || coordinated.is_some() {
+                    return Err("Mixed affine state does not match its source cell");
+                }
+                return Ok((None, true));
+            }
+            MixedAffineState::Refused(_) | MixedAffineState::Unresolved(_) => {
+                if !is_plane || coordinated.is_some() {
+                    return Err("Mixed affine state does not match its source cell");
+                }
+                return Ok((None, true));
+            }
+            MixedAffineState::NotPlane => {
+                if is_plane || coordinated.is_some() {
+                    return Err("Mixed affine state does not match its source cell");
+                }
+            }
+            MixedAffineState::NoReadyFaces { .. } => {
+                if !is_plane || coordinated.is_some() {
+                    return Err("Mixed affine state does not match its source cell");
+                }
+            }
+        }
+    }
     if let Some(geometry) = quantize(affine, source.volume(), assembly.max_error_mm())? {
         return Ok((Some(InputGeometry::Affine(geometry)), false));
     }
     if let CandidateCellState::Candidate { mesh } = cell.state {
-        let mesh = assembly
-            .meshes()
+        let meshes = coordination.map_or_else(|| assembly.meshes(), MixedCoordination::meshes);
+        let mesh = meshes
             .get(usize::from(mesh))
             .ok_or("Candidate mesh index is invalid")?;
         return Ok((Some(InputGeometry::Mesh(mesh)), is_plane));
@@ -435,6 +576,10 @@ fn compatible(
         .and_then(|old| old.chunk(origin))
         .filter(|old| match (&old.geometry, geometry) {
             (ChunkGeometry::Affine(a), InputGeometry::Affine(b)) => a == b,
+            (ChunkGeometry::Coordinated(a), InputGeometry::Coordinated(b)) => {
+                Arc::ptr_eq(a, b) || (a.vertices() == b.vertices() && a.triangles() == b.triangles()
+                    && matches!((affine_samples(a), affine_samples(b)), (Ok(a), Ok(b)) if a == b))
+            }
             (ChunkGeometry::Mesh(a), InputGeometry::Mesh(b)) => {
                 Arc::ptr_eq(a, b)
                     || (same_triangle_layout(a, b)
@@ -523,10 +668,86 @@ fn field_samples(mesh: &ConformingSurfaceMesh) -> Result<[i16; 8], &'static str>
     }
     Ok(values)
 }
+fn affine_samples(mesh: &AffineFaceMesh) -> Result<[i16; 8], &'static str> {
+    let mut values = [0i16; 8];
+    for (out, sample) in values.iter_mut().zip(mesh.affine().cell().corners()) {
+        if !sample.source_valid {
+            return Err("Coordinated affine field includes an invalid source sample");
+        }
+        *out = sample
+            .value
+            .ok_or("Coordinated affine field includes an unknown sample")?;
+    }
+    Ok(values)
+}
+fn inspect_coordinated(
+    mesh: &AffineFaceMesh,
+    cancelled: &impl Fn() -> bool,
+) -> Result<usize, &'static str> {
+    affine_samples(mesh)?;
+    if mesh.boundary_vertices() != mesh.vertices().len() || mesh.triangles().is_empty() {
+        return Err("Coordinated affine geometry is invalid");
+    }
+    for (index, triangle) in mesh.triangles().iter().enumerate() {
+        if index.is_multiple_of(256) && cancelled() {
+            return Err("Cancelled");
+        }
+        for vertex in triangle {
+            let position = mesh
+                .vertices()
+                .get(*vertex as usize)
+                .ok_or("Coordinated affine vertex is unavailable")?;
+            if position
+                .iter()
+                .any(|value| *value > ConformingSurfaceMesh::POSITION_DENOMINATOR)
+            {
+                return Err("Coordinated affine vertex is outside its source cell");
+            }
+        }
+    }
+    Ok(mesh.triangles().len())
+}
 fn packed_samples(values: [i16; 8]) -> [u32; 4] {
     std::array::from_fn(|i| {
         u32::from(values[2 * i] as u16) | (u32::from(values[2 * i + 1] as u16) << 16)
     })
+}
+fn pack_coordinated(
+    buffer: &wgpu::Buffer,
+    geometry: &AffineFaceMesh,
+    origin: [u32; 3],
+    triangles: usize,
+    cancelled: &impl Fn() -> bool,
+) -> Result<(), &'static str> {
+    let mut mapped = buffer
+        .get_mapped_range_mut(..)
+        .map_err(|_| "Could not map coordinated geometry upload")?;
+    if mapped.len() as u64 != triangle_bytes(triangles)? || triangles != geometry.triangles().len()
+    {
+        return Err("Coordinated mapping size differs from its geometry");
+    }
+    let samples = packed_samples(affine_samples(geometry)?);
+    for (index, triangle) in geometry.triangles().iter().enumerate() {
+        if index.is_multiple_of(256) && cancelled() {
+            return Err("Cancelled");
+        }
+        let mut words = [0u32; 16];
+        words[..3].copy_from_slice(&origin);
+        for (vertex, id) in triangle.iter().enumerate() {
+            let position = geometry
+                .vertices()
+                .get(*id as usize)
+                .ok_or("Coordinated affine vertex is unavailable")?;
+            words[3 + 3 * vertex..6 + 3 * vertex].copy_from_slice(position);
+        }
+        words[12..].copy_from_slice(&samples);
+        let encoded = words.map(u32::to_le_bytes);
+        let start = index * TRIANGLE_BYTES as usize;
+        mapped
+            .slice(start..start + TRIANGLE_BYTES as usize)
+            .copy_from_slice(encoded.as_flattened());
+    }
+    Ok(())
 }
 fn pack_affine(
     buffer: &wgpu::Buffer,

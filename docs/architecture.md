@@ -1239,6 +1239,13 @@ rendering step. Unresolved triangles,
 noncandidate cells and assembly face states remain inspectable rather than
 silently treated as complete coverage. Unchanged integer geometry and source-field
 samples can reuse a GPU chunk across mask revisions while the parent retains the current assembly.
+`GpuCandidateSurface::upload_coordinated` instead retains the mixed coordination
+snapshot, uploads its current candidate meshes and checked affine polygons, and
+withholds listed planar cells whose mixed-face geometry could not be assembled.
+Its whole-surface reuse requires the same coordination snapshot; equal immutable
+chunks may be reused after their geometry and field samples match. Face gaps,
+uncertified regions, general-face state, f32 projection and native rendering
+remain separate from the uploaded partial input.
 Triangle and byte limits, source identity, cancellation, admitted GPU buffers
 and bounded upload staging are checked before publishing.
 
@@ -1246,6 +1253,10 @@ and bounded upload staging are checked before publishing.
 physical camera coordinates. A guarded screen rectangle identifies candidate
 pixels; each fragment intersects the corresponding source-cell triangle before
 writing its source-cell ID, physical depth and outward trilinear-field normal.
+Shared grid vertices are carried across cell boundaries before f32 conversion;
+the intersection projects along the dominant ray axis and evaluates shared
+edges in a consistent endpoint order. These measures do not certify raster or
+intersection accuracy across devices, or establish complete surface coverage.
 The normal uses the inverse-transpose affine; a zero alpha denotes an unavailable
 normal. Views whose conservative screen
 coordinate error exceeds half the guard are refused. A worker counts conservative

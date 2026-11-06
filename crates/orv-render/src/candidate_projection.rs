@@ -587,6 +587,21 @@ fn plan_work(
                     add(vertices)?;
                 }
             }
+            ChunkGeometry::Coordinated(geometry) => {
+                for (index, triangle) in geometry.triangles().iter().enumerate() {
+                    if index.is_multiple_of(256) && cancelled() {
+                        return Err("Cancelled");
+                    }
+                    let mut vertices = [[0; 3]; 3];
+                    for (target, vertex) in vertices.iter_mut().zip(triangle) {
+                        *target = *geometry
+                            .vertices()
+                            .get(*vertex as usize)
+                            .ok_or("Coordinated affine vertex is unavailable")?;
+                    }
+                    add(vertices)?;
+                }
+            }
         }
         if found != chunk.triangle_count() {
             return Err("Candidate work plan does not match its buffer");

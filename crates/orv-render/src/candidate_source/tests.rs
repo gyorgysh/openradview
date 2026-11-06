@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod acceleration;
 mod affine;
+mod coordinated;
 use super::*;
 use crate::candidate_opaque::{
     CandidateOpaqueImage, CandidateOpaqueRenderer, CandidateOpaqueScene,
@@ -718,8 +719,11 @@ fn assert_vertex_bound(image: &CandidateImage) {
                     f64::from(words[a]) - center[a] + f64::from(words[local + a]) / denominator
                 });
                 let float_q: [f32; 3] = std::array::from_fn(|a| {
-                    words[a] as f32 - center[a] as f32
-                        + words[local + a] as f32 / denominator as f32
+                    let grid = ConformingSurfaceMesh::POSITION_DENOMINATOR;
+                    let whole = words[local + a] / grid;
+                    let fraction = words[local + a] % grid;
+                    (words[a] + whole) as f32 - center[a] as f32
+                        + fraction as f32 / denominator as f32
                 });
                 let exact = volume.voxel_vector_to_world(exact_q);
                 let approximate: [f64; 3] = std::array::from_fn(|world| {
