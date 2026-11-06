@@ -163,10 +163,13 @@ samples. These tools use values and connectivity, with no AI model or anatomical
 recognition. Applying is one undoable edit; export explicitly to keep it.
 
 In **Labels… → Include / exclude seeds**, choose a rectangle on the current
-scalar source image. Add at least one include and one exclude point by entering
-1-based coordinates or picking each point on the image. The list shows the first
-12 points; **Remove last seed** and **Clear seeds** let you revise the hints.
-Picking a seed on another image replaces the earlier set. All seeds must be inside
+scalar source image. Add at least one include and one exclude hint by entering
+1-based coordinates or choosing **Draw include hint** or **Draw exclude hint**
+and clicking or dragging on the image. Squares mark include points and crosses
+mark exclude points. The list shows the first six hints; **Remove last hint**
+removes a whole stroke or one typed point, and **Clear seeds** removes all hints.
+Hints are limited to 8,192 distinct class/position pairs. Drawing a hint on
+another image replaces the earlier set. All seeds must be inside
 the rectangle and on valid samples that are not occupied by other label IDs.
 
 **Preview seeded region** uses scalar values and four-neighbor propagation. Inspect

@@ -119,7 +119,9 @@ impl LabelUi {
     pub fn open_physical_tools(&mut self) {
         self.paint = false;
         self.stroke.clear();
+        self.regions.seeded.cancel_stroke();
         self.regions.picking = false;
+        self.regions.seed_picking = None;
         self.regions.invalidate();
         self.open = false;
         self.supplied_active = false;

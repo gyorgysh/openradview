@@ -88,7 +88,7 @@ impl Regions {
             operation,
         })
     }
-    pub fn sync(&mut self, map: &Arc<Labels>, label: u8, slice: Option<usize>) {
+    pub fn sync(&mut self, map: &Arc<Labels>, label: u8, slice: Option<usize>) -> bool {
         let key = Arc::downgrade(map);
         let request = self.request(label, slice);
         if self
@@ -99,7 +99,13 @@ impl Regions {
             self.invalidate();
             self.inputs = Some((key, request));
         }
-        self.seeded.sync(map, label, slice);
+        let cancelled = self.seeded.sync(map, label, slice);
+        if cancelled {
+            self.picking = false;
+            self.seed_picking = None;
+            self.invalidate();
+        }
+        cancelled
     }
     pub fn pick(&mut self, seed: [usize; 3]) {
         if let Some(class) = self.seed_picking.take() {
@@ -233,10 +239,10 @@ impl LabelUi {
         if self.regions.picking {
             match self.regions.seed_picking {
                 Some(orv_core::labels::SeedClass::Include) => {
-                    "Choose an include seed · click once · Escape to stop"
+                    "Draw an include hint or click once · Escape to cancel"
                 }
                 Some(orv_core::labels::SeedClass::Exclude) => {
-                    "Choose an exclude seed · click once · Escape to stop"
+                    "Draw an exclude hint or click once · Escape to cancel"
                 }
                 None => "Choose a source seed · click once · Escape to stop",
             }
@@ -245,7 +251,9 @@ impl LabelUi {
         }
     }
     pub fn pointer_controls(&self) -> &'static str {
-        if self.regions.picking {
+        if self.regions.picking && self.regions.seed_picking.is_some() {
+            "Hint: draw or click · Wheel / pinch: zoom · Right / Space drag: move · ↑↓: images · Escape: cancel"
+        } else if self.regions.picking {
             "Seed: click once · Wheel / pinch: zoom · Right / Space drag: move · ↑↓: images · Escape: stop"
         } else {
             "Brush: draw labels · Wheel / pinch: zoom · Right / Space drag: move · ↑↓: images · Escape: stop"

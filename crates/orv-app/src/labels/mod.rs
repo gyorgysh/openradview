@@ -179,8 +179,10 @@ impl LabelUi {
     }
     fn changed_revision(&mut self) {
         self.invalidate_physical();
+        self.regions.seeded.cancel_stroke();
         self.regions.invalidate();
         self.regions.picking = false;
+        self.regions.seed_picking = None;
         self.stroke.clear();
         self.stroke_slice = None;
         self.overlays.clear();
@@ -247,6 +249,7 @@ impl LabelUi {
         self.end_physical_tools();
         self.paint = false;
         self.stroke.clear();
+        self.regions.seeded.cancel_stroke();
         self.regions.picking = false;
         self.regions.seed_picking = None;
         self.regions.invalidate();
@@ -267,12 +270,14 @@ impl LabelUi {
         demo_mask: Option<&'static [u8]>,
     ) {
         self.poll();
-        if let Some(map) = &self.current {
-            self.regions.sync(
+        if let Some(map) = &self.current
+            && self.regions.sync(
                 map,
                 self.label,
                 if selected == self.series { slice } else { None },
-            );
+            )
+        {
+            self.open = true;
         }
         let mut open = self.open;
         crate::dialogs::window("Labels and supplied masks",ctx).open(&mut open).default_width(500.).default_height(620.).vscroll(true).show(ctx,|ui| {

@@ -295,9 +295,14 @@ cancellation, memory pressure and nonconvergence return no proposal. A completed
 proposal retains the original label/source owner, seed set, parameters and class
 decisions. Apply builds a private revision, preserving barriers, unclassified
 cells and other IDs. Its caller must match the original base to the current
-revision before publishing. The native source-image editor accepts typed or
-individually picked include/exclude points and an explicit rectangle. Its seed
-buffer and worker copy are bounded and admitted separately; changes to source,
+revision before publishing. The native source-image editor accepts typed points
+or drawn include/exclude hints and an explicit propagation rectangle. Pointer
+segments are filled on the source pixel grid; each stroke is one removable hint
+and is rolled back on cancellation or the seed limit. An active gesture is tied
+to its exact label map, selected ID, source slice, display geometry and viewport;
+a changed scope cancels the gesture before it can continue on a different view.
+The seed, index, group and worker-copy buffers are bounded and admitted
+separately; changes to source,
 map, slice, selected ID, rectangle, seeds or iteration limit invalidate the
 private preview. Apply accepts only the current base and input epoch, and adds one
 undo checkpoint. Counts and exports retain applied labels; illustration capture

@@ -18,9 +18,10 @@ Versions follow [Semantic Versioning](https://semver.org).
   layer. Applied edits can be undone and redone; supplied masks remain read-only.
 - **3D appearance.** Adjust the brightness and opacity of scalar values and add
   lighting for depth cues. These controls do not change the source images.
-- **Include and exclude seeds.** Mark points on one scalar source image and
-  preview a proposed region before applying it. Missing samples and other labels
-  act as barriers. This tool uses image values; it does not identify anatomy.
+- **Include and exclude hints.** Draw strokes or mark points on one scalar source
+  image, then preview a proposed region before applying it. Remove a whole stroke
+  when needed. Missing samples and other labels act as barriers. This tool uses
+  image values; it does not identify anatomy.
 
 ### Changed
 
