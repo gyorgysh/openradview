@@ -73,6 +73,14 @@ fn volume_geometry(dimensions: [u32; 3], offset: f64, shear: bool, reverse: bool
     )
 }
 fn geometry(source: Arc<Volume>, tolerance: f64, depth: u8) -> Arc<CandidateAssembly> {
+    geometry_scaled(source, tolerance, depth, 1)
+}
+fn geometry_scaled(
+    source: Arc<Volume>,
+    tolerance: f64,
+    depth: u8,
+    scale: i16,
+) -> Arc<CandidateAssembly> {
     let mut payload = Vec::new();
     for z in 0..2 {
         for y in 0..3 {
@@ -83,7 +91,7 @@ fn geometry(source: Arc<Volume>, tolerance: f64, depth: u8) -> Arc<CandidateAsse
                 } else {
                     -6
                 };
-                payload.push(((value + 200) / 2) as u8);
+                payload.push(((value * scale + 200) / 2) as u8);
             }
         }
     }
@@ -228,7 +236,18 @@ fn texture_bytes(source: &GpuVolumeSource, texture: &wgpu::Texture, bpp: u32) ->
         .flat_map(|row| row[..(size.width * bpp) as usize].iter().copied())
         .collect()
 }
-fn image_pixels(image: &CandidateImage) -> (Vec<[u32; 4]>, Vec<f32>) {
+fn half(bits: u16) -> f64 {
+    let sign = if bits & 32768 == 0 { 1. } else { -1. };
+    let exponent = (bits >> 10) & 31;
+    let fraction = f64::from(bits & 1023);
+    assert_ne!(exponent, 31, "Non-finite candidate normal");
+    sign * if exponent == 0 {
+        fraction * 2f64.powi(-24)
+    } else {
+        (1. + fraction / 1024.) * 2f64.powi(i32::from(exponent) - 15)
+    }
+}
+fn image_pixels(image: &CandidateImage) -> (Vec<[u32; 4]>, Vec<f32>, Vec<[f64; 4]>) {
     let source = image.request().surface.source();
     let cells = texture_bytes(source, image.cells(), 16)
         .as_chunks::<16>()
@@ -244,9 +263,21 @@ fn image_pixels(image: &CandidateImage) -> (Vec<[u32; 4]>, Vec<f32>) {
         .iter()
         .map(|bytes| f32::from_le_bytes(*bytes))
         .collect();
-    (cells, depth)
+    let normals = texture_bytes(source, image.normals(), 8)
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|bytes| {
+            std::array::from_fn(|i| {
+                half(u16::from_le_bytes(
+                    bytes[i * 2..i * 2 + 2].try_into().unwrap(),
+                ))
+            })
+        })
+        .collect();
+    (cells, depth, normals)
 }
-fn read(source: &GpuVolumeSource, chunk: &GpuCandidateChunk) -> Vec<[u32; 12]> {
+fn read(source: &GpuVolumeSource, chunk: &GpuCandidateChunk) -> Vec<[u32; 16]> {
     let device = source.device();
     let output = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("candidate integer readback"),
@@ -258,7 +289,7 @@ fn read(source: &GpuVolumeSource, chunk: &GpuCandidateChunk) -> Vec<[u32; 12]> {
     encoder.copy_buffer_to_buffer(chunk.buffer(), 0, &output, 0, chunk.data_bytes());
     source.queue().submit([encoder.finish()]);
     mapped(device, &output)
-        .as_chunks::<48>()
+        .as_chunks::<64>()
         .0
         .iter()
         .map(|bytes| {
@@ -268,7 +299,7 @@ fn read(source: &GpuVolumeSource, chunk: &GpuCandidateChunk) -> Vec<[u32; 12]> {
 }
 
 /// Checks integer vertex-attribute consumption, not physical projection or visibility.
-fn vertex_probe(source: &GpuVolumeSource, chunk: &GpuCandidateChunk, expected: &[[u32; 12]]) {
+fn vertex_probe(source: &GpuVolumeSource, chunk: &GpuCandidateChunk, expected: &[[u32; 16]]) {
     let device = source.device();
     let width = 64u32;
     let count = u32::try_from(expected.len()).unwrap();
@@ -430,7 +461,7 @@ struct Output {{ @location(0) cell:vec4u, @location(1) local:vec4u }};
         }
     }
 }
-fn expected(assembly: &CandidateAssembly, origin: [u32; 3]) -> Vec<[u32; 12]> {
+fn expected(assembly: &CandidateAssembly, origin: [u32; 3]) -> Vec<[u32; 16]> {
     let cell = assembly
         .cells()
         .iter()
@@ -444,11 +475,20 @@ fn expected(assembly: &CandidateAssembly, origin: [u32; 3]) -> Vec<[u32; 12]> {
         .iter()
         .filter(|triangle| matches!(triangle.state, ConformingFacetState::WithinTolerance { .. }))
         .map(|triangle| {
-            let mut words = [0u32; 12];
+            let mut words = [0u32; 16];
             words[..3].copy_from_slice(&origin);
             for (i, id) in triangle.vertices.into_iter().enumerate() {
                 words[3 + 3 * i..6 + 3 * i]
                     .copy_from_slice(&mesh.vertices()[id as usize].position().unwrap());
+            }
+            let samples: [i16; 8] = std::array::from_fn(|i| {
+                let at = std::array::from_fn(|a| origin[a] as usize + ((i >> a) & 1));
+                assembly.field().sample(at).unwrap().value.unwrap()
+            });
+            for i in 0..4 {
+                let low = u32::from(u16::from_le_bytes(samples[2 * i].to_le_bytes()));
+                let high = u32::from(u16::from_le_bytes(samples[2 * i + 1].to_le_bytes()));
+                words[12 + i] = low | (high << 16);
             }
             words
         })
@@ -472,6 +512,38 @@ struct ReferenceHit {
     cell: [u32; 3],
     depth: f64,
     margin: f64,
+    voxel: [f64; 3],
+}
+fn reference_normal(request: &CandidateProjection, hit: &ReferenceHit) -> Option<[f64; 3]> {
+    let field = request.surface.assembly().field();
+    let lower = hit.cell.map(|v| v as usize);
+    let point: [f64; 3] = std::array::from_fn(|axis| hit.voxel[axis] - lower[axis] as f64);
+    let mut gradient = [0.; 3];
+    for i in 0..8 {
+        let position = std::array::from_fn(|axis| lower[axis] + ((i >> axis) & 1));
+        let sample = field.sample(position)?;
+        if !sample.source_valid {
+            return None;
+        }
+        let value = f64::from(sample.value?);
+        for (axis, out) in gradient.iter_mut().enumerate() {
+            let mut factor = if i & (1 << axis) == 0 { -1. } else { 1. };
+            for (other, q) in point.into_iter().enumerate() {
+                if other != axis {
+                    factor *= if i & (1 << other) == 0 { 1. - q } else { q };
+                }
+            }
+            *out += value * factor;
+        }
+    }
+    let source = request.surface.source().volume();
+    let physical: [f64; 3] = std::array::from_fn(|world| {
+        let mut unit = [0.; 3];
+        unit[world] = 1.;
+        dot(gradient, source.world_vector_to_voxel(unit))
+    });
+    let length = dot(physical, physical).sqrt();
+    (length > 1e-6 && length.is_finite()).then(|| physical.map(|v| -v / length))
 }
 // Independent f64 ray/triangle intersection in source coordinates. Edge contacts
 // have implementation-defined raster coverage and are excluded from strict checks.
@@ -543,6 +615,7 @@ fn reference(
                         cell: cell.origin.map(|v| v as u32),
                         depth,
                         margin,
+                        voxel,
                     },
                 ));
             }
@@ -553,15 +626,18 @@ fn reference(
 
 fn assert_projection(image: &CandidateImage) {
     let request = image.request();
-    let (cells, depths) = image_pixels(image);
+    let (cells, depths, normals) = image_pixels(image);
     let mut interior = 0usize;
-    for (i, (cell, depth)) in cells.iter().zip(&depths).enumerate() {
+    let mut checked_normals = 0usize;
+    for (i, ((cell, depth), normal)) in cells.iter().zip(&depths).zip(&normals).enumerate() {
         let pixel = [i as u32 % request.size[0], i as u32 / request.size[0]];
         if cell[3] != 0 {
             assert!(
                 reference(request, pixel, 0.002, 0.001).is_some(),
                 "unexpected hit at {pixel:?}"
             );
+        } else {
+            assert_eq!(*normal, [0.; 4]);
         }
         if let Some(hit) = reference(request, pixel, 0., 0.)
             && hit.margin > 0.001
@@ -577,11 +653,25 @@ fn assert_projection(image: &CandidateImage) {
                 "pixel {pixel:?}: {depth} vs {}",
                 hit.depth
             );
+            if let Some(expected) = reference_normal(request, &hit) {
+                checked_normals += 1;
+                assert_eq!(normal[3], 1., "normal unavailable at {pixel:?}");
+                for axis in 0..3 {
+                    assert!(
+                        (normal[axis] - expected[axis]).abs() < 0.004,
+                        "normal at {pixel:?}: {normal:?} vs {expected:?}"
+                    );
+                }
+            }
         }
     }
     assert!(
         interior > 10,
         "the fixture must exercise interior triangle coverage"
+    );
+    assert!(
+        checked_normals > 10,
+        "the fixture must exercise physical field normals"
     );
 }
 fn assert_vertex_bound(image: &CandidateImage) {
@@ -739,6 +829,7 @@ fn candidate_projection_is_stable_under_large_world_translation() {
     for (a, b) in results[0].1.iter().zip(&results[1].1) {
         assert!((a - b).abs() < 1e-5);
     }
+    assert_eq!(results[0].2, results[1].2);
 }
 
 #[test]
@@ -881,6 +972,47 @@ fn actual_gpu_upload_preserves_integer_triangle_vertices_and_reuses_equal_input(
     assert_eq!(repeated.kind, UploadKind::Reuse);
     assert_eq!(repeated.uploaded_bytes, 0);
     assert_eq!(repeated.reused_chunks, uploaded.chunks().len());
+}
+
+#[test]
+fn equal_triangle_layout_with_different_field_samples_is_not_reused() {
+    let (device, queue) = device();
+    let cpu = volume();
+    let source = GpuVolumeSource::new(&device, &queue, cpu.clone(), || false).unwrap();
+    let first = geometry_scaled(cpu.clone(), 1000., 2, 1);
+    let second = geometry_scaled(cpu, 1000., 2, 2);
+    let (uploaded, _) = GpuCandidateSurface::upload(
+        source,
+        first,
+        None,
+        CandidateUploadLimits::default(),
+        || false,
+    )
+    .unwrap();
+    let mut checked = 0;
+    for chunk in uploaded.chunks() {
+        let cell = second
+            .cells()
+            .iter()
+            .find(|cell| cell.origin == chunk.origin().map(|v| v as usize))
+            .unwrap();
+        let CandidateCellState::Candidate { mesh } = cell.state else {
+            continue;
+        };
+        let mesh = &second.meshes()[usize::from(mesh)];
+        if same_triangle_layout(&chunk.mesh, mesh) {
+            assert_ne!(
+                field_samples(&chunk.mesh).unwrap(),
+                field_samples(mesh).unwrap()
+            );
+            assert!(compatible(Some(&uploaded), chunk.origin(), mesh).is_none());
+            checked += 1;
+        }
+    }
+    assert!(
+        checked > 0,
+        "the fixture needs equal triangle layouts with different fields"
+    );
 }
 
 #[test]

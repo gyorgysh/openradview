@@ -13,9 +13,9 @@ use orv_core::{
 };
 use std::sync::Arc;
 
-/// Cell origin xyz followed by three exact subcell xyz numerators, all u32.
-/// Subcell coordinates use `ConformingSurfaceMesh::POSITION_DENOMINATOR`.
-pub const TRIANGLE_BYTES: u64 = 48;
+/// Cell origin xyz, three exact subcell xyz numerators and four packed pairs of
+/// signed source-field samples. Coordinates use the mesh position denominator.
+pub const TRIANGLE_BYTES: u64 = 64;
 pub const MAX_TRIANGLES: usize = 1_000_000;
 pub const MAX_BYTES: u64 = 128 * 1024 * 1024;
 const ALIGNMENT: u64 = 4096;
@@ -353,10 +353,19 @@ fn compatible(
         .and_then(|old| old.chunk(origin))
         .filter(|old| {
             Arc::ptr_eq(&old.mesh, mesh)
-                || (old.mesh.vertices() == mesh.vertices()
-                    && old.mesh.triangles() == mesh.triangles())
+                || (same_triangle_layout(&old.mesh, mesh)
+                    && matches!((field_samples(&old.mesh), field_samples(mesh)), (Ok(a), Ok(b)) if a == b))
         })
         .cloned()
+}
+fn same_triangle_layout(a: &ConformingSurfaceMesh, b: &ConformingSurfaceMesh) -> bool {
+    a.vertices() == b.vertices()
+        && a.triangles().len() == b.triangles().len()
+        && a.triangles().iter().zip(b.triangles()).all(|(a, b)| {
+            a.vertices == b.vertices
+                && matches!(a.state, ConformingFacetState::WithinTolerance { .. })
+                    == matches!(b.state, ConformingFacetState::WithinTolerance { .. })
+        })
 }
 fn checked_origin(origin: [usize; 3], dimensions: [usize; 3]) -> Result<[u32; 3], &'static str> {
     let mut result = [0; 3];
@@ -388,6 +397,7 @@ fn inspect(
     mesh: &ConformingSurfaceMesh,
     cancelled: &impl Fn() -> bool,
 ) -> Result<(usize, usize), &'static str> {
+    field_samples(mesh)?;
     let (mut represented, mut unresolved) = (0usize, 0usize);
     for (i, triangle) in mesh.triangles().iter().enumerate() {
         if i.is_multiple_of(256) && cancelled() {
@@ -414,6 +424,24 @@ fn inspect(
     }
     Ok((represented, unresolved))
 }
+fn field_samples(mesh: &ConformingSurfaceMesh) -> Result<[i16; 8], &'static str> {
+    let chart = mesh.input().input().input().input().input().edges().chart();
+    let mut values = [0i16; 8];
+    for (out, sample) in values.iter_mut().zip(chart.graph().cell().corners()) {
+        if !sample.source_valid {
+            return Err("Candidate field includes an invalid source sample");
+        }
+        *out = sample
+            .value
+            .ok_or("Candidate field includes an unknown sample")?;
+    }
+    Ok(values)
+}
+fn packed_samples(values: [i16; 8]) -> [u32; 4] {
+    std::array::from_fn(|i| {
+        u32::from(values[2 * i] as u16) | (u32::from(values[2 * i + 1] as u16) << 16)
+    })
+}
 fn pack(
     buffer: &wgpu::Buffer,
     mesh: &ConformingSurfaceMesh,
@@ -428,6 +456,7 @@ fn pack(
         return Err("Candidate mapping size differs from its geometry");
     }
     let mut index = 0usize;
+    let samples = packed_samples(field_samples(mesh)?);
     for (i, triangle) in mesh.triangles().iter().enumerate() {
         if i.is_multiple_of(256) && cancelled() {
             return Err("Cancelled");
@@ -435,7 +464,7 @@ fn pack(
         if !matches!(triangle.state, ConformingFacetState::WithinTolerance { .. }) {
             continue;
         }
-        let mut words = [0u32; 12];
+        let mut words = [0u32; 16];
         words[..3].copy_from_slice(&origin);
         for (vertex, id) in triangle.vertices.into_iter().enumerate() {
             let position = mesh
@@ -445,6 +474,7 @@ fn pack(
                 .ok_or("Candidate vertex is unavailable")?;
             words[3 + 3 * vertex..6 + 3 * vertex].copy_from_slice(&position);
         }
+        words[12..].copy_from_slice(&samples);
         let encoded = words.map(u32::to_le_bytes);
         let start = index * TRIANGLE_BYTES as usize;
         mapped

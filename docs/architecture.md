@@ -1163,18 +1163,21 @@ smoothing, physical picking, desktop display and disclosure/export paths.
 
 `GpuCandidateSurface` uploads the within-tolerance triangles of a bounded
 candidate assembly as per-cell immutable triangle descriptors. Each descriptor
-stores the source-cell origin and three exact integer subcell numerators; conversion to GPU
-floating-point coordinates is a separate rendering step. Unresolved triangles,
+stores the source-cell origin, three exact integer subcell numerators and the
+eight signed source-field samples; floating-point conversion is a separate
+rendering step. Unresolved triangles,
 noncandidate cells and assembly face states remain inspectable rather than
-silently treated as complete coverage. Unchanged integer geometry can reuse a
-GPU chunk across mask revisions while the parent retains the current assembly.
+silently treated as complete coverage. Unchanged integer geometry and source-field
+samples can reuse a GPU chunk across mask revisions while the parent retains the current assembly.
 Triangle and byte limits, source identity, cancellation, admitted GPU buffers
 and bounded upload staging are checked before publishing.
 
 `GpuCandidateProjector` projects represented candidates using source-centred
 physical camera coordinates. A guarded screen rectangle identifies candidate
 pixels; each fragment intersects the corresponding source-cell triangle before
-writing its source-cell ID and physical depth. Views whose conservative screen
+writing its source-cell ID, physical depth and outward trilinear-field normal.
+The normal uses the inverse-transpose affine; a zero alpha denotes an unavailable
+normal. Views whose conservative screen
 coordinate error exceeds half the guard are refused. A worker counts conservative
 rectangle pixel work before allocation and divides draws into bounded fenced batches;
 views exceeding the frame work limit are refused. The reported vertex reconstruction

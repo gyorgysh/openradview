@@ -19,7 +19,7 @@ pub const MAX_SIDE: u32 = 2048;
 pub const MAX_BATCH_TRIANGLES: u32 = 131_072;
 pub const MAX_FRAME_CANDIDATE_PIXELS: u64 = 256 * 1024 * 1024;
 pub const MAX_BATCH_CANDIDATE_PIXELS: u64 = 8 * 1024 * 1024;
-const UNIFORM_BYTES: u64 = 60 * 4;
+const UNIFORM_BYTES: u64 = 72 * 4;
 
 #[derive(Clone)]
 pub struct CandidateProjection {
@@ -35,6 +35,7 @@ pub struct CandidateImage {
     request: CandidateProjection,
     cells: wgpu::Texture,
     depth: wgpu::Texture,
+    normals: wgpu::Texture,
     reference_mm: [f64; 3],
     direction_unit: [f64; 3],
     vertex_error_upper_mm: f64,
@@ -62,6 +63,10 @@ impl CandidateImage {
     /// R32Float signed physical distance along direction from the source centre.
     pub fn depth(&self) -> &wgpu::Texture {
         &self.depth
+    }
+    /// RGBA16Float outward field normal; alpha zero means no usable normal.
+    pub fn normals(&self) -> &wgpu::Texture {
+        &self.normals
     }
     pub fn depth_reference_mm(&self) -> [f64; 3] {
         self.reference_mm
@@ -98,11 +103,11 @@ impl GpuCandidateProjector {
         let device = source.device();
         let limits = device.limits();
         if limits.max_vertex_buffers < 1
-            || limits.max_vertex_attributes < 4
+            || limits.max_vertex_attributes < 5
             || u64::from(limits.max_vertex_buffer_array_stride) < TRIANGLE_BYTES
-            || limits.max_inter_stage_shader_variables < 4
-            || limits.max_color_attachments < 2
-            || limits.max_color_attachment_bytes_per_sample < 20
+            || limits.max_inter_stage_shader_variables < 5
+            || limits.max_color_attachments < 3
+            || limits.max_color_attachment_bytes_per_sample < 28
             || limits.max_uniform_buffers_per_shader_stage < 1
             || limits.max_uniform_buffer_binding_size < UNIFORM_BYTES
             || limits.max_buffer_size < UNIFORM_BYTES
@@ -175,6 +180,11 @@ impl GpuCandidateProjector {
                             offset: 36,
                             shader_location: 3,
                         },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Uint32x4,
+                            offset: 48,
+                            shader_location: 4,
+                        },
                     ],
                 })],
             },
@@ -185,6 +195,7 @@ impl GpuCandidateProjector {
                 targets: &[
                     Some(target(wgpu::TextureFormat::Rgba32Uint)),
                     Some(target(wgpu::TextureFormat::R32Float)),
+                    Some(target(wgpu::TextureFormat::Rgba16Float)),
                 ],
             }),
             primitive: wgpu::PrimitiveState {
@@ -262,7 +273,7 @@ impl GpuCandidateProjector {
         )?;
         let [width, height] = request.size;
         let pixels = u64::from(width) * u64::from(height);
-        let data = allocation::reserve_bytes(pixels * 20 + 65536, device, queue)?;
+        let data = allocation::reserve_bytes(pixels * 28 + 65536, device, queue)?;
         let _temporary =
             allocation::reserve_bytes(pixels * 4 + 65536 + UNIFORM_BYTES, device, queue)?;
         let metadata = MemoryBudget::volumes()
@@ -294,12 +305,14 @@ impl GpuCandidateProjector {
             | wgpu::TextureUsages::COPY_SRC;
         let cells = make(wgpu::TextureFormat::Rgba32Uint, usage)?;
         let depth = make(wgpu::TextureFormat::R32Float, usage)?;
+        let normals = make(wgpu::TextureFormat::Rgba16Float, usage)?;
         let hardware_depth = make(
             wgpu::TextureFormat::Depth32Float,
             wgpu::TextureUsages::RENDER_ATTACHMENT,
         )?;
         let cell_view = cells.create_view(&Default::default());
         let depth_view = depth.create_view(&Default::default());
+        let normal_view = normals.create_view(&Default::default());
         let hardware_view = hardware_depth.create_view(&Default::default());
         let uniform = allocation::buffer(
             device,
@@ -357,7 +370,11 @@ impl GpuCandidateProjector {
                 };
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("bounded candidate triangle batch"),
-                    color_attachments: &[attachment(&cell_view), attachment(&depth_view)],
+                    color_attachments: &[
+                        attachment(&cell_view),
+                        attachment(&depth_view),
+                        attachment(&normal_view),
+                    ],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &hardware_view,
                         depth_ops: Some(wgpu::Operations {
@@ -429,6 +446,7 @@ impl GpuCandidateProjector {
             request,
             cells,
             depth,
+            normals,
             reference_mm: values.reference_mm,
             direction_unit: values.direction_unit,
             vertex_error_upper_mm: values.vertex_error_upper_mm,
@@ -579,7 +597,7 @@ fn plan_work(
     })
 }
 struct Values {
-    uniform: [f32; 60],
+    uniform: [f32; 72],
     reference_mm: [f64; 3],
     direction_unit: [f64; 3],
     vertex_error_upper_mm: f64,
@@ -632,7 +650,7 @@ fn values(request: &CandidateProjection) -> Result<Values, &'static str> {
         return Err("Candidate depth range exceeds supported GPU precision");
     }
     let delta = frame.origin_mm.map(|v| -v);
-    let mut all = [0f64; 60];
+    let mut all = [0f64; 72];
     for a in 0..3 {
         all[a] = 2. * dot(basis[a], frame.right_mm) / rr;
         all[4 + a] = -2. * dot(basis[a], frame.down_mm) / dd;
@@ -668,6 +686,12 @@ fn values(request: &CandidateProjection) -> Result<Values, &'static str> {
     all[51] = 1. / f64::from(request.size[1]);
     all[55] = f64::from(request.size[0]);
     all[59] = f64::from(request.size[1]);
+    for world in 0..3 {
+        let mut unit = [0.; 3];
+        unit[world] = 1.;
+        let inverse = source.world_vector_to_voxel(unit);
+        all[60 + world * 4..63 + world * 4].copy_from_slice(&inverse);
+    }
     let uniform = all.map(|v| v as f32);
     if uniform.iter().any(|v| !v.is_finite() || v.abs() > 1e20) {
         return Err("Candidate parameters exceed GPU arithmetic limits");
@@ -697,8 +721,8 @@ fn values(request: &CandidateProjection) -> Result<Values, &'static str> {
 // Bounds vertex projection error relative to the f64 source-centred rows. The
 // raster guard is one pixel, so refuse a view if half that guard is insufficient.
 fn screen_error_pixels(
-    exact: &[f64; 60],
-    rounded: &[f32; 60],
+    exact: &[f64; 72],
+    rounded: &[f32; 72],
     dimensions: [usize; 3],
     size: [u32; 2],
     row: usize,
