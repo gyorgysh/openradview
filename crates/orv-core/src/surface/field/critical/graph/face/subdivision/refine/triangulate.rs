@@ -54,15 +54,15 @@ struct SweepVertex {
     id: u32,
     lower: bool,
 }
-struct Worker<'a, C> {
-    input: &'a RefinedSubdivision,
+struct Worker<'a, I, C> {
+    input: &'a I,
     bounds: Vec<Bounds>,
     budget: Arc<MemoryBudget>,
     cancel: C,
     triangles: Vec<RegionTriangle>,
     expected: usize,
 }
-impl<C: Fn() -> bool> Worker<'_, C> {
+impl<I: Input, C: Fn() -> bool> Worker<'_, I, C> {
     fn compare(&self, a: u32, b: u32) -> Result<Ordering, SurfaceError> {
         check(&self.cancel)?;
         let a = self.input.vertex(a).ok_or(SurfaceError::Geometry)?;
@@ -76,7 +76,10 @@ impl<C: Fn() -> bool> Worker<'_, C> {
     }
     fn turn(&self, vertices: [u32; 3]) -> Result<i8, SurfaceError> {
         check(&self.cancel)?;
-        let [a, b, c] = vertices.map(|id| self.bounds[id as usize]);
+        let [Some(a), Some(b), Some(c)] = vertices.map(|id| self.bounds.get(id as usize).copied())
+        else {
+            return Err(SurfaceError::Geometry);
+        };
         let difference = |a: Bounds, b: Bounds, axis: usize| {
             [
                 i128::from(a.lower[axis]) - i128::from(b.upper[axis]),
@@ -99,8 +102,10 @@ impl<C: Fn() -> bool> Worker<'_, C> {
         if lo == 0 && hi == 0 {
             return Ok(0);
         }
-        let points = vertices.map(|id| self.input.vertices[id as usize]);
-        orientation(points, &self.budget, &self.cancel)
+        let [Some(a), Some(b), Some(c)] = vertices.map(|id| self.input.vertex(id).copied()) else {
+            return Err(SurfaceError::Geometry);
+        };
+        orientation([a, b, c], &self.budget, &self.cancel)
     }
     fn emit(&mut self, mut vertices: [u32; 3], region: u8) -> Result<(), SurfaceError> {
         match self.turn(vertices)? {
@@ -121,10 +126,9 @@ impl<C: Fn() -> bool> Worker<'_, C> {
         sorted: &mut Vec<SweepVertex>,
         stack: &mut Vec<SweepVertex>,
     ) -> Result<(), SurfaceError> {
-        // At each u an irreducible curved bilinear zero set has at most one v; its
-        // two branches have disjoint u intervals. Monotone chords preserve
-        // this, so each region is u-monotone. Factor crosses only add axis
-        // boundaries. Lexicographic(u,v) supplies the vertical-edge tie rule.
+        // At each regular u, each bilinear sign restricts v to one interval.
+        // Complete intersection events and coordinated chords preserve each
+        // region's u-monotonicity. Lexicographic(u,v) supplies vertical ties.
         let n = ring.len();
         let (mut min, mut max) = (0, 0);
         for i in 1..n {
@@ -222,12 +226,16 @@ impl<C: Fn() -> bool> Worker<'_, C> {
         }
         Ok(())
     }
-    fn insert(&mut self, point: u32) -> Result<(), SurfaceError> {
+    fn insert(&mut self, point: u32, region: u8) -> Result<(), SurfaceError> {
         let count = self.triangles.len();
         let mut matches = 0;
+        let mut interior = false;
         for i in 0..count {
             check(&self.cancel)?;
             let old = self.triangles[i];
+            if old.region != region {
+                continue;
+            }
             let [a, b, c] = old.vertices;
             let signs = [
                 self.turn([a, b, point])?,
@@ -243,6 +251,10 @@ impl<C: Fn() -> bool> Worker<'_, C> {
             }
             matches += 1;
             if zero == 0 {
+                if matches != 1 {
+                    return Err(SurfaceError::Geometry);
+                }
+                interior = true;
                 self.triangles[i].vertices = [a, b, point];
                 self.emit([b, c, point], old.region)?;
                 self.emit([c, a, point], old.region)?;
@@ -260,57 +272,114 @@ impl<C: Fn() -> bool> Worker<'_, C> {
             self.triangles[i].vertices = [a, point, c];
             self.emit([point, b, c], old.region)?;
         }
-        if matches == 0 || matches > 2 {
+        if (interior && matches != 1) || (!interior && matches != 2) {
             return Err(SurfaceError::Geometry);
         }
         Ok(())
     }
 }
-impl RefinedSubdivision {
+// Internal geometry access only; result types keep their concrete input owners.
+pub(in super::super::super) trait Input {
+    fn vertices(&self) -> &[[ExactCoordinate; 2]];
+    fn original_count(&self) -> usize;
+    fn region_count(&self) -> usize;
+    fn region(&self, id: u8) -> Option<(u8, u16)>;
+    fn half_edge(&self, id: u8) -> Option<&PatchHalfEdge>;
+    fn edge(&self, id: u8) -> Option<[u8; 2]>;
+    fn edge_vertices(&self, id: u8) -> Option<&[u32]>;
+    fn isolated_region(&self, id: u8) -> Result<u8, SurfaceError>;
+    fn vertex(&self, id: u32) -> Option<&[ExactCoordinate; 2]> {
+        self.vertices().get(id as usize)
+    }
     fn ring(
         &self,
         region: u8,
         cancel: &impl Fn() -> bool,
         mut emit: impl FnMut(u32) -> Result<(), SurfaceError>,
     ) -> Result<usize, SurfaceError> {
-        let item = self
-            .base
-            .regions
-            .get(usize::from(region))
-            .and_then(Option::as_ref)
-            .ok_or(SurfaceError::Geometry)?;
-        let mut at = item.first;
+        let (first, edge_count) = self.region(region).ok_or(SurfaceError::Geometry)?;
+        let mut at = first;
         let mut count = 0usize;
-        for _ in 0..item.edge_count {
+        for _ in 0..edge_count {
             check(cancel)?;
-            let half = self.base.half_edge(at).ok_or(SurfaceError::Geometry)?;
-            let edge = self.base.edge(half.edge).ok_or(SurfaceError::Geometry)?;
+            let half = self.half_edge(at).ok_or(SurfaceError::Geometry)?;
+            let [from, to] = self.edge(half.edge).ok_or(SurfaceError::Geometry)?;
+            if !((half.from == from && half.to == to) || (half.from == to && half.to == from)) {
+                return Err(SurfaceError::Geometry);
+            }
             if half.region != Some(region) {
                 return Err(SurfaceError::Geometry);
             }
             let path = self
                 .edge_vertices(half.edge)
                 .ok_or(SurfaceError::Geometry)?;
+            if path.len() < 2
+                || path.first() != Some(&u32::from(from))
+                || path.last() != Some(&u32::from(to))
+            {
+                return Err(SurfaceError::Geometry);
+            }
             for i in 0..path.len() - 1 {
                 check(cancel)?;
-                let id = if half.from == edge.from {
+                let id = if half.from == from {
                     path[i]
                 } else {
                     path[path.len() - 1 - i]
                 };
                 count += 1;
-                if count > self.vertices.len() {
+                if count > self.vertices().len() {
+                    return Err(SurfaceError::Geometry);
+                }
+                if self.vertex(id).is_none() {
                     return Err(SurfaceError::Geometry);
                 }
                 emit(id)?;
             }
             at = half.next;
         }
-        if at != item.first || count < 3 {
+        if at != first || count < 3 {
             return Err(SurfaceError::Geometry);
         }
         Ok(count)
     }
+}
+impl Input for RefinedSubdivision {
+    fn vertices(&self) -> &[[ExactCoordinate; 2]] {
+        &self.vertices
+    }
+    fn original_count(&self) -> usize {
+        self.base.nodes().count()
+    }
+    fn region_count(&self) -> usize {
+        self.base.regions().count()
+    }
+    fn region(&self, id: u8) -> Option<(u8, u16)> {
+        self.base
+            .regions
+            .get(usize::from(id))?
+            .as_ref()
+            .map(|r| (r.first, r.edge_count))
+    }
+    fn half_edge(&self, id: u8) -> Option<&PatchHalfEdge> {
+        self.base.half_edge(id)
+    }
+    fn edge(&self, id: u8) -> Option<[u8; 2]> {
+        self.base.edge(id).map(|e| [e.from, e.to])
+    }
+    fn edge_vertices(&self, id: u8) -> Option<&[u32]> {
+        self.edge_vertices(id)
+    }
+    fn isolated_region(&self, id: u8) -> Result<u8, SurfaceError> {
+        if !self.base.arena.whole
+            || self.base.regions().count() != 1
+            || self.base.node(id).is_none_or(|n| n.boundary != 0)
+        {
+            return Err(SurfaceError::Geometry);
+        }
+        Ok(0)
+    }
+}
+impl RefinedSubdivision {
     /// Triangulate every bounded region and retain every original constraint.
     /// Unit-square curve error remains separate from affine/GPU conversion.
     pub fn triangulate(
@@ -326,87 +395,143 @@ impl RefinedSubdivision {
         budget: Arc<MemoryBudget>,
         cancel: impl Fn() -> bool,
     ) -> Result<TriangulatedSubdivision, SurfaceError> {
-        check(&cancel)?;
-        if limits.max_triangles > MAX_TRIANGLES || limits.max_bytes > MAX_TRIANGLE_BYTES {
-            return Err(SurfaceError::Limit);
-        }
-        let mut used = [false; NODES];
-        for (_, edge) in self.base.edges() {
-            used[usize::from(edge.from)] = true;
-            used[usize::from(edge.to)] = true;
-        }
-        let mut expected = 0usize;
-        for (id, _) in self.base.regions() {
-            expected += self.ring(id, &cancel, |_| Ok(()))? - 2;
-        }
-        let isolated = self
-            .base
-            .nodes()
-            .filter(|(id, _)| !used[usize::from(*id)])
-            .count();
-        expected += 2 * isolated;
-        // A simple n-vertex region has n-2 triangles; inserting an interior
-        // constraint adds two, including a point on a shared diagonal. The
-        // complete square consequently has2V-B-2<=2V-6 triangles.
-        let bytes = (std::mem::size_of::<TriangulatedSubdivision>()
-            + expected * std::mem::size_of::<RegionTriangle>()) as u64;
-        if expected > limits.max_triangles || bytes > limits.max_bytes {
-            return Err(SurfaceError::Limit);
-        }
-        let count = self.vertices.len();
-        let scratch_bytes = count
-            * (std::mem::size_of::<Bounds>()
-                + std::mem::size_of::<u32>()
-                + 2 * std::mem::size_of::<SweepVertex>())
-            + NODES;
-        let _scratch = budget
-            .reserve(scratch_bytes as u64)
-            .ok_or(SurfaceError::Memory)?;
-        let reservation = budget.reserve(bytes).ok_or(SurfaceError::Memory)?;
-        let mut bounds = allocate(count)?;
-        for point in &self.vertices {
-            let enclosed = Enclosed::new(*point, None, &cancel)?;
-            bounds.push(Bounds {
-                lower: enclosed.lower,
-                upper: enclosed.upper,
-            });
-        }
-        let mut ring = allocate(count)?;
-        let mut sorted = allocate(count)?;
-        let mut stack = allocate(count)?;
-        let mut worker = Worker {
-            input: self,
-            bounds,
+        let completed = triangulate::<NODES>(
+            self.as_ref(),
+            std::mem::size_of::<TriangulatedSubdivision>(),
+            limits,
             budget,
             cancel,
-            triangles: allocate(expected)?,
-            expected,
-        };
-        for (id, _) in self.base.regions() {
-            ring.clear();
-            self.ring(id, &worker.cancel, |v| {
-                if ring.len() >= count {
-                    return Err(SurfaceError::Geometry);
-                }
-                ring.push(v);
-                Ok(())
-            })?;
-            worker.region(id, &ring, &mut sorted, &mut stack)?;
-        }
-        for (id, _) in self.base.nodes().filter(|(id, _)| !used[usize::from(*id)]) {
-            worker.insert(u32::from(id))?;
-        }
-        check(&worker.cancel)?;
-        if worker.triangles.len() != expected {
-            return Err(SurfaceError::Geometry);
-        }
+        )?;
         Ok(TriangulatedSubdivision {
             input: Arc::clone(self),
-            triangles: worker.triangles,
-            bytes,
-            _reservation: reservation,
+            triangles: completed.triangles,
+            bytes: completed.bytes,
+            _reservation: completed.reservation,
         })
     }
+}
+
+pub(in super::super::super) struct Completed {
+    pub(in super::super::super) triangles: Vec<RegionTriangle>,
+    pub(in super::super::super) bytes: u64,
+    pub(in super::super::super) reservation: Reservation,
+}
+pub(in super::super::super) fn scratch_bytes<const N: usize>(
+    count: usize,
+) -> Result<u64, SurfaceError> {
+    let per = std::mem::size_of::<Bounds>()
+        + std::mem::size_of::<u32>()
+        + 2 * std::mem::size_of::<SweepVertex>();
+    u64::try_from(
+        count
+            .checked_mul(per)
+            .and_then(|v| v.checked_add(N))
+            .ok_or(SurfaceError::Limit)?,
+    )
+    .map_err(|_| SurfaceError::Limit)
+}
+pub(in super::super::super) fn triangulate<const N: usize>(
+    input: &impl Input,
+    owner_bytes: usize,
+    limits: TriangulationLimits,
+    budget: Arc<MemoryBudget>,
+    cancel: impl Fn() -> bool,
+) -> Result<Completed, SurfaceError> {
+    check(&cancel)?;
+    if limits.max_triangles > MAX_TRIANGLES || limits.max_bytes > MAX_TRIANGLE_BYTES {
+        return Err(SurfaceError::Limit);
+    }
+    let count = input.vertices().len();
+    let original = input.original_count();
+    if count < 4
+        || original > N
+        || original > count
+        || count > MAX_VERTICES
+        || input.region_count() == 0
+        || input.region_count() > 256
+    {
+        return Err(SurfaceError::Geometry);
+    }
+    let mut used = [false; N];
+    let mut expected = 0usize;
+    for id in 0..input.region_count() {
+        let n = input.ring(id as u8, &cancel, |v| {
+            if (v as usize) < original {
+                used[v as usize] = true;
+            }
+            Ok(())
+        })?;
+        expected = expected.checked_add(n - 2).ok_or(SurfaceError::Limit)?;
+    }
+    let isolated = used[..original].iter().filter(|v| !**v).count();
+    expected = expected
+        .checked_add(2 * isolated)
+        .ok_or(SurfaceError::Limit)?;
+    // A simple n-vertex region has n-2 triangles; inserting an interior
+    // constraint adds two, including a point on a shared diagonal. The
+    // complete square consequently has2V-B-2<=2V-6 triangles.
+    let bytes = u64::try_from(
+        expected
+            .checked_mul(std::mem::size_of::<RegionTriangle>())
+            .and_then(|n| n.checked_add(owner_bytes))
+            .ok_or(SurfaceError::Limit)?,
+    )
+    .map_err(|_| SurfaceError::Limit)?;
+    if expected > limits.max_triangles || bytes > limits.max_bytes {
+        return Err(SurfaceError::Limit);
+    }
+    let scratch_bytes = scratch_bytes::<N>(count)?;
+    let _scratch = budget.reserve(scratch_bytes).ok_or(SurfaceError::Memory)?;
+    let reservation = budget.reserve(bytes).ok_or(SurfaceError::Memory)?;
+    let mut bounds = allocate(count)?;
+    for point in input.vertices() {
+        let enclosed = Enclosed::new(*point, None, &cancel)?;
+        bounds.push(Bounds {
+            lower: enclosed.lower,
+            upper: enclosed.upper,
+        });
+    }
+    let mut ring = allocate(count)?;
+    let mut sorted = allocate(count)?;
+    let mut stack = allocate(count)?;
+    let mut worker = Worker {
+        input,
+        bounds,
+        budget,
+        cancel,
+        triangles: allocate(expected)?,
+        expected,
+    };
+    for id in 0..input.region_count() {
+        let id = id as u8;
+        ring.clear();
+        input.ring(id, &worker.cancel, |v| {
+            if ring.len() >= count {
+                return Err(SurfaceError::Geometry);
+            }
+            ring.push(v);
+            Ok(())
+        })?;
+        worker.region(id, &ring, &mut sorted, &mut stack)?;
+    }
+    for (id, used) in used[..original].iter().copied().enumerate() {
+        if !used {
+            let region = input.isolated_region(id as u8)?;
+            if input.region(region).is_none() {
+                return Err(SurfaceError::Geometry);
+            }
+            worker.insert(id as u32, region)?;
+        }
+    }
+    check(&worker.cancel)?;
+    if worker.triangles.len() != expected {
+        return Err(SurfaceError::Geometry);
+    }
+    Ok(Completed {
+        triangles: worker.triangles,
+        bytes,
+        reservation,
+    })
 }
 
 #[cfg(test)]

@@ -10,6 +10,8 @@ use crate::{
     surface::SurfaceError,
 };
 use std::sync::Arc;
+mod triangulate;
+pub use triangulate::TriangulatedJointSubdivision;
 
 // At most one nonvertical zero graph per field, plus the two domain edges.
 const ACTIVE: usize = 4;

@@ -714,8 +714,8 @@ of retained typed storage and precision bits 0..24. Fixed scratch, the bounded c
 directory and completed output are admitted separately before allocation. A
 128-level work stack covers the two active curves' selected bisections and a
 forced lens split. Checked slice-transfer failures, limits and cancellation
-publish no partial paths and never lower precision. Physical/GPU conversion,
-joint-region triangles and general trilinear connectivity remain separate work.
+publish no partial paths and never lower precision. Physical/GPU conversion
+and general trilinear connectivity remain separate work.
 The owning extractor must share these completed boundary paths with incident
 patches; this local face result does not establish a conforming whole-grid mesh.
 
@@ -739,14 +739,22 @@ same complete insertion union and detail; owning geometry must share the
 completed path across incident patches. Refinement alone supplies no triangles,
 GPU mesh, source-edit authority or whole-grid geometry admission policy.
 
-`RefinedSubdivision::triangulate` retains an `Arc` to that exact refinement and
-triangulates every bounded region. An irreducible curved bilinear graph has at
-most one crossing on each vertical line; its two branches have disjoint horizontal
-domains. Its monotone chords preserve this property, while factored axis lines
-bound separate regions. Merging the two lexicographically ordered boundary chains
-and a stack triangulates each region without a quadratic ear search. Collinear
-boundary vertices remain constraints. Isolated whole-zero interior points split
-their containing triangle, or both triangles sharing their containing diagonal.
+`RefinedSubdivision::triangulate` and `RefinedJointSubdivision::triangulate` retain
+an `Arc` to their exact completed input and use one private triangulation kernel.
+At each regular u, a bilinear sign restricts v to one interval. Complete events
+and coordinated chords preserve each region's u-monotonicity, including two-field
+regions and factored axis boundaries. Merging the two lexicographically ordered
+boundary chains and a stack triangulates each region without a quadratic ear
+search. Collinear boundary vertices remain constraints. Original half-edge/path
+directions and vertex bounds are checked before the ring is consumed.
+
+Isolated interior points split one containing triangle, or both triangles sharing
+their containing diagonal. Joint points are bound to their original exact
+`interior_region`; sign pairs alone cannot identify disconnected regions. A point
+cannot be inserted into another region's triangles. The single-field whole-zero
+case retains its original region-zero rule. A mismatched assignment or incomplete
+diagonal match discards the unpublished output. The concrete result types retain
+their own input owners and every triangle's original region ID.
 
 Turns first use cached 40-bit integer interval bounds. Ambiguous turns clear all
 six positive coordinate denominators and evaluate the determinant in up to six
@@ -766,8 +774,9 @@ all shared constraint edges use the same completed vertex path. Scratch and
 additional retained triangles are admitted separately from the immutable input.
 Limits are 131,072 triangles and 16 MiB of additional retained typed storage;
 callers may lower them. Failure or cancellation publishes nothing and preserves
-prior owners. This covers one bilinear square subdivision, not two incident
-fields, full trilinear surface connectivity, finite-grid closure or GPU conversion.
+prior owners. These are unit-square face meshes. Source-owned assembly, full
+trilinear surface connectivity, finite-grid closure and GPU conversion remain
+separate gates.
 
 `Trilinear::phase` uses the inclusive F>=0 level, matching retained fractional
 half-maximum ties. Nonnegative corners select the complete closed cell; strictly

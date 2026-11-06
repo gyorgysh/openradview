@@ -8,7 +8,8 @@ pub use graph::{
     CriticalGraph, ExactCoordinate, FaceArrangement, GraphEdge, GraphNode, IntersectionContact,
     IntersectionPoint, JointEdge, JointRegion, JointSubdivision, PatchHalfEdge, PatchRegion,
     PlaneSubdivision, RefinedJointSubdivision, RefinedSubdivision, RefinementLimits,
-    RegionTriangle, SubdivisionEdge, TriangulatedSubdivision, TriangulationLimits, WholeSection,
+    RegionTriangle, SubdivisionEdge, TriangulatedJointSubdivision, TriangulatedSubdivision,
+    TriangulationLimits, WholeSection,
 };
 
 // For corner magnitudes <=255, each section coefficient has magnitude <=520200.

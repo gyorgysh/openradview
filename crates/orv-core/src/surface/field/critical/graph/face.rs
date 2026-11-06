@@ -5,7 +5,9 @@ use compare::bilinear_sign;
 mod intersections;
 mod joint;
 mod slice;
-pub use joint::{JointEdge, JointRegion, JointSubdivision, RefinedJointSubdivision};
+pub use joint::{
+    JointEdge, JointRegion, JointSubdivision, RefinedJointSubdivision, TriangulatedJointSubdivision,
+};
 pub use slice::BilinearSlice;
 mod subdivision;
 pub use intersections::{
