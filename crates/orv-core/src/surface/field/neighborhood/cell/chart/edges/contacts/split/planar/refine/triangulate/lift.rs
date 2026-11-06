@@ -9,7 +9,7 @@ pub use certificate::{
     CellSeamBatch, CellSeamLimits, CellSeamStop, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FacePromotionLimits,
-    FaceSpanCoverage, SharedFacePartition, SurfaceFacetCertificate,
+    FaceSpanCoverage, PhysicalConformingLimits, SharedFacePartition, SurfaceFacetCertificate,
 };
 
 const MAX_OUTPUT: u64 = 16 * 1024 * 1024;

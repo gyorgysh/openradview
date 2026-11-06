@@ -10,7 +10,7 @@ pub use triangulate::{
     CellSeamLimits, CellSeamStop, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
-    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PlanarTriangle,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PhysicalConformingLimits, PlanarTriangle,
     PlanarTriangulationLimits, SharedFacePartition, SurfaceEnclosureLimits,
     SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };

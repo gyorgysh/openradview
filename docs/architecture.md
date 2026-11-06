@@ -738,8 +738,14 @@ loosening tolerance. Output and scratch are admitted separately. Noncandidate
 facets remain in the retained source. A proposed split on a projection end-face
 edge is allowed only if exact field values at both endpoints and the midpoint
 prove its quadratic chord lies on the face zero contour; otherwise it remains
-unresolved until source-contour-aware refinement. Cross-cell seams, curved-boundary
-topology, physical-space accuracy and native rendering remain separate work.
+unresolved until source-contour-aware refinement. The separate
+`refine_conforming_physical` entry accepts an explicit millimetre target and
+marks a candidate within tolerance only when its conservative physical bound
+meets that target. Face application and either promotion form preserve each
+physical target while axial meshes continue to use the requested axial settings.
+The target does not certify unproved or unrepresented geometry. Cross-cell seams,
+curved-boundary topology, whole-surface physical accuracy and native rendering
+remain separate work.
 `ConformingSurfaceMesh::shared_face_partition` compares two neighboring meshes
 only when their source, mask key, revision, face and projection axis agree. It
 unions exact transverse contour coordinates, verifies unique fibers and compatible

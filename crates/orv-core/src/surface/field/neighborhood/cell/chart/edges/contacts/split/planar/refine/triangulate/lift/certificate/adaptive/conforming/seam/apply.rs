@@ -10,7 +10,8 @@ const MAX_CELL_TRIANGLES: usize = 65_536;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AppliedFaceLimits {
-    /// Requested local axial tolerance for each retained source cell.
+    /// Local axial tolerance for each axial source cell. A source cell with a
+    /// physical target retains that target during recertification.
     pub tolerance_bits: [u8; 2],
     pub max_vertices_per_cell: usize,
     pub max_triangles_per_cell: usize,
@@ -92,6 +93,7 @@ pub struct AppliedFaceSpan {
 pub struct AppliedFacePair {
     input: Arc<SharedFacePartition>,
     cells: [AppliedFaceCell; 2],
+    criteria: [Criterion; 2],
     point_vertices: Vec<[Option<u32>; 2]>,
     spans: Vec<AppliedFaceSpan>,
     bytes: u64,
@@ -127,7 +129,7 @@ fn recertify<F: Fn() -> bool>(
     original: u32,
     ids: [u32; 3],
     vertices: &[AppliedFaceVertex],
-    bits: u8,
+    criterion: Criterion,
     work: &mut Work<'_, F>,
 ) -> Result<AppliedFaceTriangle, SurfaceError> {
     work.charge(1)?;
@@ -159,10 +161,7 @@ fn recertify<F: Fn() -> bool>(
         numerator,
         denominator,
     } = certificate
-        && numerator
-            .checked_mul(1u128 << bits)
-            .ok_or(SurfaceError::Limit)?
-            <= denominator
+        && criterion.accepts(certificate, chart)?
     {
         AppliedTriangleState::WithinTolerance {
             numerator,
@@ -202,7 +201,7 @@ fn build_triangles<F: Fn() -> bool>(
     vertices: &[AppliedFaceVertex],
     requests: &mut [Request],
     count: usize,
-    bits: u8,
+    criterion: Criterion,
     work: &mut Work<'_, F>,
 ) -> Result<Vec<AppliedFaceTriangle>, SurfaceError> {
     // Count comparisons and shifts explicitly, including cancellation checks.
@@ -237,7 +236,7 @@ fn build_triangles<F: Fn() -> bool>(
                 id,
                 triangle.vertices,
                 vertices,
-                bits,
+                criterion,
                 work,
             )?);
             continue;
@@ -246,7 +245,7 @@ fn build_triangles<F: Fn() -> bool>(
         let edge = group[0].edge;
         work.charge(group.len())?;
         fan(triangle.vertices, edge, group, |ids| {
-            result.push(recertify(source, id, ids, vertices, bits, work)?);
+            result.push(recertify(source, id, ids, vertices, criterion, work)?);
             Ok(())
         })?;
     }
@@ -397,6 +396,10 @@ impl SharedFacePartition {
         }
         let [v0, v1] = vertices;
         let [mut r0, mut r1] = requests;
+        let criteria = std::array::from_fn(|side| match self.inputs[side].criterion {
+            Criterion::PhysicalMm(mm) => Criterion::PhysicalMm(mm),
+            Criterion::AxialBits(_) => Criterion::AxialBits(limits.tolerance_bits[side]),
+        });
         let cells = [
             AppliedFaceCell {
                 triangles: build_triangles(
@@ -404,7 +407,7 @@ impl SharedFacePartition {
                     &v0,
                     &mut r0,
                     triangle_counts[0],
-                    limits.tolerance_bits[0],
+                    criteria[0],
                     &mut work,
                 )?,
                 vertices: v0,
@@ -415,7 +418,7 @@ impl SharedFacePartition {
                     &v1,
                     &mut r1,
                     triangle_counts[1],
-                    limits.tolerance_bits[1],
+                    criteria[1],
                     &mut work,
                 )?,
                 vertices: v1,
@@ -447,6 +450,7 @@ impl SharedFacePartition {
         Ok(AppliedFacePair {
             input: Arc::clone(self),
             cells,
+            criteria,
             point_vertices,
             spans,
             bytes,

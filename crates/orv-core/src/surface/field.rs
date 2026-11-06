@@ -34,13 +34,14 @@ pub use neighborhood::{
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EdgePartition, EdgePoint, EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint,
     FacePartitionSpan, FacePlacement, FacePromotionLimits, FaceSpanCoverage, NeighborhoodCell,
-    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
-    PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
-    ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
-    ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph, SharedFacePartition,
-    SourceCellGraph, SourceFace, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
-    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph, WholeZeroFace,
-    WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
+    PhysicalConformingLimits, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
+    PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
+    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
+    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph,
+    SharedFacePartition, SourceCellGraph, SourceFace, SplitPath, SplitProjectedConstraints,
+    SplitSegment, SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate,
+    TriangulatedPlanarGraph, WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch,
+    ZeroFacePhase, ZeroFaceSample,
 };
 use std::sync::Arc;
 

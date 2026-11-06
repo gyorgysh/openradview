@@ -37,6 +37,51 @@ impl Default for ConformingSurfaceLimits {
         }
     }
 }
+/// Resource limits and requested axial separation in the source's physical space.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PhysicalConformingLimits {
+    pub max_error_mm: f64,
+    pub max_depth: u8,
+    pub max_vertices: usize,
+    pub max_triangles: usize,
+    pub max_operations: usize,
+    /// Additional typed output; source and scratch are admitted separately.
+    pub max_bytes: u64,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Criterion {
+    AxialBits(u8),
+    PhysicalMm(f64),
+}
+impl Criterion {
+    fn accepts(
+        self,
+        certificate: SurfaceFacetCertificate,
+        chart: &CellProjectionChart,
+    ) -> Result<bool, SurfaceError> {
+        let SurfaceFacetCertificate::Certified {
+            numerator,
+            denominator,
+        } = certificate
+        else {
+            return Ok(false);
+        };
+        match self {
+            Self::AxialBits(bits) => Ok(numerator
+                .checked_mul(1u128 << bits)
+                .ok_or(SurfaceError::Limit)?
+                <= denominator),
+            Self::PhysicalMm(mm) => {
+                let basis = super::super::axis_basis(chart.graph().field().source(), chart.axis())?;
+                match super::super::physical_upper_bound(certificate, basis) {
+                    Ok(Some(upper)) => Ok(upper <= mm),
+                    Ok(None) | Err(SurfaceError::Limit) => Ok(false),
+                    Err(error) => Err(error),
+                }
+            }
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConformingVertex {
     Source {
@@ -111,6 +156,7 @@ pub struct ConformingSurfaceMesh {
     seam_points: Vec<FaceSeamCoordinate>,
     lineage: Option<Arc<AppliedFacePair>>,
     lineage_depth: u8,
+    criterion: Criterion,
     vertices: Vec<ConformingVertex>,
     triangles: Vec<ConformingTriangle>,
     bytes: u64,
@@ -129,6 +175,20 @@ impl ConformingSurfaceMesh {
     /// Depth of retained exchange history; zero also describes compacted meshes.
     pub fn face_lineage_depth(&self) -> u8 {
         self.lineage_depth
+    }
+    /// Physical target if this mesh was refined and recertified in millimetres.
+    pub fn physical_tolerance_mm(&self) -> Option<f64> {
+        match self.criterion {
+            Criterion::PhysicalMm(mm) => Some(mm),
+            Criterion::AxialBits(_) => None,
+        }
+    }
+    /// Local source-cell target if this mesh uses a dyadic axial tolerance.
+    pub fn axial_tolerance_bits(&self) -> Option<u8> {
+        match self.criterion {
+            Criterion::AxialBits(bits) => Some(bits),
+            Criterion::PhysicalMm(_) => None,
+        }
     }
     /// Recover the source face and exact transverse coordinate for a face split.
     pub fn face_split_source(&self, point: u32) -> Option<(FaceKey, ExactCoordinate)> {
@@ -273,6 +333,53 @@ impl EnclosedSurfaceGraph {
         budget: Arc<MemoryBudget>,
         cancel: impl Fn() -> bool,
     ) -> Result<ConformingSurfaceMesh, SurfaceError> {
+        self.refine_conforming_impl(
+            limits,
+            Criterion::AxialBits(limits.tolerance_bits),
+            budget,
+            cancel,
+        )
+    }
+    /// Refine candidate facets using an explicit physical separation target.
+    /// Unproved facets and resource-limited leaves remain unresolved.
+    pub fn refine_conforming_physical(
+        self: &Arc<Self>,
+        limits: PhysicalConformingLimits,
+        cancel: impl Fn() -> bool,
+    ) -> Result<ConformingSurfaceMesh, SurfaceError> {
+        self.refine_conforming_physical_with_budget(limits, MemoryBudget::volumes(), cancel)
+    }
+    pub(in crate::surface) fn refine_conforming_physical_with_budget(
+        self: &Arc<Self>,
+        limits: PhysicalConformingLimits,
+        budget: Arc<MemoryBudget>,
+        cancel: impl Fn() -> bool,
+    ) -> Result<ConformingSurfaceMesh, SurfaceError> {
+        check(&cancel)?;
+        if !limits.max_error_mm.is_finite() || limits.max_error_mm < 0. {
+            return Err(SurfaceError::Geometry);
+        }
+        self.refine_conforming_impl(
+            ConformingSurfaceLimits {
+                tolerance_bits: 0,
+                max_depth: limits.max_depth,
+                max_vertices: limits.max_vertices,
+                max_triangles: limits.max_triangles,
+                max_operations: limits.max_operations,
+                max_bytes: limits.max_bytes,
+            },
+            Criterion::PhysicalMm(limits.max_error_mm),
+            budget,
+            cancel,
+        )
+    }
+    fn refine_conforming_impl(
+        self: &Arc<Self>,
+        limits: ConformingSurfaceLimits,
+        criterion: Criterion,
+        budget: Arc<MemoryBudget>,
+        cancel: impl Fn() -> bool,
+    ) -> Result<ConformingSurfaceMesh, SurfaceError> {
         check(&cancel)?;
         if limits.tolerance_bits > 16
             || limits.max_depth > MAX_DEPTH
@@ -381,10 +488,7 @@ impl EnclosedSurfaceGraph {
                 numerator,
                 denominator,
             } = certificate
-                && numerator
-                    .checked_mul(1u128 << limits.tolerance_bits)
-                    .ok_or(SurfaceError::Limit)?
-                    <= denominator
+                && criterion.accepts(certificate, chart)?
             {
                 triangles[cursor].state = ConformingFacetState::WithinTolerance {
                     numerator,
@@ -523,6 +627,7 @@ impl EnclosedSurfaceGraph {
             seam_points: Vec::new(),
             lineage: None,
             lineage_depth: 0,
+            criterion,
             vertices,
             triangles,
             bytes,

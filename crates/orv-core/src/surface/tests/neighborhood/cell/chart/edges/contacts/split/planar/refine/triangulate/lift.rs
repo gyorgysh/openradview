@@ -334,6 +334,286 @@ fn conforming_physical_bounds_follow_the_retained_affine_source() {
     }
 }
 
+fn physical_limits(
+    source: &EnclosedSurfaceGraph,
+    max_error_mm: f64,
+    max_depth: u8,
+) -> PhysicalConformingLimits {
+    PhysicalConformingLimits {
+        max_error_mm,
+        max_depth,
+        max_vertices: source.vertices().len() + 1024,
+        max_triangles: source.facets().len() + 1024,
+        max_operations: 2_000_000,
+        max_bytes: ConformingSurfaceLimits::default().max_bytes,
+    }
+}
+
+#[test]
+fn physical_refinement_accepts_only_proved_mm_bounds_and_preserves_limits() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let field = field([26, -6, -6, -6, -6, -6, -6, 26]);
+    let mut resolved = 0usize;
+    let mut strict_unresolved = 0usize;
+    for axis in 0..3 {
+        let initial = adjacent_conforming_axis(&field, [0; 3], axis, 0, budget.clone());
+        let source = initial.input().clone();
+        let baseline = budget.used();
+        for error_mm in [0., 0.005, 0.1, 10.] {
+            let limits = physical_limits(&source, error_mm, 5);
+            let result = source
+                .refine_conforming_physical_with_budget(limits, budget.clone(), || false)
+                .unwrap();
+            assert_eq!(result.physical_tolerance_mm(), Some(error_mm));
+            assert_eq!(result.axial_tolerance_bits(), None);
+            for (id, triangle) in result.triangles().iter().enumerate() {
+                let upper = result.triangle_physical_error_upper_mm(id as u32).unwrap();
+                match triangle.state {
+                    ConformingFacetState::WithinTolerance { .. } => {
+                        assert!(upper.is_some_and(|value| value <= error_mm));
+                        resolved += 1;
+                    }
+                    ConformingFacetState::Unresolved { .. } if error_mm == 0. => {
+                        strict_unresolved += 1
+                    }
+                    ConformingFacetState::Unresolved { .. } => (),
+                }
+            }
+            drop(result);
+            assert_eq!(budget.used(), baseline);
+        }
+        let valid = physical_limits(&source, 0.1, 2);
+        for invalid in [-1., f64::NAN, f64::INFINITY] {
+            assert!(matches!(
+                source.refine_conforming_physical_with_budget(
+                    PhysicalConformingLimits {
+                        max_error_mm: invalid,
+                        ..valid
+                    },
+                    budget.clone(),
+                    || false,
+                ),
+                Err(SurfaceError::Geometry)
+            ));
+            assert_eq!(budget.used(), baseline);
+        }
+        assert!(matches!(
+            source.refine_conforming_physical_with_budget(valid, budget.clone(), || true),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), baseline);
+        if axis == 0 {
+            let calls = Cell::new(0usize);
+            let result = source
+                .refine_conforming_physical_with_budget(valid, budget.clone(), || {
+                    calls.set(calls.get() + 1);
+                    false
+                })
+                .unwrap();
+            drop(result);
+            let total = calls.get();
+            assert_eq!(budget.used(), baseline);
+            for stop in [total / 2, total] {
+                let calls = Cell::new(0usize);
+                assert!(matches!(
+                    source.refine_conforming_physical_with_budget(valid, budget.clone(), || {
+                        calls.set(calls.get() + 1);
+                        calls.get() >= stop
+                    }),
+                    Err(SurfaceError::Cancelled)
+                ));
+                assert_eq!(budget.used(), baseline);
+            }
+        }
+        let small = MemoryBudget::new(1);
+        assert!(matches!(
+            source.refine_conforming_physical_with_budget(valid, small.clone(), || false),
+            Err(SurfaceError::Memory)
+        ));
+        assert_eq!(small.used(), 0);
+    }
+    assert!(resolved > 0);
+    assert!(strict_unresolved > 0);
+}
+
+#[test]
+fn face_exchange_retains_each_physical_target_even_with_loose_axial_limits() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let source = source([3, 2, 2], true, false);
+    let field = fractional(source, |[x, y, z]| {
+        if (x == 0 && y == 0 && z == 0)
+            || (x == 1 && y == 1 && z == 1)
+            || (x == 2 && y == 0 && z == 0)
+        {
+            26
+        } else {
+            -6
+        }
+    });
+    let left = adjacent_conforming_axis(&field, [0, 0, 0], 2, 0, budget.clone());
+    let right = adjacent_conforming_axis(&field, [1, 0, 0], 2, 0, budget.clone());
+    let targets = [0.002, 0.02];
+    let left = Arc::new(
+        left.input()
+            .refine_conforming_physical_with_budget(
+                physical_limits(left.input(), targets[0], 0),
+                budget.clone(),
+                || false,
+            )
+            .unwrap(),
+    );
+    let right = Arc::new(
+        right
+            .input()
+            .refine_conforming_physical_with_budget(
+                physical_limits(right.input(), targets[1], 7),
+                budget.clone(),
+                || false,
+            )
+            .unwrap(),
+    );
+    let partition = Arc::new(
+        left.shared_face_partition_with_budget(
+            &right,
+            0,
+            FacePartitionLimits {
+                max_edges_per_cell: 1024,
+                max_points: 2048,
+                ..FacePartitionLimits::default()
+            },
+            budget.clone(),
+            || false,
+        )
+        .unwrap(),
+    );
+    assert!(partition.points().iter().any(|point| {
+        point
+            .placements
+            .iter()
+            .any(|value| matches!(value, FacePlacement::Split { .. }))
+    }));
+    let pair = Arc::new(
+        partition
+            .apply_with_budget(
+                AppliedFaceLimits {
+                    tolerance_bits: [0, 0],
+                    ..AppliedFaceLimits::default()
+                },
+                budget.clone(),
+                || false,
+            )
+            .unwrap(),
+    );
+    let retained = pair
+        .promote_cells_with_budget(FacePromotionLimits::default(), budget.clone(), || false)
+        .unwrap();
+    let compact = pair
+        .promote_cells_compacted_with_budget(FacePromotionLimits::default(), budget.clone(), || {
+            false
+        })
+        .unwrap();
+    assert!(
+        compact[0]
+            .triangles()
+            .iter()
+            .enumerate()
+            .any(|(id, triangle)| {
+                matches!(
+                    triangle.state,
+                    ConformingFacetState::Unresolved {
+                        certificate: Some(SurfaceFacetCertificate::Certified { .. }),
+                        ..
+                    }
+                ) && compact[0]
+                    .triangle_physical_error_upper_mm(id as u32)
+                    .unwrap()
+                    .is_some_and(|upper| upper > targets[0])
+            })
+    );
+    for side in 0..2 {
+        for mesh in [&retained[side], &compact[side]] {
+            assert_eq!(mesh.physical_tolerance_mm(), Some(targets[side]));
+            assert_eq!(mesh.axial_tolerance_bits(), None);
+            for (id, triangle) in mesh.triangles().iter().enumerate() {
+                if matches!(triangle.state, ConformingFacetState::WithinTolerance { .. }) {
+                    assert!(
+                        mesh.triangle_physical_error_upper_mm(id as u32)
+                            .unwrap()
+                            .is_some_and(|upper| upper <= targets[side])
+                    );
+                }
+            }
+        }
+    }
+    let axial = adjacent_conforming_axis(&field, [1, 0, 0], 2, 7, budget.clone());
+    let mixed_partition = Arc::new(
+        left.shared_face_partition_with_budget(
+            &axial,
+            0,
+            FacePartitionLimits {
+                max_edges_per_cell: 1024,
+                max_points: 2048,
+                ..FacePartitionLimits::default()
+            },
+            budget.clone(),
+            || false,
+        )
+        .unwrap(),
+    );
+    let mixed_pair = Arc::new(
+        mixed_partition
+            .apply_with_budget(
+                AppliedFaceLimits {
+                    tolerance_bits: [0, 6],
+                    ..AppliedFaceLimits::default()
+                },
+                budget.clone(),
+                || false,
+            )
+            .unwrap(),
+    );
+    let mixed = mixed_pair
+        .promote_cells_compacted_with_budget(FacePromotionLimits::default(), budget.clone(), || {
+            false
+        })
+        .unwrap();
+    assert_eq!(mixed[0].physical_tolerance_mm(), Some(targets[0]));
+    assert_eq!(mixed[0].axial_tolerance_bits(), None);
+    assert_eq!(mixed[1].physical_tolerance_mm(), None);
+    assert_eq!(mixed[1].axial_tolerance_bits(), Some(6));
+    let batch = CellSeamBatch::coordinate_with_budget(
+        &[left, right],
+        CellSeamLimits {
+            apply: AppliedFaceLimits {
+                tolerance_bits: [0, 0],
+                ..AppliedFaceLimits::default()
+            },
+            partition: FacePartitionLimits {
+                max_edges_per_cell: 1024,
+                max_points: 2048,
+                ..FacePartitionLimits::default()
+            },
+            ..CellSeamLimits::default()
+        },
+        budget,
+        || false,
+    )
+    .unwrap();
+    assert!(batch.updates() > 0);
+    for (side, mesh) in batch.cells().iter().enumerate() {
+        assert_eq!(mesh.physical_tolerance_mm(), Some(targets[side]));
+        for (id, triangle) in mesh.triangles().iter().enumerate() {
+            if matches!(triangle.state, ConformingFacetState::WithinTolerance { .. }) {
+                assert!(
+                    mesh.triangle_physical_error_upper_mm(id as u32)
+                        .unwrap()
+                        .is_some_and(|upper| upper <= targets[side])
+                );
+            }
+        }
+    }
+}
+
 fn area(points: [[u32; 3]; 3], u: usize, v: usize) -> i128 {
     let delta = |a: usize, b: usize, d: usize| i128::from(points[a][d]) - i128::from(points[b][d]);
     delta(1, 0, u) * delta(2, 0, v) - delta(1, 0, v) * delta(2, 0, u)

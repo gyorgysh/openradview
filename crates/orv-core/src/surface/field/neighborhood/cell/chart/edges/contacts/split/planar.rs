@@ -10,9 +10,9 @@ pub use refine::{
     CellSeamLimits, CellSeamStop, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
-    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PlanarRefinementLimits, PlanarTriangle,
-    PlanarTriangulationLimits, RefinedPlanarGraph, SharedFacePartition, SurfaceEnclosureLimits,
-    SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PhysicalConformingLimits,
+    PlanarRefinementLimits, PlanarTriangle, PlanarTriangulationLimits, RefinedPlanarGraph,
+    SharedFacePartition, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_EDGES: usize = 8192;

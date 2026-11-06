@@ -14,12 +14,12 @@ pub use cell::{
     ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
     ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, FacePartitionLimits,
     FacePartitionPoint, FacePartitionSpan, FacePlacement, FacePromotionLimits, FaceSpanCoverage,
-    PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
-    PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
-    ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
-    ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph, SharedFacePartition,
-    SourceCellGraph, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
-    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    PhysicalConformingLimits, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
+    PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
+    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
+    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph,
+    SharedFacePartition, SourceCellGraph, SplitPath, SplitProjectedConstraints, SplitSegment,
+    SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 pub use zero_face::{
     WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,

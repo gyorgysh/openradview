@@ -157,6 +157,7 @@ fn build<F: Fn() -> bool>(
         seam_points,
         lineage: (depth != 0).then(|| Arc::clone(pair)),
         lineage_depth: depth,
+        criterion: pair.criteria[side],
         vertices,
         triangles,
         bytes,

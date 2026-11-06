@@ -8,7 +8,7 @@ pub use conforming::{
     CellSeamLimits, CellSeamStop, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FacePromotionLimits,
-    FaceSpanCoverage, SharedFacePartition,
+    FaceSpanCoverage, PhysicalConformingLimits, SharedFacePartition,
 };
 
 const MAX_DEPTH: u8 = 8;

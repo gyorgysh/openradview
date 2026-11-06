@@ -10,10 +10,10 @@ pub use split::{
     CellSeamLimits, CellSeamStop, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
-    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PlanarEdge, PlanarHalfEdge,
-    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
-    ProjectedPlanarGraph, RefinedPlanarGraph, SharedFacePartition, SplitPath,
-    SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PhysicalConformingLimits, PlanarEdge,
+    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
+    PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph, SharedFacePartition,
+    SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
     SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 

@@ -10,8 +10,8 @@ pub use lift::{
     CellSeamLimits, CellSeamStop, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
-    FacePlacement, FacePromotionLimits, FaceSpanCoverage, SharedFacePartition,
-    SurfaceEnclosureLimits, SurfaceFacetCertificate,
+    FacePlacement, FacePromotionLimits, FaceSpanCoverage, PhysicalConformingLimits,
+    SharedFacePartition, SurfaceEnclosureLimits, SurfaceFacetCertificate,
 };
 
 const MAX_TRIANGLES: usize = 262_144;

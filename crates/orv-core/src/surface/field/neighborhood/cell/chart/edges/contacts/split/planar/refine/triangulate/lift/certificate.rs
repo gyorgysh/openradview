@@ -9,7 +9,7 @@ pub use adaptive::{
     CellSeamBatch, CellSeamLimits, CellSeamStop, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
     FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FacePromotionLimits,
-    FaceSpanCoverage, SharedFacePartition,
+    FaceSpanCoverage, PhysicalConformingLimits, SharedFacePartition,
 };
 
 /// An axial error bound applies only over the triangle's projected domain.
