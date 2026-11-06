@@ -249,6 +249,11 @@ impl MprWorker {
     ) {
         let mut work = lock(&self.shared.work);
         let generation = self.shared.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        if let Some(error) = &work.terminal_error {
+            work.result = Some(Err(error.clone()));
+        } else if work.result.as_ref().is_some_and(Result::is_err) {
+            work.result = None;
+        }
         let request = Request {
             point,
             generation,
@@ -311,6 +316,7 @@ fn publish(
         || worker.suspended.load(Ordering::Relaxed)
         || worker.canonical.load(Ordering::Relaxed) != request.canonical
         || (!preview && worker.generation.load(Ordering::Relaxed) != request.generation)
+        || (result.is_err() && worker.generation.load(Ordering::Relaxed) != request.generation)
         || matches!(result, Err(GeometryError::Cancelled))
     {
         return;

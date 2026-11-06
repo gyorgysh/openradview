@@ -35,6 +35,7 @@ struct Request {
 struct Work {
     request: Option<Request>,
     result: Option<Result<Snapshot, String>>,
+    terminal_error: Option<String>,
     gpu_context: Option<(wgpu::Device, wgpu::Queue)>,
     gpu_offered: bool,
 }
@@ -69,8 +70,7 @@ impl Worker {
                 let (volume, plane) = match initial {
                     Ok(initial) => initial,
                     Err(error) => {
-                        lock(&worker.work).result = Some(Err(error.to_string()));
-                        ctx.request_repaint();
+                        unavailable(&worker, error, &ctx);
                         return;
                     }
                 };
@@ -114,10 +114,7 @@ impl Worker {
                         if worker.cancelled.load(Ordering::Acquire) {
                             return;
                         }
-                        if !matches!(result, Err(GeometryError::Cancelled)) {
-                            lock(&worker.work).result = Some(result.map_err(|e| e.to_string()));
-                            ctx.request_repaint();
-                        }
+                        publish_preview(&worker, request.generation, result, &ctx);
                         let mut work = lock(&worker.work);
                         loop {
                             if worker.cancelled.load(Ordering::Acquire) {
@@ -164,8 +161,11 @@ impl Worker {
                 }
             });
         if spawn.is_err() {
-            lock(&shared.work).result = Some(Err("Could not start the oblique worker".into()));
-            repaint.request_repaint();
+            unavailable(
+                &shared,
+                "Could not start the oblique worker".into(),
+                &repaint,
+            );
         }
         Self { shared }
     }
@@ -182,7 +182,7 @@ impl Worker {
     ) {
         let mut work = lock(&self.shared.work);
         let generation = self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        work.result = None;
+        work.result = work.terminal_error.as_ref().map(|error| Err(error.clone()));
         work.request = Some(Request {
             plane,
             generation,
@@ -213,6 +213,33 @@ impl Worker {
         }
         Some(result)
     }
+}
+fn unavailable(worker: &Shared, error: String, ctx: &egui::Context) {
+    let mut work = lock(&worker.work);
+    if worker.cancelled.load(Ordering::Acquire) {
+        return;
+    }
+    work.terminal_error = Some(error.clone());
+    work.result = Some(Err(error));
+    drop(work);
+    ctx.request_repaint();
+}
+fn publish_preview(
+    worker: &Shared,
+    generation: u64,
+    result: Result<Snapshot, GeometryError>,
+    ctx: &egui::Context,
+) {
+    let mut work = lock(&worker.work);
+    if worker.cancelled.load(Ordering::Acquire)
+        || matches!(result, Err(GeometryError::Cancelled))
+        || (result.is_err() && worker.generation.load(Ordering::Acquire) != generation)
+    {
+        return;
+    }
+    work.result = Some(result.map_err(|error| error.to_string()));
+    drop(work);
+    ctx.request_repaint();
 }
 impl Drop for Worker {
     fn drop(&mut self) {

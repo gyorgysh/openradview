@@ -102,6 +102,45 @@ fn missing_geometry_is_explicit_and_never_replaced_by_a_fake_plane() {
 }
 
 #[test]
+fn initialization_error_survives_later_view_requests() {
+    let worker = Worker::start(vec![], egui::Context::default());
+    let first = wait(&worker).err().unwrap();
+    let plane = ObliquePlane::from_angles([0.; 3], [0.; 3]).unwrap();
+    worker.request(plane, 64);
+    assert_eq!(worker.take().unwrap().err().unwrap(), first);
+}
+
+#[test]
+fn superseded_preview_errors_do_not_replace_a_newer_target() {
+    let worker = Worker {
+        shared: Arc::new(Shared::default()),
+    };
+    let ctx = egui::Context::default();
+    let plane = ObliquePlane::from_angles([0.; 3], [0.; 3]).unwrap();
+    worker.request(plane.clone(), 64);
+    let old = worker.generation();
+    worker.request(plane.clone(), 64);
+    publish_preview(&worker.shared, old, Err(GeometryError::Limit), &ctx);
+    assert!(worker.take().is_none());
+
+    publish_preview(
+        &worker.shared,
+        worker.generation(),
+        Err(GeometryError::Limit),
+        &ctx,
+    );
+    assert!(matches!(worker.take(), Some(Err(_))));
+    publish_preview(
+        &worker.shared,
+        worker.generation(),
+        Err(GeometryError::Limit),
+        &ctx,
+    );
+    worker.request(plane, 64);
+    assert!(worker.take().is_none());
+}
+
+#[test]
 fn interactive_slabs_refine_after_quiet_and_drop_busy_private_sources() {
     use orv_core::slab::*;
     let worker = Worker::start(frames(), egui::Context::default());

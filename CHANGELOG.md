@@ -75,6 +75,8 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
+- Oblique setup failures remain visible after another view request. Errors from
+  superseded MPR or oblique interaction no longer replace the newer view.
 - 3D camera drags retain movement delivered in the same frame as button release,
   including short gestures. Pan keeps the originating button and Space state.
 - Volume-camera turns at exact multiples of 90° avoid tiny off-axis errors that

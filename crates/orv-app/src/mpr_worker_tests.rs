@@ -99,6 +99,41 @@ fn unavailable_geometry_returns_an_error_instead_of_a_fabricated_view() {
     assert!(worker.take().is_none());
     worker.set_suspended(false);
     assert!(matches!(wait(&worker),Err(message) if message.contains("at least two")));
+    worker.request([0.; 3], 64);
+    assert!(matches!(worker.take(), Some(Err(message)) if message.contains("at least two")));
+}
+
+#[test]
+fn superseded_preview_errors_do_not_hide_newer_requests() {
+    let worker = MprWorker {
+        shared: Arc::new(Shared::default()),
+        worker: None,
+    };
+    let ctx = egui::Context::default();
+    worker.request_interactive([0.; 3], 512);
+    let old = lock(&worker.shared.work).latest.clone().unwrap();
+    worker.request_interactive([1.; 3], 512);
+    publish(&worker.shared, &old, true, Err(GeometryError::Limit), &ctx);
+    assert!(worker.take().is_none());
+
+    let current = lock(&worker.shared.work).latest.clone().unwrap();
+    publish(
+        &worker.shared,
+        &current,
+        true,
+        Err(GeometryError::Limit),
+        &ctx,
+    );
+    assert!(matches!(worker.take(), Some(Err(_))));
+    publish(
+        &worker.shared,
+        &current,
+        true,
+        Err(GeometryError::Limit),
+        &ctx,
+    );
+    worker.request_interactive([2.; 3], 512);
+    assert!(worker.take().is_none());
 }
 
 #[test]
