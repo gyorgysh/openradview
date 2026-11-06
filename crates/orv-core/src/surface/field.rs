@@ -26,7 +26,8 @@ pub use neighborhood::{
     CellFiber, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
     CellGraphRegion, CellGraphState, CellNeighborhood, CellPathLimits, CellPathOrigin,
     CellPathVertex, CellProjectionChart, ChartEdgeStep, EdgePartition, EdgePoint, NeighborhoodCell,
-    ProjectedCellEdges, ProjectedEdge, ProjectedEdgeKind, RefinedCellGraph, SourceCellGraph,
+    ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
+    ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, RefinedCellGraph, SourceCellGraph,
     SourceFace, WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase,
     ZeroFaceSample,
 };

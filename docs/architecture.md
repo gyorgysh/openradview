@@ -646,9 +646,16 @@ end-face curves. Each end-face curve is linked in source-node order to the chart
 edges that cover it, including intermediate chart splits. Ambiguous branches,
 missing links, capacity failures and cancellation publish no directory. Input and
 retained typed storage remain separately admitted. Straight projected intervals
-still require intersection and arrangement; the result does not assign 3D regions,
-certify the surface interior or join neighboring charts, and has no rendering or
-source-edit authority.
+are retained as independent constraints. `ProjectedCellEdges::contacts` enumerates
+exact contacts among those intervals or collapsed points and with both end-face
+zero sets. A contact retains both source-edge IDs or its source-edge/end-face pair;
+coincident intervals and whole-zero portions retain both endpoints. Separate
+owners are not welded merely because their projections coincide. The two-pass
+worker bounds output to 262,144 contacts and 32 MiB of retained typed storage,
+admits it before allocation, and publishes no partial directory on cancellation
+or unsupported arithmetic. This contact list still needs a planar arrangement,
+coordinated subdivisions, region assignment, certified surface interiors and
+shared seams. It has no rendering or source-edit authority.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

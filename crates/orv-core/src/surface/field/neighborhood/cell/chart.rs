@@ -2,7 +2,10 @@
 //! Source-owned projection arrangements and exact rational zero fibers.
 use super::*;
 mod edges;
-pub use edges::{ChartEdgeStep, ProjectedCellEdges, ProjectedEdge, ProjectedEdgeKind};
+pub use edges::{
+    ChartEdgeStep, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
+    ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
+};
 
 /// Intersection of a source-cell zero set with a closed projection fiber.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

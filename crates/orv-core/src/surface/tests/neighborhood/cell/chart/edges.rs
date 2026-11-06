@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod contacts;
 
 fn equal(a: [ExactCoordinate; 2], b: [ExactCoordinate; 2]) -> bool {
     a.into_iter()

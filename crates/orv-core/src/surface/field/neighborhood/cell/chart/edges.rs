@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Exact projected source-edge directory and end-face chart links.
 use super::*;
+mod contacts;
+pub use contacts::{
+    ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts,
+};
 
 const MAX_LINKS: usize = 262_144;
 const MAX_BYTES: u64 = 16 * 1024 * 1024;

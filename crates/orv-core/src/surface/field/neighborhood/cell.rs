@@ -11,7 +11,8 @@ mod collect;
 mod link;
 mod refine;
 pub use chart::{
-    CellFiber, CellProjectionChart, ChartEdgeStep, ProjectedCellEdges, ProjectedEdge,
+    CellFiber, CellProjectionChart, ChartEdgeStep, ProjectedCellEdges, ProjectedContact,
+    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
     ProjectedEdgeKind,
 };
 pub use refine::{CellPathLimits, CellPathOrigin, CellPathVertex, RefinedCellGraph};
