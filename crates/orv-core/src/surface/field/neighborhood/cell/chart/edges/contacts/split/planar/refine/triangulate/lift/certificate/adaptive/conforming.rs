@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Shared-edge adaptive subdivision within one source-cell chart.
 use super::*;
+mod seam;
+pub use seam::{
+    FacePartitionLimits, FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage,
+    SharedFacePartition,
+};
 
 const MAX_VERTICES: usize = 65_536;
 const MAX_TRIANGLES: usize = 65_536;

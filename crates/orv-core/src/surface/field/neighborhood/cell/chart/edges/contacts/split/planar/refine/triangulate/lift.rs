@@ -5,7 +5,9 @@ mod certificate;
 pub use certificate::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits,
-    ConformingSurfaceMesh, ConformingTriangle, ConformingVertex, SurfaceFacetCertificate,
+    ConformingSurfaceMesh, ConformingTriangle, ConformingVertex, FacePartitionLimits,
+    FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage, SharedFacePartition,
+    SurfaceFacetCertificate,
 };
 
 const MAX_OUTPUT: u64 = 16 * 1024 * 1024;

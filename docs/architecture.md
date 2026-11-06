@@ -735,6 +735,15 @@ edge is allowed only if exact field values at both endpoints and the midpoint
 prove its quadratic chord lies on the face zero contour; otherwise it remains
 unresolved until source-contour-aware refinement. Cross-cell seams, curved-boundary
 topology, physical-space accuracy and native rendering remain separate work.
+`ConformingSurfaceMesh::shared_face_partition` compares two neighboring meshes
+only when their source, mask key, revision, face and projection axis agree. It
+unions exact transverse contour coordinates, verifies unique fibers and compatible
+representatives, and reports existing vertices, requested splits and absent points
+on each side. Open intervals also retain per-side candidate-edge coverage, so
+matching endpoints cannot conceal a gap. Distinct exact coordinates that collapse
+or reorder on the output grid are refused. Output and scratch are bounded and
+admitted separately. This directory does not apply splits, prove full face coverage,
+or establish a cross-cell seam; end-face and cross-projection cases remain open.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

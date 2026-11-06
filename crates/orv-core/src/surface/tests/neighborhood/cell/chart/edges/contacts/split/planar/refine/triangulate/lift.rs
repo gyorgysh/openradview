@@ -846,3 +846,250 @@ fn neighboring_cells_keep_matching_source_face_vertices_on_the_exact_face() {
     }
     assert!(matched > 0);
 }
+
+fn adjacent_conforming(
+    field: &MaskField,
+    lower: [usize; 3],
+    depth: u8,
+    budget: Arc<MemoryBudget>,
+) -> Arc<ConformingSurfaceMesh> {
+    let mesh = adjacent_mesh(field, lower, budget.clone());
+    let enclosed = Arc::new(
+        mesh.enclose_surface_with_budget(SurfaceEnclosureLimits::default(), budget.clone(), || {
+            false
+        })
+        .unwrap(),
+    );
+    let count = enclosed
+        .facets()
+        .iter()
+        .filter(|f| matches!(f, BoundedSurfaceFacet::Candidate { .. }))
+        .count();
+    Arc::new(
+        enclosed
+            .refine_conforming_with_budget(
+                ConformingSurfaceLimits {
+                    tolerance_bits: 12,
+                    max_depth: depth,
+                    max_vertices: enclosed.vertices().len() + 1024,
+                    max_triangles: count + 1024,
+                    max_operations: 2_000_000,
+                    ..ConformingSurfaceLimits::default()
+                },
+                budget,
+                || false,
+            )
+            .unwrap(),
+    )
+}
+
+#[test]
+fn adjacent_face_partition_preserves_exact_identity_and_requests_missing_splits() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let source = source([3, 2, 2], true, false);
+    let field = fractional(source, |[x, y, z]| {
+        if (x == 0 && y == 0 && z == 0)
+            || (x == 1 && y == 1 && z == 1)
+            || (x == 2 && y == 0 && z == 0)
+        {
+            26
+        } else {
+            -6
+        }
+    });
+    let left = adjacent_conforming(&field, [0, 0, 0], 0, budget.clone());
+    let right = adjacent_conforming(&field, [1, 0, 0], 7, budget.clone());
+    let limits = FacePartitionLimits {
+        max_edges_per_cell: 1024,
+        max_points: 2048,
+        ..FacePartitionLimits::default()
+    };
+    let baseline = budget.used();
+    let partition = left
+        .shared_face_partition_with_budget(&right, 0, limits, budget.clone(), || false)
+        .unwrap();
+    assert!(Arc::ptr_eq(&partition.inputs()[0], &left));
+    assert!(Arc::ptr_eq(&partition.inputs()[1], &right));
+    assert_eq!(
+        partition.face(),
+        FaceKey {
+            origin: [1, 0, 0],
+            axis: 0
+        }
+    );
+    assert_eq!(partition.projection_axis(), 2);
+    assert_eq!(budget.used(), baseline + partition.referenced_bytes());
+    assert_eq!(
+        partition.spans().len(),
+        partition.points().len().saturating_sub(1)
+    );
+    assert!(partition.spans().iter().any(|span| {
+        span.coverage
+            .iter()
+            .all(|c| matches!(c, FaceSpanCoverage::Present { .. }))
+    }));
+    let mut matched = 0;
+    let mut requests = 0;
+    for pair in partition.points().windows(2) {
+        assert_eq!(
+            pair[0].coordinate.compare(pair[1].coordinate).unwrap(),
+            std::cmp::Ordering::Less
+        );
+    }
+    for point in partition.points() {
+        let mut positions = [None; 2];
+        for (side, (mesh, placement)) in
+            [(&left, point.placements[0]), (&right, point.placements[1])]
+                .into_iter()
+                .enumerate()
+        {
+            positions[side] = match placement {
+                FacePlacement::Absent => None,
+                FacePlacement::Existing { vertex } => {
+                    Some(mesh.vertices()[vertex as usize].position().unwrap())
+                }
+                FacePlacement::Split {
+                    triangle,
+                    edge,
+                    position,
+                } => {
+                    requests += 1;
+                    let tri = &mesh.triangles()[triangle as usize];
+                    assert!(tri.vertices.contains(&edge[0]) && tri.vertices.contains(&edge[1]));
+                    let a = mesh.vertices()[edge[0] as usize].position().unwrap();
+                    let b = mesh.vertices()[edge[1] as usize].position().unwrap();
+                    assert!(position[1] > a[1].min(b[1]) && position[1] < a[1].max(b[1]));
+                    let cell = field.cell([side, 0, 0]).unwrap().interpolant().unwrap();
+                    let mut sample = [
+                        if side == 0 { 1. } else { 0. },
+                        point.coordinate.approximate().unwrap(),
+                        0.,
+                    ];
+                    let lo = cell.evaluate(sample).unwrap();
+                    sample[2] = 1.;
+                    let hi = cell.evaluate(sample).unwrap();
+                    let root = -lo / (hi - lo);
+                    let actual = f64::from(position[2])
+                        / f64::from(ConformingSurfaceMesh::POSITION_DENOMINATOR);
+                    assert!((root - actual).abs() <= 1. / 131_072. + 1e-10);
+                    Some(position)
+                }
+            };
+        }
+        if let (Some(a), Some(b)) = (positions[0], positions[1]) {
+            assert_eq!(a[0], ConformingSurfaceMesh::POSITION_DENOMINATOR);
+            assert_eq!(b[0], 0);
+            assert_eq!([a[1], a[2]], [b[1], b[2]]);
+            matched += 1;
+        }
+    }
+    assert!(matched > 0);
+    assert!(requests > 0);
+    let reverse = right
+        .shared_face_partition_with_budget(&left, 0, limits, budget.clone(), || false)
+        .unwrap();
+    assert_eq!(reverse.face(), partition.face());
+    assert_eq!(reverse.points().len(), partition.points().len());
+    assert_eq!(reverse.spans().len(), partition.spans().len());
+    for (a, b) in partition.spans().iter().zip(reverse.spans()) {
+        assert_eq!(a.points, b.points);
+        assert_eq!(a.coverage, [b.coverage[1], b.coverage[0]]);
+    }
+    for (a, b) in partition.points().iter().zip(reverse.points()) {
+        assert!(a.coordinate.compare(b.coordinate).unwrap().is_eq());
+        assert_eq!(a.placements, [b.placements[1], b.placements[0]]);
+    }
+}
+
+#[test]
+fn face_partition_refuses_unrelated_sources_limits_and_cancellation() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let source = source([3, 2, 2], true, false);
+    let sample = |[x, y, z]: [usize; 3]| {
+        if (x == 0 && y == 0 && z == 0)
+            || (x == 1 && y == 1 && z == 1)
+            || (x == 2 && y == 0 && z == 0)
+        {
+            26
+        } else {
+            -6
+        }
+    };
+    let field = fractional(source.clone(), sample);
+    let other = fractional(source, sample);
+    let left = adjacent_conforming(&field, [0, 0, 0], 0, budget.clone());
+    let right = adjacent_conforming(&field, [1, 0, 0], 3, budget.clone());
+    let unrelated = adjacent_conforming(&other, [1, 0, 0], 0, budget.clone());
+    let limits = FacePartitionLimits {
+        max_edges_per_cell: 1024,
+        max_points: 2048,
+        ..FacePartitionLimits::default()
+    };
+    let baseline = budget.used();
+    assert!(matches!(
+        left.shared_face_partition_with_budget(&unrelated, 0, limits, budget.clone(), || false),
+        Err(SurfaceError::Geometry)
+    ));
+    assert!(matches!(
+        left.shared_face_partition_with_budget(&left, 0, limits, budget.clone(), || false),
+        Err(SurfaceError::Geometry)
+    ));
+    assert!(matches!(
+        left.shared_face_partition_with_budget(&right, 2, limits, budget.clone(), || false),
+        Err(SurfaceError::Geometry)
+    ));
+    assert!(matches!(
+        left.shared_face_partition_with_budget(
+            &right,
+            0,
+            FacePartitionLimits {
+                max_operations: 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    let calls = Cell::new(0usize);
+    let partition = left
+        .shared_face_partition_with_budget(&right, 0, limits, budget.clone(), || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .unwrap();
+    let total_calls = calls.get();
+    let bytes = partition.referenced_bytes();
+    drop(partition);
+    assert_eq!(budget.used(), baseline);
+    assert!(matches!(
+        left.shared_face_partition_with_budget(
+            &right,
+            0,
+            FacePartitionLimits {
+                max_bytes: bytes - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    let small = MemoryBudget::new(bytes);
+    assert!(matches!(
+        left.shared_face_partition_with_budget(&right, 0, limits, small.clone(), || false),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(small.used(), 0);
+    for stop in [1, total_calls / 2, total_calls] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            left.shared_face_partition_with_budget(&right, 0, limits, budget.clone(), || {
+                calls.set(calls.get() + 1);
+                calls.get() >= stop
+            }),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), baseline);
+    }
+}

@@ -6,9 +6,10 @@ pub use refine::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
     ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
-    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, PlanarRefinementLimits,
-    PlanarTriangle, PlanarTriangulationLimits, RefinedPlanarGraph, SurfaceEnclosureLimits,
-    SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, FacePartitionLimits,
+    FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage, PlanarRefinementLimits,
+    PlanarTriangle, PlanarTriangulationLimits, RefinedPlanarGraph, SharedFacePartition,
+    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_EDGES: usize = 8192;

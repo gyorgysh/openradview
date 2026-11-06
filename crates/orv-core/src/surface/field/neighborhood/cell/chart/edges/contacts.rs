@@ -6,10 +6,12 @@ pub use split::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
     ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
-    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge,
-    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
-    ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath, SplitProjectedConstraints, SplitSegment,
-    SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, FacePartitionLimits,
+    FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage, PlanarEdge,
+    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
+    PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph, SharedFacePartition,
+    SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_CONTACTS: usize = 262_144;

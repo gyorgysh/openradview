@@ -6,11 +6,13 @@ pub use edges::{
     AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
     AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, ChartEdgeStep,
     ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
-    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge,
-    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
-    ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
-    ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph,
-    SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
+    ConformingTriangle, ConformingVertex, EnclosedSurfaceGraph, FacePartitionLimits,
+    FacePartitionPoint, FacePartitionSpan, FacePlacement, FaceSpanCoverage, PlanarEdge,
+    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
+    PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
+    ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
+    ProjectedPlanarGraph, RefinedPlanarGraph, SharedFacePartition, SplitPath,
+    SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
     SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 

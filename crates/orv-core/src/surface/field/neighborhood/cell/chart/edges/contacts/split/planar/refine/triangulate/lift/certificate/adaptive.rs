@@ -4,7 +4,8 @@ use super::*;
 mod conforming;
 pub use conforming::{
     ConformingFacetState, ConformingStopReason, ConformingSurfaceLimits, ConformingSurfaceMesh,
-    ConformingTriangle, ConformingVertex,
+    ConformingTriangle, ConformingVertex, FacePartitionLimits, FacePartitionPoint,
+    FacePartitionSpan, FacePlacement, FaceSpanCoverage, SharedFacePartition,
 };
 
 const MAX_DEPTH: u8 = 8;

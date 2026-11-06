@@ -10,12 +10,13 @@ pub use cell::{
     CellGraphNode, CellGraphRegion, CellGraphState, CellPathLimits, CellPathOrigin, CellPathVertex,
     CellProjectionChart, ChartEdgeStep, ConformingFacetState, ConformingStopReason,
     ConformingSurfaceLimits, ConformingSurfaceMesh, ConformingTriangle, ConformingVertex,
-    EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
-    PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
+    EnclosedSurfaceGraph, FacePartitionLimits, FacePartitionPoint, FacePartitionSpan,
+    FacePlacement, FaceSpanCoverage, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
+    PlanarRegion, PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
     ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
-    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph, SourceCellGraph,
-    SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
-    SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph,
+    SharedFacePartition, SourceCellGraph, SplitPath, SplitProjectedConstraints, SplitSegment,
+    SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 pub use zero_face::{
     WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
