@@ -7,6 +7,11 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 
+- **Include/exclude seeds.** On one scalar source image, choose a rectangle and
+  enter or pick include and exclude points. Review the proposed label overlay,
+  then Apply or Discard; Apply is one undoable edit. Missing samples and other
+  labels are barriers. The bounded calculation can refuse a region that does not
+  converge and does not recognize anatomy.
 - **Surface erase stamps.** In MPR + 3D, choose a physical radius and click a
   visible face of an applied manual label. Review a separate preview before
   Apply or Cancel; each applied change adds one Undo step. Only the original

@@ -12,6 +12,7 @@ mod overlay;
 mod physical;
 pub(crate) use physical::PhysicalContext;
 mod regions;
+mod seeded;
 mod supplied;
 mod surface;
 pub(crate) use canvas::overlay_mesh;
@@ -122,6 +123,18 @@ impl LabelUi {
                     self.message = "Selection inputs changed. Request a new preview.".into();
                 }
             }
+            Ok(Output::SeededPreview(preview)) => {
+                if self
+                    .current
+                    .as_ref()
+                    .is_some_and(|map| self.regions.seeded.accept(&preview, map))
+                {
+                    self.regions.seeded.preview = Some(*preview);
+                    self.message.clear();
+                } else {
+                    self.message = "Seed or region inputs changed. Request a new preview.".into();
+                }
+            }
             Ok(Output::Physical(preview)) => {
                 self.message = if self.physical.completed(*preview, self.current.as_ref()) {
                     String::new()
@@ -206,7 +219,7 @@ impl LabelUi {
             if !matches!(&op, Operation::Physical(..)) {
                 self.invalidate_physical();
             }
-            if !matches!(&op, Operation::Preview(..)) {
+            if !matches!(&op, Operation::Preview(..) | Operation::SeededPreview(..)) {
                 self.regions.invalidate();
             }
             self.stroke.clear();
@@ -235,6 +248,7 @@ impl LabelUi {
         self.paint = false;
         self.stroke.clear();
         self.regions.picking = false;
+        self.regions.seed_picking = None;
         self.regions.invalidate();
     }
     pub fn painting(&self, selected: usize) -> bool {
@@ -292,7 +306,7 @@ impl LabelUi {
                 ui.horizontal(|ui| {if ui.checkbox(&mut self.paint,"Brush enabled").changed() && self.paint {self.visible=true;self.regions.picking=false;self.regions.invalidate();}ui.checkbox(&mut self.erase,"Erase");});
                 ui.label("Close this panel to paint. Escape turns the brush off. Right-drag pans; wheel zooms.");
                 ui.horizontal(|ui| {ui.add(egui::DragValue::new(&mut self.label).range(1..=255).prefix("Label "));ui.add(egui::DragValue::new(&mut self.radius).range(1..=64).prefix("Radius ").suffix(" px"));});
-                } else {ui.weak("Return to 2D image for painting, threshold fill or connected-region previews.");}
+                } else {ui.weak("Return to 2D image for painting, threshold fill or region previews.");}
                 ui.horizontal(|ui| {
                     if ui.add_enabled(!self.undo.is_empty(),egui::Button::new("Undo last edit")).clicked() {self.undo_edit();}
                     if ui.add_enabled(!self.redo.is_empty(),egui::Button::new("Redo edit")).clicked() {self.redo_edit();}
@@ -304,6 +318,7 @@ impl LabelUi {
                     if ui.add_enabled(slice.is_some() && self.current.as_ref().is_some_and(|l|!l.source().is_color()),egui::Button::new("Apply threshold")).clicked() && let Some(current)=self.current.clone(){self.start(Operation::Threshold(current,if self.all_slices{None}else{slice},self.range,self.label),ctx);}
                 });}
                 self.region_controls(ui,slice,ctx);
+                self.seeded_controls(ui,slice,ctx);
                 self.display_controls(ui,ctx);
                 ui.separator();
                 ui.label("Import requires matching dimensions, affine and spatial reference. Matching numbers do not prove the same anatomy; verify the overlay yourself. Import does not register or resample the map.");

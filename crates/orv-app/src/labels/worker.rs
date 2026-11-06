@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use eframe::egui;
 use orv_core::{
-    labels::{Labels, PhysicalBrush, SelectionRequest},
+    labels::{Labels, PhysicalBrush, SeedPoint, SeededRequest, SelectionRequest},
     study::Series,
     volume::Volume,
 };
@@ -19,6 +19,14 @@ pub enum Operation {
     Paint(Arc<Labels>, usize, Vec<[f64; 2]>, u32, u8),
     Threshold(Arc<Labels>, Option<usize>, [f32; 2], u8),
     Preview(Arc<Labels>, SelectionRequest, u64),
+    SeededPreview(
+        Arc<Labels>,
+        SeededRequest,
+        Vec<SeedPoint>,
+        orv_core::resources::Reservation,
+        u64,
+        u64,
+    ),
     Physical(
         Arc<Labels>,
         Box<PhysicalBrush>,
@@ -30,6 +38,7 @@ pub enum Output {
     Start(Arc<Labels>),
     Change(Arc<Labels>),
     Preview(Box<super::regions::Preview>),
+    SeededPreview(Box<super::seeded::Preview>),
     Physical(Box<super::physical::Preview>),
     Saved,
     Cancelled,
@@ -151,6 +160,19 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
                 labels,
                 request,
                 summary,
+                epoch,
+            }))
+        }
+        Operation::SeededPreview(current, request, seeds, _reservation, version, epoch) => {
+            let selection = current.seeded_region(request, &seeds, cancelled)?;
+            let summary = selection.summary();
+            let labels = Arc::new(selection.apply(cancelled)?);
+            Output::SeededPreview(Box::new(super::seeded::Preview {
+                base: current,
+                labels,
+                request,
+                summary,
+                version,
                 epoch,
             }))
         }

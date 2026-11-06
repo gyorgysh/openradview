@@ -38,6 +38,8 @@ pub(super) struct Regions {
     pub picking: bool,
     pub preview: Option<Preview>,
     pub epoch: u64,
+    pub seeded: super::seeded::Seeded,
+    pub seed_picking: Option<orv_core::labels::SeedClass>,
     inputs: Option<(Weak<Labels>, Option<SelectionRequest>)>,
 }
 impl Regions {
@@ -52,6 +54,7 @@ impl Regions {
     pub fn invalidate(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.preview = None;
+        self.seeded.invalidate();
     }
     fn request(&self, label: u8, slice: Option<usize>) -> Option<SelectionRequest> {
         let z = slice?;
@@ -96,8 +99,15 @@ impl Regions {
             self.invalidate();
             self.inputs = Some((key, request));
         }
+        self.seeded.sync(map, label, slice);
     }
     pub fn pick(&mut self, seed: [usize; 3]) {
+        if let Some(class) = self.seed_picking.take() {
+            self.seeded.add(seed, class);
+            self.picking = false;
+            self.invalidate();
+            return;
+        }
         self.seed = Some(seed);
         self.typed_seed = [seed[0] + 1, seed[1] + 1];
         self.picking = false;
@@ -112,6 +122,14 @@ impl Regions {
                 .is_some_and(|(_, request)| *request == Some(preview.request))
     }
     pub fn displayed<'a>(&'a self, map: &'a Arc<Labels>) -> &'a Arc<Labels> {
+        if let Some(preview) = self
+            .seeded
+            .preview
+            .as_ref()
+            .filter(|p| self.seeded.accept(p, map))
+        {
+            return &preview.labels;
+        }
         self.preview
             .as_ref()
             .filter(|p| self.accept(p, map))
@@ -158,6 +176,7 @@ impl LabelUi {
                 if self.regions.choice != Choice::RemoveSmall {
                     if ui.button("Pick seed on source image").clicked() {
                         self.paint = false; self.stroke.clear();
+                        self.regions.seed_picking = None;
                         self.regions.invalidate(); self.regions.picking = true; self.open = false;
                     }
                     ui.small("Click once on the source image; this panel reopens. Escape cancels. Or enter a column and row below (1-based).");
@@ -212,7 +231,15 @@ impl LabelUi {
     }
     pub fn pointer_hint(&self) -> &'static str {
         if self.regions.picking {
-            "Choose a source seed · click once · Escape to stop"
+            match self.regions.seed_picking {
+                Some(orv_core::labels::SeedClass::Include) => {
+                    "Choose an include seed · click once · Escape to stop"
+                }
+                Some(orv_core::labels::SeedClass::Exclude) => {
+                    "Choose an exclude seed · click once · Escape to stop"
+                }
+                None => "Choose a source seed · click once · Escape to stop",
+            }
         } else {
             "Label brush active · Escape to stop"
         }
@@ -230,6 +257,12 @@ impl LabelUi {
                 .preview
                 .as_ref()
                 .is_some_and(|p| self.regions.accept(p, map))
+                || self
+                    .regions
+                    .seeded
+                    .preview
+                    .as_ref()
+                    .is_some_and(|p| self.regions.seeded.accept(p, map))
         })
     }
 }

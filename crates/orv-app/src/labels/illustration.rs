@@ -183,7 +183,7 @@ impl LabelUi {
             return Err("Wait for the current label operation to finish, then reopen export");
         }
         if self.region_preview_visible() {
-            return Err("Apply or discard the connected-region preview before including labels");
+            return Err("Apply or discard the region preview before including labels");
         }
         if self.physical_preview_visible() {
             return Err("Apply or discard the physical edit preview before including labels");

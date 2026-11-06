@@ -291,8 +291,13 @@ cancellation, memory pressure and nonconvergence return no proposal. A completed
 proposal retains the original label/source owner, seed set, parameters and class
 decisions. Apply builds a private revision, preserving barriers, unclassified
 cells and other IDs. Its caller must match the original base to the current
-revision before publishing. This primitive does not yet provide seed controls or
-an anatomical model in the native viewer.
+revision before publishing. The native source-image editor accepts typed or
+individually picked include/exclude points and an explicit rectangle. Its seed
+buffer and worker copy are bounded and admitted separately; changes to source,
+map, slice, selected ID, rectangle, seeds or iteration limit invalidate the
+private preview. Apply accepts only the current base and input epoch, and adds one
+undo checkpoint. Counts and exports retain applied labels; illustration capture
+refuses an unapplied preview. No trained model or anatomical recognition is used.
 
 Agent panel/review/live sessions and unseen inbound requests select canonical CPU
 reconstruction. Backend changes increment the request generation, invalidate the

@@ -33,7 +33,8 @@ impl LabelUi {
             && !self.paint
             && !self.physical.open
             && !self.regions.picking
-            && self.regions.preview.is_none())
+            && self.regions.preview.is_none()
+            && self.regions.seeded.preview.is_none())
         .then(|| self.current.as_ref().map(|map| (map.clone(), self.label)))
         .flatten()
     }

@@ -157,7 +157,7 @@ impl Workspace {
             });
         }
         if self.labels.region_preview_visible() {
-            ui.weak("Connected edit preview only · Open Labels… to Apply or Discard");
+            ui.weak("Region edit preview only · Open Labels… to Apply or Discard");
         }
         // Short windows drop the gesture hint (also in Help) to keep image room.
         let compact = ui.available_height() < 420.;

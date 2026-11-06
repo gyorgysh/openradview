@@ -152,6 +152,22 @@ samples and other IDs are barriers; cleanup preserves labels stored on missing
 samples. These tools use values and connectivity, with no AI model or anatomical
 recognition. Applying is one undoable edit; export explicitly to keep it.
 
+In **Labels… → Include / exclude seeds**, choose a rectangle on the current
+scalar source image. Add at least one include and one exclude point by entering
+1-based coordinates or picking each point on the image. The list shows the first
+12 points; **Remove last seed** and **Clear seeds** let you revise the hints.
+Picking a seed on another image replaces the earlier set. All seeds must be inside
+the rectangle and on valid samples that are not occupied by other label IDs.
+
+**Preview seeded region** uses scalar values and four-neighbor propagation. Inspect
+the overlay, then choose **Apply seeded region** or **Discard seeded preview**.
+The rectangle is limited to 1,048,576 cells and work is bounded; if the calculation
+does not converge, reduce the rectangle or adjust the hints and try again. Other
+IDs and missing samples are barriers. Exclude results can remove cells from the
+selected label inside the rectangle. This tool has no anatomical recognition or
+trained model and can cross weak image boundaries. Counts and exports use the
+applied map; Apply creates one undoable edit.
+
 **Study → Export picture…** saves an image-only PNG and reproducible view settings
 in a new local folder. It omits UI annotations and label maps. Check for text
 burned into pixels before sharing. Original files stay unchanged.
