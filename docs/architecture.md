@@ -589,6 +589,19 @@ source adjacency and supply all insertions from the four cells around entire
 zero lattice edges. This local face construction does not settle cell-interior
 families, finite-grid closure, chunk ownership, triangulation or mesh admission.
 
+`Bilinear::intersections` decomposes two zero sets into axis factors, irreducible
+curves and whole squares. Common factors and curves remain explicit, clipped to
+the closed square. Clipping may leave only a single corner of a common curve. Finite events
+include crossings, tangencies and singular joins on shared components. Primitive
+corner values make geometry independent of field sign, scale and argument order.
+For two different irreducible curves, eliminating one coordinate gives a quadratic
+whose coefficients have magnitude at most 1,040,400. Exact roots, nonzero graph
+denominators and both field signs validate the retained points. At a regular
+intersection the eliminant derivative equals the gradient cross product; repeated
+roots mark tangencies, while a zero gradient marks a singular join. Storage is
+fixed at four finite points and two common components, with cancellation and no
+partial result. This supplies intersection events, not two-field region loops.
+
 `MaskField::edge_partition` reads a global source-lattice edge, its four incident
 cells and four normal half-face stencils. For an entire zero edge, a known cell
 has the inward expansion `F(s,r,t)=B(s)r+C(s)t+D(s)rt`. The four normal and four
@@ -610,6 +623,21 @@ source boundaries add no exterior samples or caps. Results use fixed storage
 and bounded cancellation, with no dense source copy or per-neighborhood heap
 allocation. Whole-grid chunk admission, triangulation, interior-family resolution
 and GPU/native mesh publication still require separate ownership and validation.
+
+`SourceFace::whole_zero_face` analyses a proved zero face while retaining its
+source/map/ID/revision, global key and both incident cell states. Each known cell
+has the exact inward expansion `F(s,u,v)=s*G(u,v)`; its opposite source face gives
+the bilinear field G without resampling. When both sides are known their exact
+intersection events remain attached. Outside and unavailable neighbors stay
+distinct; an absent intersection result means incomplete incident stencils.
+
+Pointwise classification away from nonconstant zero curves keeps both selected
+neighborhoods interior, or points an interface toward the unselected side. Two
+negative inward fields retain a selected zero-thickness sheet rather than filled
+volume. A whole-zero inward field selects its complete incident cell under F>=0.
+Nonconstant zero fields retain a constraint; unknown or outside neighbors remain
+unresolved without a closing cap. This analysis grants no edit authority and
+does not replace the required two-field region arrangement or finite-grid policy.
 
 `Bilinear::subdivision` retains the complete square boundary alongside one
 bilinear zero set. Nonzero boundary points are accepted; contour insertions still

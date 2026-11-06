@@ -10,16 +10,19 @@ use crate::{
     volume::Volume,
 };
 pub use critical::{
-    AlgebraicRoot, AnchorLine, ContourNode, ContourSegment, CriticalGraph, ExactCoordinate,
-    FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode, LimitContours, PatchHalfEdge,
-    PatchRegion, PlaneSubdivision, ProjectionAnalysis, ProjectionPoint, RefinedSubdivision,
-    RefinementLimits, RegionTriangle, SubdivisionEdge, TriangulatedSubdivision,
-    TriangulationLimits, WholeSection,
+    AlgebraicRoot, AnchorLine, BilinearIntersections, CommonZero, ContourNode, ContourSegment,
+    CriticalGraph, ExactCoordinate, FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode,
+    IntersectionContact, IntersectionPoint, LimitContours, PatchHalfEdge, PatchRegion,
+    PlaneSubdivision, ProjectionAnalysis, ProjectionPoint, RefinedSubdivision, RefinementLimits,
+    RegionTriangle, SubdivisionEdge, TriangulatedSubdivision, TriangulationLimits, WholeSection,
 };
 pub use factor::{
     AxisFactor, CellFactorization, CellPhase, CellResidual, FactorPatch, ResidualKind, ZeroBoundary,
 };
-pub use neighborhood::{CellNeighborhood, EdgePartition, EdgePoint, NeighborhoodCell, SourceFace};
+pub use neighborhood::{
+    CellNeighborhood, EdgePartition, EdgePoint, NeighborhoodCell, SourceFace, WholeZeroFace,
+    ZeroFacePhase, ZeroFaceSample,
+};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

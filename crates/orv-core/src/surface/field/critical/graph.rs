@@ -7,7 +7,8 @@ mod compare;
 mod face;
 mod wide;
 pub use face::{
-    ContourNode, ContourSegment, FaceArrangement, PatchHalfEdge, PatchRegion, PlaneSubdivision,
+    BilinearIntersections, CommonZero, ContourNode, ContourSegment, FaceArrangement,
+    IntersectionContact, IntersectionPoint, PatchHalfEdge, PatchRegion, PlaneSubdivision,
     RefinedSubdivision, RefinementLimits, RegionTriangle, SubdivisionEdge, TriangulatedSubdivision,
     TriangulationLimits,
 };

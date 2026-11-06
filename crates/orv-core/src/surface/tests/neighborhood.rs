@@ -2,6 +2,7 @@
 use super::*;
 use crate::surface::field::*;
 use std::{cell::Cell, collections::BTreeMap};
+mod zero_face;
 
 fn transverse(axis: usize) -> [usize; 2] {
     [usize::from(axis == 0), if axis == 2 { 1 } else { 2 }]

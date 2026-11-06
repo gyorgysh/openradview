@@ -2,7 +2,11 @@
 //! Complete bilinear zero contours with exact, bounded insertion unions.
 use super::*;
 use compare::bilinear_sign;
+mod intersections;
 mod subdivision;
+pub use intersections::{
+    BilinearIntersections, CommonZero, IntersectionContact, IntersectionPoint,
+};
 pub use subdivision::{
     PatchHalfEdge, PatchRegion, PlaneSubdivision, RefinedSubdivision, RefinementLimits,
     RegionTriangle, SubdivisionEdge, TriangulatedSubdivision, TriangulationLimits,
@@ -225,6 +229,10 @@ fn coefficients(field: Bilinear) -> [i32; 4] {
     [a, b - a, d - a, a - b + c - d]
 }
 impl Bilinear {
+    /// Exact sign at a bounded point, including unrelated quadratic coordinates.
+    pub fn sign_at(self, point: [ExactCoordinate; 2]) -> Result<i8, FieldError> {
+        bilinear_sign(coefficients(self), point)
+    }
     /// Insert all required points together. The caller owns source identity,
     /// adjacency and the union around entire zero lattice edges. Raw insertion
     /// count is bounded before deduplication; cancellation publishes no partial
