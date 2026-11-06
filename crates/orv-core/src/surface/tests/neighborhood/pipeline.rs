@@ -70,6 +70,326 @@ fn assert_same_grid(actual: &CandidateGrid, expected: &CandidateGrid) {
     }
 }
 
+fn assembly_limits() -> CandidateAssemblyLimits {
+    CandidateAssemblyLimits {
+        max_cells: 256,
+        max_directory_bytes: 1024 * 1024,
+        seams: limits().seams,
+    }
+}
+
+fn assert_assembly_matches_grid(actual: &CandidateAssembly, expected: &CandidateGrid) {
+    assert_eq!(actual.cells(), expected.cells());
+    assert_eq!(actual.coordination(), expected.coordination());
+    assert_eq!(actual.faces(), expected.faces());
+    assert_eq!(actual.meshes().len(), expected.meshes().len());
+    for (a, b) in actual.meshes().iter().zip(expected.meshes()) {
+        assert_eq!(a.vertices(), b.vertices());
+        assert_eq!(a.triangles(), b.triangles());
+        assert_eq!(a.physical_tolerance_mm(), b.physical_tolerance_mm());
+        for vertex in a.vertices() {
+            if let ConformingVertex::FaceSplit { point, .. } = vertex {
+                let (face_a, coordinate_a) = a.face_split_source(*point).unwrap();
+                let (face_b, coordinate_b) = b.face_split_source(*point).unwrap();
+                assert_eq!(face_a, face_b);
+                assert_eq!(
+                    coordinate_a.compare(coordinate_b).unwrap(),
+                    std::cmp::Ordering::Equal
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn separate_boxes_coordinate_cross_box_faces_like_a_single_grid() {
+    let field = grid_field();
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let boxes: Vec<_> = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]
+        .into_iter()
+        .map(|origin| {
+            field
+                .candidate_grid_with_budget(origin, [1; 3], 2, limits(), budget.clone(), || false)
+                .unwrap()
+        })
+        .collect();
+    assert!(
+        boxes
+            .iter()
+            .all(|grid| grid.faces().is_empty() && grid.meshes().len() == 1)
+    );
+    let assembly = CandidateAssembly::build_with_budget(
+        &[&boxes[3], &boxes[1], &boxes[2], &boxes[0]],
+        assembly_limits(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    let single = field
+        .candidate_grid_with_budget([0; 3], [2, 2, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    assert_eq!(assembly.faces().len(), 4);
+    assert_assembly_matches_grid(&assembly, &single);
+    drop((boxes, single));
+    assert!(budget.used() > 0);
+    assert_eq!(assembly.meshes().len(), 4);
+    drop(assembly);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn edited_boxes_recoordinate_with_reused_and_rebuilt_neighbors() {
+    let volume = source([8, 3, 2], true, false);
+    let map = labels(volume, |p| u8::from(p == [3, 0, 0]));
+    let before = MaskField::new(MaskOwner::Manual(map.clone()), 1).unwrap();
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let origins = [[0, 0, 0], [3, 0, 0]];
+    let old: Vec<_> = origins
+        .into_iter()
+        .map(|origin| {
+            before
+                .candidate_grid_with_budget(origin, [3, 2, 1], 2, limits(), budget.clone(), || {
+                    false
+                })
+                .unwrap()
+        })
+        .collect();
+    let mut edited = map.try_clone(|| false).unwrap();
+    edited.paint(1, &[[6., 1.]], 1, 1, || false).unwrap();
+    let after = MaskField::new(MaskOwner::Manual(Arc::new(edited)), 1).unwrap();
+    let updates: Vec<_> = origins
+        .into_iter()
+        .zip(&old)
+        .map(|(origin, prior)| {
+            after
+                .candidate_grid_reusing_with_budget(
+                    origin,
+                    [3, 2, 1],
+                    2,
+                    limits(),
+                    (Some(prior), budget.clone()),
+                    || false,
+                )
+                .unwrap()
+        })
+        .collect();
+    assert!(updates.iter().any(|(_, stats)| stats.reused_cells > 0));
+    assert!(updates.iter().any(|(_, stats)| stats.rebuilt_cells > 0));
+    assert!(matches!(
+        CandidateAssembly::build_with_budget(
+            &[&old[0], &updates[1].0],
+            assembly_limits(),
+            budget.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Geometry)
+    ));
+    let assembly = CandidateAssembly::build_with_budget(
+        &[&updates[1].0, &updates[0].0],
+        assembly_limits(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    let clean = after
+        .candidate_grid_with_budget([0; 3], [6, 2, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    assert!(
+        assembly
+            .faces()
+            .iter()
+            .any(|face| face.face.axis == 0 && face.face.origin[0] == 3)
+    );
+    assert_assembly_matches_grid(&assembly, &clean);
+    for mesh in assembly.meshes() {
+        let field = mesh
+            .input()
+            .input()
+            .input()
+            .input()
+            .input()
+            .edges()
+            .chart()
+            .graph()
+            .field();
+        assert_eq!(field.revision(), after.revision());
+    }
+    drop((old, updates, assembly, clean));
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn assembly_rejects_overlaps_and_incompatible_sources_or_settings() {
+    let field = grid_field();
+    let other = grid_field();
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let first = field
+        .candidate_grid_with_budget([0; 3], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let second = field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let other_source = other
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let other_axis = field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 1, limits(), budget.clone(), || false)
+        .unwrap();
+    let mut different = limits();
+    different.surface.max_error_mm = 0.03;
+    let other_settings = field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, different, budget.clone(), || false)
+        .unwrap();
+    for pair in [
+        [&first, &first],
+        [&first, &other_source],
+        [&first, &other_axis],
+        [&first, &other_settings],
+    ] {
+        assert!(matches!(
+            CandidateAssembly::build_with_budget(&pair, assembly_limits(), budget.clone(), || {
+                false
+            }),
+            Err(SurfaceError::Geometry)
+        ));
+    }
+    let other_budget = MemoryBudget::new(512 * 1024 * 1024);
+    assert!(matches!(
+        CandidateAssembly::build_with_budget(
+            &[&first, &second],
+            assembly_limits(),
+            other_budget.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Geometry)
+    ));
+    assert!(matches!(
+        CandidateAssembly::build_with_budget(&[], assembly_limits(), budget.clone(), || false,),
+        Err(SurfaceError::Limit)
+    ));
+    let mut small = assembly_limits();
+    small.max_cells = 1;
+    assert!(matches!(
+        CandidateAssembly::build_with_budget(&[&first, &second], small, budget.clone(), || false,),
+        Err(SurfaceError::Limit)
+    ));
+    small = assembly_limits();
+    small.max_directory_bytes = 0;
+    assert!(matches!(
+        CandidateAssembly::build_with_budget(&[&first, &second], small, budget.clone(), || false,),
+        Err(SurfaceError::Limit)
+    ));
+    drop((first, second, other_source, other_axis, other_settings));
+    assert_eq!(budget.used(), 0);
+    assert_eq!(other_budget.used(), 0);
+}
+
+#[test]
+fn assembly_is_atomic_under_limits_cancellation_and_memory_pressure() {
+    let field = grid_field();
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let left = field
+        .candidate_grid_with_budget([0; 3], [1, 2, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let right = field
+        .candidate_grid_with_budget([1, 0, 0], [1, 2, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let used = budget.used();
+    let mut constrained = assembly_limits();
+    constrained.seams.max_faces = 0;
+    let incomplete =
+        CandidateAssembly::build_with_budget(&[&left, &right], constrained, budget.clone(), || {
+            false
+        })
+        .unwrap();
+    assert_eq!(
+        incomplete.coordination(),
+        GridCoordination::Unresolved {
+            reason: SurfaceError::Limit
+        }
+    );
+    assert_eq!(incomplete.meshes().len(), 4);
+    assert!(incomplete.faces().is_empty());
+    drop(incomplete);
+    assert_eq!(budget.used(), used);
+    let calls = Cell::new(0usize);
+    let assembly = CandidateAssembly::build_with_budget(
+        &[&left, &right],
+        assembly_limits(),
+        budget.clone(),
+        || {
+            calls.set(calls.get() + 1);
+            false
+        },
+    )
+    .unwrap();
+    let total = calls.get();
+    drop(assembly);
+    assert_eq!(budget.used(), used);
+    for stop in [1, total / 2, total] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            CandidateAssembly::build_with_budget(
+                &[&left, &right],
+                assembly_limits(),
+                budget.clone(),
+                || {
+                    calls.set(calls.get() + 1);
+                    calls.get() >= stop
+                }
+            ),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), used);
+    }
+    budget.set_limit(used);
+    assert!(matches!(
+        CandidateAssembly::build_with_budget(
+            &[&left, &right],
+            assembly_limits(),
+            budget.clone(),
+            || false,
+        ),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(budget.used(), used);
+    assert_eq!(left.meshes().len(), 2);
+    assert_eq!(right.meshes().len(), 2);
+    drop((left, right));
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn assembly_keeps_noncandidate_cells_and_their_uncertainty() {
+    let volume = source([4, 2, 2], false, true);
+    let field = fractional(volume, |_| -6);
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let left = field
+        .candidate_grid_with_budget([0; 3], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let right = field
+        .candidate_grid_with_budget([1, 0, 0], [2, 1, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let assembly = CandidateAssembly::build_with_budget(
+        &[&right, &left],
+        assembly_limits(),
+        budget.clone(),
+        || false,
+    )
+    .unwrap();
+    let clean = field
+        .candidate_grid_with_budget([0; 3], [3, 1, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    assert_eq!(assembly.coordination(), GridCoordination::NoCandidates);
+    assert!(assembly.cells().iter().any(|cell| matches!(
+        cell.state,
+        CandidateCellState::Graph(CellGraphState::Unavailable { .. })
+    )));
+    assert_assembly_matches_grid(&assembly, &clean);
+    drop((left, right, assembly, clean));
+    assert_eq!(budget.used(), 0);
+}
+
 fn same_neighbor_samples(old: &MaskField, new: &MaskField, lower: [usize; 3]) -> bool {
     let dimensions = old.source().dimensions();
     (-1isize..=2).all(|z| {

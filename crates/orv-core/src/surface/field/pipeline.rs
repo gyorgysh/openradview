@@ -5,6 +5,8 @@ use crate::{
     resources::{MemoryBudget, Reservation},
     surface::SurfaceError,
 };
+mod assembly;
+pub use assembly::{CandidateAssembly, CandidateAssemblyLimits};
 
 const MAX_CELLS: usize = 256;
 const MAX_DIRECTORY: u64 = 1024 * 1024;
@@ -37,7 +39,7 @@ pub enum PipelineStage {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CandidateCellState {
-    /// Index into `CandidateGrid::meshes`; this is not complete surface coverage.
+    /// Index into the containing grid or assembly's meshes; not complete coverage.
     Candidate { mesh: u16 },
     /// No-interior, unavailable and family cases retain their exact disposition.
     Graph(CellGraphState),

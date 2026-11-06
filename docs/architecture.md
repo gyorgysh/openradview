@@ -806,7 +806,13 @@ neighborhood collection. An independent candidate mesh can be reused across
 revisions only when every sample in its clipped one-cell face/edge neighborhood
 matches; its retained source chain is rebound to the current revision before
 all faces in the requested box are coordinated again. Unresolved stages rebuild.
-Cross-box surface continuity remains separate work.
+`CandidateAssembly` collects disjoint boxes with matching source revision and
+construction settings, orders their cells deterministically and re-coordinates
+their independent candidates together. Its shared-face reports include faces
+between boxes; overlap, stale revisions and mismatched inputs are refused. The
+assembly is limited to 256 supplied cells and retains explicit uncovered or
+unresolved states. It does not establish a complete surface or continuity with
+unlisted cells.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

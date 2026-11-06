@@ -45,8 +45,8 @@ pub use neighborhood::{
     ZeroFacePhase, ZeroFaceSample,
 };
 pub use pipeline::{
-    CandidateCell, CandidateCellState, CandidateGrid, CandidateGridLimits, CandidateGridUpdate,
-    GridCoordination, PipelineStage,
+    CandidateAssembly, CandidateAssemblyLimits, CandidateCell, CandidateCellState, CandidateGrid,
+    CandidateGridLimits, CandidateGridUpdate, GridCoordination, PipelineStage,
 };
 use std::sync::Arc;
 
