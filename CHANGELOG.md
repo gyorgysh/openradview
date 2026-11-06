@@ -55,6 +55,9 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Changed
 
+- Oblique movement retains the requested image detail and slab samples. Scalar
+  previews use GPU resampling where supported, with a CPU fallback; the settled
+  frame uses the CPU for exact-view sharing.
 - Linked MPR uses GPU resampling where supported and keeps its requested image
   detail and slab samples during movement. Unchanged planes reuse their completed
   images. Unsupported sources/devices use the same sampling on the CPU.

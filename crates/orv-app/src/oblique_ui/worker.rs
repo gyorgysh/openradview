@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! One coalescing worker retains only the latest target and completed plane.
-use eframe::egui;
+use eframe::{egui, wgpu};
 use orv_core::{oblique::ObliquePlane, spatial::GeometryError, study::Frame, volume::Volume};
+use orv_render::{
+    reslice::{GpuReformatImage, GpuReslicer},
+    volume_source::GpuVolumeSource,
+};
 use std::sync::{
     Arc, Condvar, Mutex, MutexGuard,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -15,6 +19,7 @@ pub(super) struct Snapshot {
     pub volume: Arc<Volume>,
     pub plane: ObliquePlane,
     pub image: Arc<Frame>,
+    pub gpu_image: Option<Arc<GpuReformatImage>>,
     pub generation: u64,
     pub reformat_side: u32,
     pub preview: bool,
@@ -30,6 +35,8 @@ struct Request {
 struct Work {
     request: Option<Request>,
     result: Option<Result<Snapshot, String>>,
+    gpu_context: Option<(wgpu::Device, wgpu::Queue)>,
+    gpu_offered: bool,
 }
 #[derive(Default)]
 struct Shared {
@@ -74,14 +81,36 @@ impl Worker {
                     slab: None,
                     interactive: false,
                 };
+                let mut gpu_context = None;
+                let mut gpu = None;
+                let mut gpu_refused = false;
                 'requests: loop {
                     if worker.cancelled.load(Ordering::Acquire) {
                         return;
                     }
+                    if let Some(context) = lock(&worker.work).gpu_context.take() {
+                        gpu_context = Some(context);
+                    }
                     if request.interactive && request.side > 128 {
-                        let result = render(&volume, &request, 128, true, || {
-                            worker.cancelled.load(Ordering::Acquire)
-                        });
+                        let cancel = || worker.cancelled.load(Ordering::Acquire);
+                        if gpu.is_none()
+                            && !gpu_refused
+                            && !volume.is_color()
+                            && let Some((device, queue)) = &gpu_context
+                        {
+                            match orv_render::volume::check_limits(&device.limits())
+                                .and_then(|()| {
+                                    GpuVolumeSource::new(device, queue, volume.clone(), cancel)
+                                })
+                                .and_then(GpuReslicer::new)
+                            {
+                                Ok(renderer) => gpu = Some(renderer),
+                                Err("Cancelled") => return,
+                                Err(_) => gpu_refused = true,
+                            }
+                        }
+                        let result =
+                            render(&volume, &request, true, &mut gpu, &mut gpu_refused, cancel);
                         if worker.cancelled.load(Ordering::Acquire) {
                             return;
                         }
@@ -112,7 +141,8 @@ impl Worker {
                         worker.cancelled.load(Ordering::Acquire)
                             || worker.generation.load(Ordering::Acquire) != request.generation
                     };
-                    let image = render(&volume, &request, request.side, false, cancel);
+                    let image =
+                        render(&volume, &request, false, &mut gpu, &mut gpu_refused, cancel);
                     let mut work = lock(&worker.work);
                     if !cancel() {
                         work.result = match image {
@@ -166,6 +196,13 @@ impl Worker {
     pub fn generation(&self) -> u64 {
         self.shared.generation.load(Ordering::Acquire)
     }
+    pub fn offer_gpu(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let mut work = lock(&self.shared.work);
+        if !work.gpu_offered {
+            work.gpu_offered = true;
+            work.gpu_context = Some((device.clone(), queue.clone()));
+        }
+    }
     pub fn take(&self) -> Option<Result<Snapshot, String>> {
         let result = lock(&self.shared.work).result.take()?;
         if result
@@ -189,26 +226,37 @@ impl Drop for Worker {
 fn render(
     volume: &Arc<Volume>,
     request: &Request,
-    side: u32,
     preview: bool,
+    gpu: &mut Option<GpuReslicer>,
+    gpu_refused: &mut bool,
     cancel: impl Fn() -> bool,
 ) -> Result<Snapshot, GeometryError> {
-    let image = if let Some(slab) = request.slab {
-        volume.reformat_slab(
-            &request.plane,
-            if preview { slab.preview() } else { slab },
-            side,
-            cancel,
-        )?
+    let grid = volume.oblique_grid(&request.plane, request.side, request.slab)?;
+    let gpu_image = if preview && let Some(renderer) = gpu.as_mut() {
+        match renderer.render_frames([Some(&grid), None, None], &cancel) {
+            Ok([image, _, _]) => image,
+            Err("Cancelled") => return Err(GeometryError::Cancelled),
+            Err(_) => {
+                *gpu_refused = true;
+                *gpu = None;
+                None
+            }
+        }
     } else {
-        volume.reformat_oblique(&request.plane, side, cancel)?
+        None
+    };
+    let image = if let Some(image) = &gpu_image {
+        image.frame().clone()
+    } else {
+        volume.resample_grid(&grid, &cancel)?
     };
     Ok(Snapshot {
         volume: volume.clone(),
         plane: request.plane.clone(),
         image,
+        gpu_image,
         generation: request.generation,
-        reformat_side: side,
+        reformat_side: request.side,
         preview,
     })
 }

@@ -1580,7 +1580,9 @@ Scalar slabs sample bounded discrete extrema or a mean along an explicit physica
 plane normal, excluding missing samples before display mapping. The mean sums at
 most 257 finite samples in f64 and divides by the valid count. Slab hashes keep
 their original projection bytes and give the mean a new one. CPU workers publish a
-small coherent preview for oblique interaction, then refine once input is quiet.
+requested-detail preview for oblique interaction, then produce a canonical CPU
+frame once input is quiet. Scalar previews may use the GPU with a CPU fallback;
+the completed preview retains the requested slab sampling.
 Linked MPR retains full sampling during movement. Projection parameters
 and the sampling grid travel through scenes/snapshots; public image metadata does
 not label them as measurement geometry. Measurements refuse projected frames.

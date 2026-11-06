@@ -113,6 +113,9 @@ impl ObliqueSession {
         selected: usize,
     ) {
         let width = ui.available_width();
+        if let Some(render) = frame.wgpu_render_state() {
+            self.worker.offer_gpu(&render.device, &render.queue);
+        }
         self.poll();
         if let Some(error) = &self.error {
             ui.heading("This oblique plane could not be prepared");
@@ -240,7 +243,10 @@ impl ObliqueSession {
             ui,
             frame,
             response.rect,
-            snapshot.image.clone(),
+            snapshot.gpu_image.clone().map_or_else(
+                || viewport::SliceImage::from(snapshot.image.clone()),
+                viewport::SliceImage::from,
+            ),
             &self.view,
             4,
             if snapshot.image.slab.is_some() {
