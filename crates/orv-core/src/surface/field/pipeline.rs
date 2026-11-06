@@ -61,13 +61,16 @@ pub enum GridCoordination {
         reason: SurfaceError,
     },
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CandidateGridUpdate {
+    /// Independent source-cell results reused before shared-face coordination.
+    pub reused_cells: usize,
+    pub rebuilt_cells: usize,
+}
 enum Meshes {
     Empty,
     Coordinated(CellSeamBatch),
-    Uncoordinated {
-        meshes: Vec<Arc<ConformingSurfaceMesh>>,
-        reason: SurfaceError,
-    },
+    Uncoordinated { reason: SurfaceError },
 }
 /// The listed source cells only. Missing strata, outer neighbors, end faces and
 /// unproved candidates are not silently converted into a complete surface.
@@ -76,8 +79,13 @@ pub struct CandidateGrid {
     origin: [usize; 3],
     size: [usize; 3],
     axis: u8,
+    limits: CandidateGridLimits,
     cells: Vec<CandidateCell>,
+    // Keep the independent inputs: a coordinated mesh depends on the other
+    // cells in its old box and cannot safely seed a different box.
+    base_meshes: Vec<Arc<ConformingSurfaceMesh>>,
     meshes: Meshes,
+    budget: Arc<MemoryBudget>,
     bytes: u64,
     _reservation: Reservation,
 }
@@ -101,7 +109,7 @@ impl CandidateGrid {
         match &self.meshes {
             Meshes::Empty => &[],
             Meshes::Coordinated(batch) => batch.cells(),
-            Meshes::Uncoordinated { meshes, .. } => meshes,
+            Meshes::Uncoordinated { .. } => &self.base_meshes,
         }
     }
     pub fn faces(&self) -> &[CellFaceReport] {
@@ -123,6 +131,19 @@ impl CandidateGrid {
     /// their own independent reservations.
     pub fn referenced_bytes(&self) -> u64 {
         self.bytes
+    }
+    fn cell_at(&self, origin: [usize; 3]) -> Option<CandidateCell> {
+        let offset = [
+            origin[0].checked_sub(self.origin[0])?,
+            origin[1].checked_sub(self.origin[1])?,
+            origin[2].checked_sub(self.origin[2])?,
+        ];
+        if (0..3).any(|i| offset[i] >= self.size[i]) {
+            return None;
+        }
+        self.cells
+            .get(offset[0] + self.size[0] * (offset[1] + self.size[1] * offset[2]))
+            .copied()
     }
 }
 enum Built {
@@ -210,6 +231,40 @@ impl MaskField {
         budget: Arc<MemoryBudget>,
         cancel: impl Fn() -> bool,
     ) -> Result<CandidateGrid, SurfaceError> {
+        self.candidate_grid_reusing_with_budget(origin, size, axis, limits, (None, budget), cancel)
+            .map(|(grid, _)| grid)
+    }
+    /// Reuse overlapping independent cells only for the identical immutable
+    /// source revision and build settings. Face coordination is always rerun.
+    /// A changed revision currently rebuilds every cell, including neighbors.
+    pub fn candidate_grid_reusing(
+        &self,
+        origin: [usize; 3],
+        size: [usize; 3],
+        axis: usize,
+        limits: CandidateGridLimits,
+        previous: Option<&CandidateGrid>,
+        cancel: impl Fn() -> bool,
+    ) -> Result<(CandidateGrid, CandidateGridUpdate), SurfaceError> {
+        self.candidate_grid_reusing_with_budget(
+            origin,
+            size,
+            axis,
+            limits,
+            (previous, MemoryBudget::volumes()),
+            cancel,
+        )
+    }
+    pub(in crate::surface) fn candidate_grid_reusing_with_budget(
+        &self,
+        origin: [usize; 3],
+        size: [usize; 3],
+        axis: usize,
+        limits: CandidateGridLimits,
+        context: (Option<&CandidateGrid>, Arc<MemoryBudget>),
+        cancel: impl Fn() -> bool,
+    ) -> Result<(CandidateGrid, CandidateGridUpdate), SurfaceError> {
+        let (previous, budget) = context;
         if cancel() {
             return Err(SurfaceError::Cancelled);
         }
@@ -251,6 +306,15 @@ impl MaskField {
             return Err(SurfaceError::Limit);
         }
         let reservation = budget.reserve(bytes).ok_or(SurfaceError::Memory)?;
+        let previous = previous.filter(|old| {
+            old.axis as usize == axis
+                && old.limits == limits
+                && old.field.key() == self.key()
+                && old.field.revision() == self.revision()
+                && Arc::ptr_eq(old.field.source(), self.source())
+                && Arc::ptr_eq(&old.budget, &budget)
+        });
+        let mut update = CandidateGridUpdate::default();
         let mut cells = Vec::new();
         let mut meshes = Vec::new();
         cells
@@ -272,46 +336,75 @@ impl MaskField {
                 index / size[0] / size[1],
             ];
             let position = std::array::from_fn(|i| origin[i] + offset[i]);
-            let state = match one(self, position, axis, limits, &budget, &cancel) {
-                Ok(Built::Candidate(mesh)) => {
-                    let id = u16::try_from(meshes.len()).map_err(|_| SurfaceError::Limit)?;
-                    meshes.push(mesh);
-                    CandidateCellState::Candidate { mesh: id }
+            let cached = previous.and_then(|grid| grid.cell_at(position).map(|cell| (grid, cell)));
+            let state = if let Some((old, cell)) = cached {
+                update.reused_cells += 1;
+                match cell.state {
+                    CandidateCellState::Candidate { mesh } => {
+                        let id = u16::try_from(meshes.len()).map_err(|_| SurfaceError::Limit)?;
+                        meshes.push(Arc::clone(
+                            old.base_meshes
+                                .get(usize::from(mesh))
+                                .ok_or(SurfaceError::Geometry)?,
+                        ));
+                        CandidateCellState::Candidate { mesh: id }
+                    }
+                    state => state,
                 }
-                Ok(Built::Graph(state)) => CandidateCellState::Graph(state),
-                Err((_, SurfaceError::Cancelled)) => return Err(SurfaceError::Cancelled),
-                Err((_, SurfaceError::Memory)) => return Err(SurfaceError::Memory),
-                Err((_, SurfaceError::Selection)) => return Err(SurfaceError::Selection),
-                Err((stage, reason)) => CandidateCellState::Unresolved { stage, reason },
+            } else {
+                update.rebuilt_cells += 1;
+                match one(self, position, axis, limits, &budget, &cancel) {
+                    Ok(Built::Candidate(mesh)) => {
+                        let id = u16::try_from(meshes.len()).map_err(|_| SurfaceError::Limit)?;
+                        meshes.push(mesh);
+                        CandidateCellState::Candidate { mesh: id }
+                    }
+                    Ok(Built::Graph(state)) => CandidateCellState::Graph(state),
+                    Err((_, SurfaceError::Cancelled)) => return Err(SurfaceError::Cancelled),
+                    Err((_, SurfaceError::Memory)) => return Err(SurfaceError::Memory),
+                    Err((_, SurfaceError::Selection)) => return Err(SurfaceError::Selection),
+                    Err((stage, reason)) => CandidateCellState::Unresolved { stage, reason },
+                }
             };
             cells.push(CandidateCell {
                 origin: position,
                 state,
             });
         }
-        let meshes = if meshes.is_empty() {
+        let coordinated = if meshes.is_empty() {
             Meshes::Empty
         } else {
-            match CellSeamBatch::coordinate_with_budget(&meshes, limits.seams, budget, &cancel) {
+            match CellSeamBatch::coordinate_with_budget(
+                &meshes,
+                limits.seams,
+                budget.clone(),
+                &cancel,
+            ) {
                 Ok(batch) => Meshes::Coordinated(batch),
                 Err(SurfaceError::Cancelled) => return Err(SurfaceError::Cancelled),
                 Err(SurfaceError::Memory) => return Err(SurfaceError::Memory),
                 Err(SurfaceError::Selection) => return Err(SurfaceError::Selection),
-                Err(reason) => Meshes::Uncoordinated { meshes, reason },
+                Err(reason) => Meshes::Uncoordinated { reason },
             }
         };
         if cancel() {
             return Err(SurfaceError::Cancelled);
         }
-        Ok(CandidateGrid {
-            field: self.clone(),
-            origin,
-            size,
-            axis: axis as u8,
-            cells,
-            meshes,
-            bytes,
-            _reservation: reservation,
-        })
+        Ok((
+            CandidateGrid {
+                field: self.clone(),
+                origin,
+                size,
+                axis: axis as u8,
+                limits,
+                cells,
+                base_meshes: meshes,
+                meshes: coordinated,
+                budget,
+                bytes,
+                _reservation: reservation,
+            },
+            update,
+        ))
     }
 }

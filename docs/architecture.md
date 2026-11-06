@@ -796,6 +796,12 @@ candidates. Cancellation or memory refusal publishes no partial grid. The source
 and every shared intermediate retain their own memory admission, including the
 aligned shared-reference header, so a cloned mesh can outlive the grid. A box
 with no produced candidates does not imply an empty or complete surface.
+`candidate_grid_reusing` retains each independent cell result before face
+coordination and reuses overlapping cells only when source, mask identity and
+revision, projection, all limits and memory budget match. It coordinates the
+new box from those independent inputs, so old neighbor-specific splits cannot
+leak into the new result. Changed revisions rebuild the entire requested box;
+incremental edit halos and cross-box surface continuity are not yet provided.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

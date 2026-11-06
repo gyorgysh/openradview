@@ -45,6 +45,201 @@ fn grid_field() -> MaskField {
     })
 }
 
+fn assert_same_grid(actual: &CandidateGrid, expected: &CandidateGrid) {
+    assert_eq!(actual.origin(), expected.origin());
+    assert_eq!(actual.size(), expected.size());
+    assert_eq!(actual.cells(), expected.cells());
+    assert_eq!(actual.coordination(), expected.coordination());
+    assert_eq!(actual.faces(), expected.faces());
+    assert_eq!(actual.meshes().len(), expected.meshes().len());
+    for (a, b) in actual.meshes().iter().zip(expected.meshes()) {
+        assert_eq!(a.vertices(), b.vertices());
+        assert_eq!(a.triangles(), b.triangles());
+        assert_eq!(a.physical_tolerance_mm(), b.physical_tolerance_mm());
+        for (id, vertex) in a.vertices().iter().enumerate() {
+            if let ConformingVertex::FaceSplit { point, .. } = vertex {
+                let (face_a, position_a) = a.face_split_source(*point).unwrap();
+                let (face_b, position_b) = b.face_split_source(*point).unwrap();
+                assert_eq!(face_a, face_b, "vertex {id}");
+                assert_eq!(
+                    position_a.compare(position_b).unwrap(),
+                    std::cmp::Ordering::Equal
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn overlapping_grid_reuses_independent_cells_and_recoordinates_like_a_clean_build() {
+    let field = fractional(source([4, 3, 2], true, false), |[x, y, z]| {
+        if (x % 2 == 0 && y % 2 == 0 && z == 0) || (x % 2 == 1 && y == 1 && z == 1) {
+            26
+        } else {
+            -6
+        }
+    });
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let old = field
+        .candidate_grid_with_budget([0; 3], [2, 2, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    assert_eq!(old.meshes().len(), 4);
+    assert_eq!(old.faces().len(), 4);
+    let (shifted, update) = field
+        .candidate_grid_reusing_with_budget(
+            [1, 0, 0],
+            [2, 2, 1],
+            2,
+            limits(),
+            (Some(&old), budget.clone()),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(
+        update,
+        CandidateGridUpdate {
+            reused_cells: 2,
+            rebuilt_cells: 2
+        }
+    );
+    let clean = field
+        .candidate_grid_with_budget([1, 0, 0], [2, 2, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    assert_same_grid(&shifted, &clean);
+    let (again, update) = field
+        .candidate_grid_reusing_with_budget(
+            [1, 0, 0],
+            [2, 2, 1],
+            2,
+            limits(),
+            (Some(&shifted), budget.clone()),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(
+        update,
+        CandidateGridUpdate {
+            reused_cells: 4,
+            rebuilt_cells: 0
+        }
+    );
+    assert_same_grid(&again, &clean);
+    // A single-cell box needs no face promotion, so its published mesh is the
+    // independent retained candidate and can be checked for actual sharing.
+    let single = field
+        .candidate_grid_with_budget([1, 0, 0], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let (same, update) = field
+        .candidate_grid_reusing_with_budget(
+            [1, 0, 0],
+            [1; 3],
+            2,
+            limits(),
+            (Some(&single), budget.clone()),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(update.reused_cells, 1);
+    assert!(Arc::ptr_eq(&single.meshes()[0], &same.meshes()[0]));
+    drop((old, shifted, clean, again, single, same));
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn reuse_rejects_different_revision_selection_source_settings_and_budget() {
+    let volume = source([3, 3, 2], true, false);
+    let map = labels(volume, |[x, y, z]| if (x + y + z) % 2 == 0 { 1 } else { 2 });
+    let field = MaskField::new(MaskOwner::Manual(map.clone()), 1).unwrap();
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let old = field
+        .candidate_grid_with_budget([0; 3], [2, 2, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let mut edited = map.try_clone(|| false).unwrap();
+    edited.paint(1, &[[1., 1.]], 1, 2, || false).unwrap();
+    let changed = MaskField::new(MaskOwner::Manual(Arc::new(edited)), 1).unwrap();
+    let other_id = MaskField::new(MaskOwner::Manual(map), 2).unwrap();
+    let other_source = fractional(source([3, 3, 2], true, false), |_| -6);
+    let other_budget = MemoryBudget::new(512 * 1024 * 1024);
+    let mut other_limits = limits();
+    other_limits.surface.max_error_mm = 0.03;
+    for (new_field, axis, options, allocation) in [
+        (&changed, 2, limits(), budget.clone()),
+        (&other_id, 2, limits(), budget.clone()),
+        (&other_source, 2, limits(), budget.clone()),
+        (&field, 1, limits(), budget.clone()),
+        (&field, 2, other_limits, budget.clone()),
+        (&field, 2, limits(), other_budget.clone()),
+    ] {
+        let (actual, update) = new_field
+            .candidate_grid_reusing_with_budget(
+                [0; 3],
+                [2, 2, 1],
+                axis,
+                options,
+                (Some(&old), allocation.clone()),
+                || false,
+            )
+            .unwrap();
+        assert_eq!(
+            update,
+            CandidateGridUpdate {
+                reused_cells: 0,
+                rebuilt_cells: 4
+            }
+        );
+        let clean = new_field
+            .candidate_grid_with_budget([0; 3], [2, 2, 1], axis, options, allocation, || false)
+            .unwrap();
+        assert_same_grid(&actual, &clean);
+    }
+    drop(old);
+    assert_eq!(budget.used(), 0);
+    assert_eq!(other_budget.used(), 0);
+}
+
+#[test]
+fn reused_grid_cancellation_keeps_the_old_generation_and_releases_new_admission() {
+    let field = grid_field();
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let old = field
+        .candidate_grid_with_budget([0; 3], [2, 2, 1], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    let used = budget.used();
+    let calls = Cell::new(0);
+    assert!(matches!(
+        field.candidate_grid_reusing_with_budget(
+            [0; 3],
+            [2, 2, 1],
+            2,
+            limits(),
+            (Some(&old), budget.clone()),
+            || {
+                calls.set(calls.get() + 1);
+                calls.get() == 8
+            }
+        ),
+        Err(SurfaceError::Cancelled)
+    ));
+    assert_eq!(budget.used(), used);
+    assert_eq!(old.cells().len(), 4);
+    budget.set_limit(used);
+    assert!(matches!(
+        field.candidate_grid_reusing_with_budget(
+            [0; 3],
+            [2, 2, 1],
+            2,
+            limits(),
+            (Some(&old), budget.clone()),
+            || false
+        ),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(budget.used(), used);
+    assert_eq!(old.cells().len(), 4);
+    drop(old);
+    assert_eq!(budget.used(), 0);
+}
+
 #[test]
 fn candidate_grid_builds_source_bound_cells_and_reports_each_shared_face() {
     let field = grid_field();
