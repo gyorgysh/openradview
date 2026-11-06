@@ -706,6 +706,15 @@ triangle keeps a same-index disposition based on its source region and vertex
 fibers; a candidate is not an interior certificate. Output is separately admitted,
 bounded and cancellable. Curved boundary error, whole-fiber interpretation,
 neighboring seams and rendering remain separate obligations.
+`EnclosedSurfaceGraph::facet_certificate` chooses a deterministic dyadic midpoint
+for each unique vertex. Exact quadratic Bernstein coefficients of the two source
+end faces prove endpoint signs and a strictly signed axial derivative across the
+projected triangle. Exact cubic Bernstein coefficients bound the source-field
+residual on its 3D planar representative; their ratio gives a conservative axial
+error to the unique zero on each projected fiber. Noncandidate, nonpositive
+projection, and failed proof cases remain explicit. The certificate is local to
+that projected triangle: curved boundary topology, shared seams, adaptive
+refinement and physical-space conversion remain separate obligations.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

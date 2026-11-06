@@ -8,7 +8,7 @@ pub use contacts::{
     PlanarTriangulationLimits, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
     ProjectedContacts, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
     SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
-    TriangulatedPlanarGraph,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_LINKS: usize = 262_144;

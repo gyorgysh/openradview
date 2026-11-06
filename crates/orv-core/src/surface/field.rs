@@ -32,8 +32,8 @@ pub use neighborhood::{
     ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
     ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph, SourceCellGraph,
     SourceFace, SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep,
-    SurfaceEnclosureLimits, TriangulatedPlanarGraph, WholeZeroFace, WholeZeroSubdivision,
-    ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
+    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph, WholeZeroFace,
+    WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
 };
 use std::sync::Arc;
 

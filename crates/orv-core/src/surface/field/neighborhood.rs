@@ -12,7 +12,7 @@ pub use cell::{
     ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
     ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph,
     RefinedPlanarGraph, SourceCellGraph, SplitPath, SplitProjectedConstraints, SplitSegment,
-    SplitStep, SurfaceEnclosureLimits, TriangulatedPlanarGraph,
+    SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 pub use zero_face::{
     WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,

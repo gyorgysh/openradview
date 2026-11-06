@@ -17,7 +17,7 @@ pub use chart::{
     ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
     ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph,
     SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
-    TriangulatedPlanarGraph,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 pub use refine::{CellPathLimits, CellPathOrigin, CellPathVertex, RefinedCellGraph};
 

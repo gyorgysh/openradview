@@ -4,7 +4,8 @@ use super::*;
 mod triangulate;
 pub use triangulate::{
     BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph,
-    PlanarTriangle, PlanarTriangulationLimits, SurfaceEnclosureLimits, TriangulatedPlanarGraph,
+    PlanarTriangle, PlanarTriangulationLimits, SurfaceEnclosureLimits, SurfaceFacetCertificate,
+    TriangulatedPlanarGraph,
 };
 
 const MAX_BYTES: u64 = 16 * 1024 * 1024;

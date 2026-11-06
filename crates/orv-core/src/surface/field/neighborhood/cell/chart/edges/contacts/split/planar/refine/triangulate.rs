@@ -4,7 +4,7 @@ use super::*;
 mod lift;
 pub use lift::{
     BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph,
-    SurfaceEnclosureLimits,
+    SurfaceEnclosureLimits, SurfaceFacetCertificate,
 };
 
 const MAX_TRIANGLES: usize = 262_144;

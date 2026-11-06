@@ -8,7 +8,7 @@ pub use edges::{
     PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry,
     ProjectedContactOwner, ProjectedContacts, ProjectedEdge, ProjectedEdgeKind,
     ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath, SplitProjectedConstraints, SplitSegment,
-    SplitStep, SurfaceEnclosureLimits, TriangulatedPlanarGraph,
+    SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 /// Intersection of a source-cell zero set with a closed projection fiber.

@@ -7,7 +7,7 @@ pub use split::{
     PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
     PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
     SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
-    TriangulatedPlanarGraph,
+    SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_CONTACTS: usize = 262_144;

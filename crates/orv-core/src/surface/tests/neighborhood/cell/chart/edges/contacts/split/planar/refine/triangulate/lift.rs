@@ -162,3 +162,67 @@ fn enclosure_admission_and_cancellation_never_publish_partial_results() {
     drop(coarse);
     assert_eq!(budget.used(), baseline);
 }
+
+#[test]
+fn certified_source_facets_bound_sampled_surface_interior() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let values = [26, -6, -6, -6, -6, -6, -6, 26];
+    let mut certified = 0usize;
+    for axis in 0..3 {
+        let mesh = input(axis, budget.clone());
+        let enclosed = mesh
+            .enclose_surface_with_budget(SurfaceEnclosureLimits::default(), budget.clone(), || {
+                false
+            })
+            .unwrap();
+        let chart = mesh.input().input().input().edges().chart();
+        let [u, v] = chart.transverse_axes();
+        for (id, triangle) in mesh.triangles().iter().enumerate() {
+            let result = enclosed.facet_certificate(id as u32, || false).unwrap();
+            let SurfaceFacetCertificate::Certified {
+                numerator,
+                denominator,
+            } = result
+            else {
+                continue;
+            };
+            let bound = numerator as f64 / denominator as f64;
+            let vertices =
+                triangle.vertices.map(|v| {
+                    enclosed.vertex_lattice_point(v).unwrap().unwrap().map(|c| {
+                        f64::from(c) / f64::from(EnclosedSurfaceGraph::POSITION_DENOMINATOR)
+                    })
+                });
+            for i in 0..=8 {
+                for j in 0..=8 - i {
+                    let w = [
+                        f64::from(i) / 8.,
+                        f64::from(j) / 8.,
+                        f64::from(8 - i - j) / 8.,
+                    ];
+                    let mut p =
+                        std::array::from_fn(|d| (0..3).map(|k| w[k] * vertices[k][d]).sum::<f64>());
+                    let z = p[axis];
+                    p[axis] = 0.;
+                    let lo = tensor(values, p, None);
+                    p[axis] = 1.;
+                    let hi = tensor(values, p, None);
+                    assert!((0. ..=1.).contains(&p[u]) && (0. ..=1.).contains(&p[v]));
+                    let root = -lo / (hi - lo);
+                    assert!((-1e-12..=1. + 1e-12).contains(&root));
+                    assert!((z - root).abs() <= bound + 1e-10);
+                }
+            }
+            certified += 1;
+        }
+        assert!(matches!(
+            enclosed.facet_certificate(mesh.triangles().len() as u32, || false),
+            Err(SurfaceError::Geometry)
+        ));
+        assert!(matches!(
+            enclosed.facet_certificate(0, || true),
+            Err(SurfaceError::Cancelled)
+        ));
+    }
+    assert!(certified > 0);
+}

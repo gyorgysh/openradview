@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Source-owned 3D vertex enclosures over a planar triangulation.
 use super::*;
+mod certificate;
+pub use certificate::SurfaceFacetCertificate;
 
 const MAX_OUTPUT: u64 = 16 * 1024 * 1024;
 
