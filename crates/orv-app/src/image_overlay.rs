@@ -4,6 +4,18 @@ use crate::{annotations, theme};
 use eframe::egui::{self, Align2, FontId, Rect};
 use orv_core::{ViewState, inspection, study::Frame};
 
+pub(crate) fn status(ui: &egui::Ui, rect: Rect, text: &str) {
+    let painter = ui.painter_at(rect);
+    let galley = painter.layout_no_wrap(text.into(), FontId::monospace(10.), theme::PAPER);
+    let position = rect.left_top() + egui::vec2(6., 20.);
+    painter.rect_filled(
+        Rect::from_min_size(position, galley.size()).expand(2.),
+        2.,
+        egui::Color32::from_black_alpha(180),
+    );
+    painter.galley(position, galley, theme::PAPER);
+}
+
 /// A 2D image without plane geometry may supply edge letters from its own
 /// declared patient orientation; they are shown as declared, not computed.
 pub fn draw(ui: &egui::Ui, response: &egui::Response, image: &Frame, view: &ViewState) {

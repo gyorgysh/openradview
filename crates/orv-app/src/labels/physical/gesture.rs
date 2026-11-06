@@ -293,13 +293,7 @@ impl LabelUi {
                 }
             }
         }
-        painter.text(
-            response.rect.left_top() + egui::vec2(5., 20.),
-            egui::Align2::LEFT_TOP,
-            "PHYSICAL PATH · ESC STOPS",
-            egui::FontId::monospace(9.),
-            crate::theme::PAPER,
-        );
+        crate::image_overlay::status(ui, response.rect, "DRAW PATH · ESC STOPS");
     }
 }
 
