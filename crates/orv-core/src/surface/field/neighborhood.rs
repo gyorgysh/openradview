@@ -4,9 +4,10 @@ use super::*;
 mod cell;
 mod zero_face;
 pub use cell::{
-    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, CellFiber, CellFiberBounds,
-    CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
-    CellGraphRegion, CellGraphState, CellPathLimits, CellPathOrigin, CellPathVertex,
+    AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
+    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, CellFiber,
+    CellFiberBounds, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits,
+    CellGraphNode, CellGraphRegion, CellGraphState, CellPathLimits, CellPathOrigin, CellPathVertex,
     CellProjectionChart, ChartEdgeStep, EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge,
     PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
     ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,

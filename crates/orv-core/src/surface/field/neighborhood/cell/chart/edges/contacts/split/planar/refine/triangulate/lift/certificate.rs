@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Exact interior error bounds for candidate source-field triangles.
 use super::*;
+mod adaptive;
+pub use adaptive::{
+    AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
+    AdaptiveStopReason,
+};
 
 /// An axial error bound applies only over the triangle's projected domain.
 /// It does not establish curved-boundary topology or a neighboring seam.
@@ -44,10 +49,10 @@ fn midpoint(vertex: BoundedSurfaceVertex) -> Result<Option<[u32; 3]>, SurfaceErr
     Ok(Some(point))
 }
 
-// Coordinates are in [0, GRID], field corners are in [-255, 255]. All
-// products and sums, including six permutations, fit comfortably in i128.
-fn field_value(values: [i16; 8], point: [u32; 3]) -> i128 {
-    let weights = point.map(|p| [i128::from(GRID - p), i128::from(p)]);
+// Coordinates are in [0, grid], with grid <= 2^25 and field corners in
+// [-255, 255]. Products and six-term sums fit comfortably in i128.
+fn field_value(values: [i16; 8], point: [u32; 3], grid: u32) -> i128 {
+    let weights = point.map(|p| [i128::from(grid - p), i128::from(p)]);
     values
         .into_iter()
         .enumerate()
@@ -67,8 +72,24 @@ fn evaluate(
     points: [[u32; 3]; 3],
     cancel: &impl Fn() -> bool,
 ) -> Result<SurfaceFacetCertificate, SurfaceError> {
+    evaluate_grid(values, axis, normal, points, GRID, cancel)
+}
+
+fn evaluate_grid(
+    values: [i16; 8],
+    axis: usize,
+    normal: i8,
+    points: [[u32; 3]; 3],
+    grid: u32,
+    cancel: &impl Fn() -> bool,
+) -> Result<SurfaceFacetCertificate, SurfaceError> {
     check(cancel)?;
-    if axis >= 3 || ![-1, 1].contains(&normal) || points.iter().flatten().any(|p| *p > GRID) {
+    if axis >= 3
+        || ![-1, 1].contains(&normal)
+        || grid == 0
+        || grid > (1 << 25)
+        || points.iter().flatten().any(|p| *p > grid)
+    {
         return Err(SurfaceError::Geometry);
     }
     let [u, v] = transverse(axis);
@@ -83,12 +104,12 @@ fn evaluate(
             check(cancel)?;
             let face_value = |upper: bool, a: usize, b: usize| {
                 let mut p = [0; 3];
-                p[axis] = if upper { GRID } else { 0 };
+                p[axis] = if upper { grid } else { 0 };
                 p[u] = points[a][u];
                 p[v] = points[b][v];
-                field_value(values, p)
+                field_value(values, p, grid)
             };
-            // Twice each quadratic Bernstein coefficient, on the GRID^3 scale.
+            // Twice each quadratic Bernstein coefficient, on the grid^3 scale.
             let lo = face_value(false, i, j) + face_value(false, j, i);
             let hi = face_value(true, i, j) + face_value(true, j, i);
             let n = i128::from(normal);
@@ -117,14 +138,15 @@ fn evaluate(
                 ];
                 let mut coefficient = 0i128;
                 for [a, b, c] in permutations {
-                    coefficient += field_value(values, [points[a][0], points[b][1], points[c][2]]);
+                    coefficient +=
+                        field_value(values, [points[a][0], points[b][1], points[c][2]], grid);
                 }
                 residual_max = residual_max.max(coefficient.unsigned_abs());
             }
         }
     }
     check(cancel)?;
-    // Cubic coefficients use 6*GRID^3, derivative coefficients 2*GRID^3.
+    // Cubic coefficients use 6*grid^3, derivative coefficients 2*grid^3.
     let denominator = u128::try_from(derivative_min)
         .map_err(|_| SurfaceError::Geometry)?
         .checked_mul(3)

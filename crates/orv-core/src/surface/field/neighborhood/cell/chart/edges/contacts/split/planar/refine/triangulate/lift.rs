@@ -2,7 +2,10 @@
 //! Source-owned 3D vertex enclosures over a planar triangulation.
 use super::*;
 mod certificate;
-pub use certificate::SurfaceFacetCertificate;
+pub use certificate::{
+    AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
+    AdaptiveStopReason, SurfaceFacetCertificate,
+};
 
 const MAX_OUTPUT: u64 = 16 * 1024 * 1024;
 

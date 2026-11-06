@@ -3,9 +3,10 @@
 use super::*;
 mod refine;
 pub use refine::{
-    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph,
-    PlanarRefinementLimits, PlanarTriangle, PlanarTriangulationLimits, RefinedPlanarGraph,
-    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
+    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
+    EnclosedSurfaceGraph, PlanarRefinementLimits, PlanarTriangle, PlanarTriangulationLimits,
+    RefinedPlanarGraph, SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const MAX_EDGES: usize = 8192;

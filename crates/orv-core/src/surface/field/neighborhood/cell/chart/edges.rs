@@ -3,10 +3,11 @@
 use super::*;
 mod contacts;
 pub use contacts::{
-    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph, PlanarEdge,
-    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
-    PlanarTriangulationLimits, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
-    ProjectedContacts, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
+    AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
+    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
+    EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
+    PlanarTriangle, PlanarTriangulationLimits, ProjectedContact, ProjectedContactGeometry,
+    ProjectedContactOwner, ProjectedContacts, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
     SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
     SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };

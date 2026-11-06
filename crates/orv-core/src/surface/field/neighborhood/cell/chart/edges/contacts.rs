@@ -3,9 +3,10 @@
 use super::*;
 mod split;
 pub use split::{
-    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph, PlanarEdge,
-    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
-    PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
+    AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
+    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
+    EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
+    PlanarTriangle, PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph, SplitPath,
     SplitProjectedConstraints, SplitSegment, SplitStep, SurfaceEnclosureLimits,
     SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };

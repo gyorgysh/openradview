@@ -23,10 +23,11 @@ pub use factor::{
     AxisFactor, CellFactorization, CellPhase, CellResidual, FactorPatch, ResidualKind, ZeroBoundary,
 };
 pub use neighborhood::{
-    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, CellFiber, CellFiberBounds,
-    CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
-    CellGraphRegion, CellGraphState, CellNeighborhood, CellPathLimits, CellPathOrigin,
-    CellPathVertex, CellProjectionChart, ChartEdgeStep, EdgePartition, EdgePoint,
+    AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
+    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, CellFiber,
+    CellFiberBounds, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits,
+    CellGraphNode, CellGraphRegion, CellGraphState, CellNeighborhood, CellPathLimits,
+    CellPathOrigin, CellPathVertex, CellProjectionChart, ChartEdgeStep, EdgePartition, EdgePoint,
     EnclosedSurfaceGraph, NeighborhoodCell, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
     PlanarRegion, PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
     ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,

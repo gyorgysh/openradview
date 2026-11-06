@@ -226,3 +226,243 @@ fn certified_source_facets_bound_sampled_surface_interior() {
     }
     assert!(certified > 0);
 }
+
+fn area(points: [[u32; 3]; 3], u: usize, v: usize) -> i128 {
+    let delta = |a: usize, b: usize, d: usize| i128::from(points[a][d]) - i128::from(points[b][d]);
+    delta(1, 0, u) * delta(2, 0, v) - delta(1, 0, v) * delta(2, 0, u)
+}
+
+#[test]
+fn adaptive_children_preserve_parent_domain_and_bound_source_zeroes() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let values = [26, -6, -6, -6, -6, -6, -6, 26];
+    let mut divided = 0usize;
+    let mut accepted = 0usize;
+    for axis in 0..3 {
+        let mesh = input(axis, budget.clone());
+        let enclosed = Arc::new(
+            mesh.enclose_surface_with_budget(
+                SurfaceEnclosureLimits::default(),
+                budget.clone(),
+                || false,
+            )
+            .unwrap(),
+        );
+        let chart = mesh.input().input().input().edges().chart();
+        let [u, v] = chart.transverse_axes();
+        for (id, triangle) in mesh.triangles().iter().enumerate() {
+            if !matches!(enclosed.facets()[id], BoundedSurfaceFacet::Candidate { .. }) {
+                continue;
+            }
+            let limits = AdaptiveFacetLimits {
+                tolerance_bits: 8,
+                max_depth: 6,
+                max_triangles: 64,
+                ..AdaptiveFacetLimits::default()
+            };
+            let result = enclosed
+                .refine_facet_with_budget(id as u32, limits, budget.clone(), || false)
+                .unwrap();
+            assert!(Arc::ptr_eq(result.input(), &enclosed));
+            assert_eq!(result.source_facet(), id as u32);
+            let parent = triangle.vertices.map(|v| {
+                enclosed
+                    .vertex_lattice_point(v)
+                    .unwrap()
+                    .unwrap()
+                    .map(|x| x * 256)
+            });
+            let mut combined = 0i128;
+            for leaf in result.triangles() {
+                assert!(leaf.depth <= limits.max_depth);
+                let part = area(leaf.vertices, u, v);
+                if area(parent, u, v) > 0 {
+                    assert!(part > 0);
+                }
+                combined += part;
+                if let AdaptiveFacetState::WithinTolerance {
+                    numerator,
+                    denominator,
+                } = leaf.state
+                {
+                    assert!(numerator * (1u128 << limits.tolerance_bits) <= denominator);
+                    let bound = numerator as f64 / denominator as f64;
+                    let grid = f64::from(AdaptiveFacetMesh::POSITION_DENOMINATOR);
+                    let vertex = leaf.vertices.map(|p| p.map(|c| f64::from(c) / grid));
+                    for i in 0..=4 {
+                        for j in 0..=4 - i {
+                            let w = [
+                                f64::from(i) / 4.,
+                                f64::from(j) / 4.,
+                                f64::from(4 - i - j) / 4.,
+                            ];
+                            let mut p: [f64; 3] =
+                                std::array::from_fn(|d| (0..3).map(|k| w[k] * vertex[k][d]).sum());
+                            let z = p[axis];
+                            p[axis] = 0.;
+                            let lo = tensor(values, p, None);
+                            p[axis] = 1.;
+                            let hi = tensor(values, p, None);
+                            let root = -lo / (hi - lo);
+                            assert!((-1e-10..=1. + 1e-10).contains(&root));
+                            assert!((z - root).abs() <= bound + 1e-9);
+                        }
+                    }
+                    accepted += 1;
+                }
+            }
+            assert_eq!(combined, area(parent, u, v));
+            assert!(result.triangles().len() <= limits.max_triangles);
+            if result.triangles().len() > 1 {
+                divided += 1;
+            }
+        }
+    }
+    assert!(divided > 0);
+    assert!(accepted > 0);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn adaptive_limits_cancellation_and_memory_refuse_partial_output() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let mesh = input(0, budget.clone());
+    let enclosed = Arc::new(
+        mesh.enclose_surface_with_budget(SurfaceEnclosureLimits::default(), budget.clone(), || {
+            false
+        })
+        .unwrap(),
+    );
+    let id = enclosed
+        .facets()
+        .iter()
+        .position(|f| matches!(f, BoundedSurfaceFacet::Candidate { .. }))
+        .unwrap() as u32;
+    let baseline = budget.used();
+    let limits = AdaptiveFacetLimits {
+        tolerance_bits: 16,
+        max_depth: 5,
+        max_triangles: 32,
+        ..AdaptiveFacetLimits::default()
+    };
+    let total_calls = Cell::new(0usize);
+    let output = enclosed
+        .refine_facet_with_budget(id, limits, budget.clone(), || {
+            total_calls.set(total_calls.get() + 1);
+            false
+        })
+        .unwrap();
+    let bytes = output.referenced_bytes();
+    drop(output);
+    assert_eq!(budget.used(), baseline);
+    assert!(matches!(
+        enclosed.refine_facet_with_budget(
+            id,
+            AdaptiveFacetLimits {
+                max_depth: 9,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        enclosed.refine_facet_with_budget(
+            id,
+            AdaptiveFacetLimits {
+                max_triangles: 0,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    assert!(matches!(
+        enclosed.refine_facet_with_budget(
+            id,
+            AdaptiveFacetLimits {
+                max_bytes: bytes - 1,
+                ..limits
+            },
+            budget.clone(),
+            || false
+        ),
+        Err(SurfaceError::Limit)
+    ));
+    let small = MemoryBudget::new(bytes);
+    assert!(matches!(
+        enclosed.refine_facet_with_budget(id, limits, small.clone(), || false),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(small.used(), 0);
+    for stop in [1, total_calls.get() / 2, total_calls.get()] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            enclosed.refine_facet_with_budget(id, limits, budget.clone(), || {
+                calls.set(calls.get() + 1);
+                calls.get() >= stop
+            }),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), baseline);
+    }
+}
+
+#[test]
+fn adaptive_requested_tolerance_is_not_lowered_by_depth_or_triangle_caps() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let mesh = input(0, budget.clone());
+    let enclosed = Arc::new(
+        mesh.enclose_surface_with_budget(SurfaceEnclosureLimits::default(), budget.clone(), || {
+            false
+        })
+        .unwrap(),
+    );
+    let id = (0..mesh.triangles().len()).find(|id| {
+        matches!(enclosed.facet_certificate(*id as u32, || false).unwrap(), SurfaceFacetCertificate::Certified { numerator, denominator } if numerator * (1 << 16) > denominator)
+    }).expect("facet requiring refinement") as u32;
+    let limits = AdaptiveFacetLimits {
+        tolerance_bits: 16,
+        ..AdaptiveFacetLimits::default()
+    };
+    let depth = enclosed
+        .refine_facet_with_budget(
+            id,
+            AdaptiveFacetLimits {
+                max_depth: 0,
+                ..limits
+            },
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(depth.triangles().len(), 1);
+    assert!(matches!(
+        depth.triangles()[0].state,
+        AdaptiveFacetState::Unresolved {
+            reason: AdaptiveStopReason::DepthLimit,
+            ..
+        }
+    ));
+    let count = enclosed
+        .refine_facet_with_budget(
+            id,
+            AdaptiveFacetLimits {
+                max_triangles: 1,
+                ..limits
+            },
+            budget.clone(),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(count.triangles().len(), 1);
+    assert!(matches!(
+        count.triangles()[0].state,
+        AdaptiveFacetState::Unresolved {
+            reason: AdaptiveStopReason::TriangleLimit,
+            ..
+        }
+    ));
+}

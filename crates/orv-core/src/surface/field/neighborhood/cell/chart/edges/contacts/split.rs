@@ -3,10 +3,11 @@
 use super::*;
 mod planar;
 pub use planar::{
-    BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds, EnclosedSurfaceGraph, PlanarEdge,
-    PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion, PlanarTriangle,
-    PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph, SurfaceEnclosureLimits,
-    SurfaceFacetCertificate, TriangulatedPlanarGraph,
+    AdaptiveFacetLimits, AdaptiveFacetMesh, AdaptiveFacetState, AdaptiveFacetTriangle,
+    AdaptiveStopReason, BoundedSurfaceFacet, BoundedSurfaceVertex, CellAxisBounds,
+    EnclosedSurfaceGraph, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits, PlanarRegion,
+    PlanarTriangle, PlanarTriangulationLimits, ProjectedPlanarGraph, RefinedPlanarGraph,
+    SurfaceEnclosureLimits, SurfaceFacetCertificate, TriangulatedPlanarGraph,
 };
 
 const NODES: usize = JointSubdivision::MAX_NODES;

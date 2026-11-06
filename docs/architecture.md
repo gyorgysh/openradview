@@ -715,6 +715,14 @@ error to the unique zero on each projected fiber. Noncandidate, nonpositive
 projection, and failed proof cases remain explicit. The certificate is local to
 that projected triangle: curved boundary topology, shared seams, adaptive
 refinement and physical-space conversion remain separate obligations.
+`EnclosedSurfaceGraph::refine_facet` bisects a candidate on its longest projected
+edge, samples the original field for each new midpoint and rechecks every child
+against the requested axial error tolerance. It keeps unresolved leaves when
+depth or triangle limits are reached, projection degenerates, or a midpoint is
+empty, whole, or has the opposite axial orientation. Output and fixed scratch
+are separately admitted and cancellation publishes no partial result. This is a
+single-facet operation; neighboring facets and source cells do not yet share an
+adaptive split union, so its output is not a conforming or renderable mesh.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,
