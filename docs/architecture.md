@@ -1200,6 +1200,10 @@ source, camera, navigation and clip identities and refuses invalid or required
 missing normals. The retained assembly describes incomplete coverage, so an
 absent hit does not establish that a surface is absent. This output is a partial
 preview without a complete fallback, authoritative picking or native display.
+Its optional source/material-bound range classification skips only certified
+transparent sample runs, and the completed image retains the classification
+actually used. A material change requires a new classification; no transparent
+tiles uses the ordinary path. This acceleration does not resolve surface coverage.
 
 `GpuSurfaceProjector` produces a separate immutable `SurfaceImage` for one exact
 GPU source, mask revision, numeric ID, camera/display state, clip and requested

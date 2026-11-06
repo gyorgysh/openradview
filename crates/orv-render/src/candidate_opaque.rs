@@ -3,6 +3,7 @@
 use crate::{
     candidate_projection::CandidateImage,
     linear_display::LinearDisplay,
+    material_ranges::GpuMaterialRanges,
     material_volume::Lighting,
     volume::{allocation, flush_upload},
     volume_source::GpuVolumeSource,
@@ -37,6 +38,7 @@ pub struct CandidateOpaqueImage {
     texture: wgpu::Texture,
     bindings: wgpu::BindGroup,
     display: Arc<LinearDisplay>,
+    ranges: Option<Arc<GpuMaterialRanges>>,
     _reservation: allocation::GpuReservation,
     _metadata: Reservation,
 }
@@ -46,6 +48,10 @@ impl CandidateOpaqueImage {
     }
     pub fn texture(&self) -> &wgpu::Texture {
         &self.texture
+    }
+    /// The classification actually used by this image, if it skipped source work.
+    pub fn material_ranges(&self) -> Option<&Arc<GpuMaterialRanges>> {
+        self.ranges.as_ref()
     }
     pub fn paint(&self, pass: &mut wgpu::RenderPass<'_>) {
         self.display.paint(&self.bindings, pass);
@@ -57,6 +63,8 @@ pub struct CandidateOpaqueRenderer {
     pipeline: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
     display: Arc<LinearDisplay>,
+    ranges: Option<Arc<GpuMaterialRanges>>,
+    use_ranges: bool,
     _scratch: allocation::GpuReservation,
 }
 impl CandidateOpaqueRenderer {
@@ -65,8 +73,23 @@ impl CandidateOpaqueRenderer {
         source: Arc<GpuVolumeSource>,
         format: wgpu::TextureFormat,
     ) -> Result<Self, &'static str> {
+        Self::prepare(source, format, None)
+    }
+    /// Worker-only preparation for one immutable source/material classification.
+    pub fn new_accelerated(
+        ranges: Arc<GpuMaterialRanges>,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, &'static str> {
+        Self::prepare(ranges.source().clone(), format, Some(ranges))
+    }
+    fn prepare(
+        source: Arc<GpuVolumeSource>,
+        format: wgpu::TextureFormat,
+        ranges: Option<Arc<GpuMaterialRanges>>,
+    ) -> Result<Self, &'static str> {
         let device = source.device();
         let limits = device.limits();
+        let use_ranges = ranges.as_ref().is_some_and(|r| r.transparent_tiles() > 0);
         crate::volume::check_limits(&limits)?;
         if source.volume().is_color() {
             return Err("Candidate optical composition requires a scalar source");
@@ -82,13 +105,24 @@ impl CandidateOpaqueRenderer {
         {
             return Err("This GPU cannot bind candidate optical composition resources");
         }
+        if use_ranges
+            && (limits.max_bind_groups < 2
+                || limits.max_sampled_textures_per_shader_stage < 6
+                || limits.max_uniform_buffers_per_shader_stage < 3)
+        {
+            return Err("This GPU cannot bind candidate optical acceleration resources");
+        }
         let scratch = allocation::reserve_bytes(65536, device, source.queue())?;
         let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let layout = layout(device);
+        let mut layouts = vec![Some(&layout)];
+        if use_ranges && let Some(ranges) = &ranges {
+            layouts.push(Some(ranges.layout()));
+        }
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("partial candidate optical layout"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &layouts,
             immediate_size: 0,
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -98,7 +132,7 @@ impl CandidateOpaqueRenderer {
                     "{}\n{}\n{}\n{}\n{}\n{}\n{}",
                     include_str!("pixel_ray.wgsl"),
                     crate::VOLUME_SAMPLING_SHADER,
-                    crate::material_volume::optics_shader(false, false),
+                    crate::material_volume::optics_shader(use_ranges, use_ranges),
                     include_str!("opaque_interval.wgsl"),
                     include_str!("surface_optics.wgsl"),
                     include_str!("candidate_sample.wgsl"),
@@ -126,6 +160,8 @@ impl CandidateOpaqueRenderer {
             pipeline,
             layout,
             display,
+            ranges,
+            use_ranges,
             _scratch: scratch,
         })
     }
@@ -148,6 +184,15 @@ impl CandidateOpaqueRenderer {
             || scene.surface.depth_reference_mm() != self.source.volume().center()
         {
             return Err("Source and candidate views no longer match");
+        }
+        if self
+            .ranges
+            .as_ref()
+            .is_some_and(|ranges| ranges.material().as_ref() != scene.material.as_ref())
+        {
+            return Err(
+                "Candidate material range classification no longer matches the requested material",
+            );
         }
         if !scene.surface_luminance.is_finite() || !(0. ..=1.).contains(&scene.surface_luminance) {
             return Err("Candidate luminance must be finite and between zero and one");
@@ -276,6 +321,11 @@ impl CandidateOpaqueRenderer {
                 });
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &bindings, &[]);
+                if self.use_ranges
+                    && let Some(ranges) = &self.ranges
+                {
+                    pass.set_bind_group(1, ranges.bindings(), &[]);
+                }
                 pass.dispatch_workgroups(width.div_ceil(8), rows.div_ceil(8), 1);
             }
             queue.submit([encoder.finish()]);
@@ -290,6 +340,7 @@ impl CandidateOpaqueRenderer {
             texture,
             bindings: display_bindings,
             display: self.display.clone(),
+            ranges: self.ranges.as_ref().filter(|_| self.use_ranges).cloned(),
             _reservation: reservation,
             _metadata: metadata,
         }))

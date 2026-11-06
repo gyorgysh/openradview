@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod acceleration;
 use super::*;
 use crate::candidate_opaque::{
     CandidateOpaqueImage, CandidateOpaqueRenderer, CandidateOpaqueScene,
