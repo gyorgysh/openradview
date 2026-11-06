@@ -123,6 +123,21 @@ pub(super) fn bilinear_sign(
     {
         return Err(FieldError::Arithmetic);
     }
+    bounded_bilinear_sign(coefficients, point)
+}
+
+/// Derivative cross products need coefficients up to1040400. This changes no
+/// coordinate-form bound; the wider polynomial still fits the1024-bit predicate.
+pub(super) fn bounded_bilinear_sign(
+    coefficients: [i32; 4],
+    point: [ExactCoordinate; 2],
+) -> Result<i8, FieldError> {
+    if coefficients
+        .into_iter()
+        .any(|v| u64::from(v.unsigned_abs()) > MAX_COEFFICIENT)
+    {
+        return Err(FieldError::Arithmetic);
+    }
     let [left, right] = point;
     let lr = left.rational_value();
     let rr = right.rational_value();

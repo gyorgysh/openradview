@@ -8,9 +8,9 @@ mod face;
 mod wide;
 pub use face::{
     BilinearIntersections, CommonZero, ContourNode, ContourSegment, FaceArrangement,
-    IntersectionContact, IntersectionPoint, PatchHalfEdge, PatchRegion, PlaneSubdivision,
-    RefinedSubdivision, RefinementLimits, RegionTriangle, SubdivisionEdge, TriangulatedSubdivision,
-    TriangulationLimits,
+    IntersectionContact, IntersectionPoint, JointEdge, JointRegion, JointSubdivision,
+    PatchHalfEdge, PatchRegion, PlaneSubdivision, RefinedSubdivision, RefinementLimits,
+    RegionTriangle, SubdivisionEdge, TriangulatedSubdivision, TriangulationLimits,
 };
 use wide::radical_sign;
 const MAX_FORM: u32 = 2040;

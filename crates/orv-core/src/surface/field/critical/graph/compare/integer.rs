@@ -14,6 +14,9 @@ const LIMBS: usize = 16;
 // |M|,|N|<2^124, |O|<2^101. Opposing-term squaring gives a rational
 // coefficient <2^296 and a radical coefficient <2^273. The final squared
 // comparison fits592bits, also within this fixed width.
+// Allowing polynomial coefficients <=2^20 adds at most10bits to L/M/N/O
+// and40bits to the final comparison, still below640bits. Coordinate forms
+// and their rationalization bounds remain unchanged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct FixedInteger<const N: usize> {
     limbs: [u64; N],

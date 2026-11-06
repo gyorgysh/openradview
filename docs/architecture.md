@@ -639,6 +639,12 @@ Nonconstant zero fields retain a constraint; unknown or outside neighbors remain
 unresolved without a closing cap. This analysis grants no edit authority and
 does not replace the required two-field region arrangement or finite-grid policy.
 
+`SourceFace::zero_subdivision` builds that arrangement when both incident cells
+are known. It retains the proved zero-face owner and every original face point,
+and exposes each region's selected-phase classification. Unknown or outside
+neighbors leave the result unavailable, without inventing a cap. Region data
+does not grant source-edit authority or settle finite-grid closure.
+
 `Bilinear::subdivision` retains the complete square boundary alongside one
 bilinear zero set. Nonzero boundary points are accepted; contour insertions still
 require exact zero membership. Coincident zero/boundary edges merge, singular
@@ -649,6 +655,28 @@ give cyclic ordering for this bilinear square graph; zero-gradient crosses use
 their proved axis lines. No floating angle, chord or area selects connectivity.
 Bounds are 80 combined raw insertions, 89 nodes, 92 edges, 184 half-edges and four
 regions. Cancellation or inconsistent inputs return no partial subdivision.
+
+`Bilinear::joint_subdivision` builds closed regions for two bilinear zero sets,
+retaining up to 80 arbitrary exact constraints. Its fixed arena has 98 nodes,
+106 edges, 212 half-edges and nine regions. Two separate axis crosses can require
+all nine regions. Edge identity includes primitive geometry: different curved
+arcs with identical endpoints enclose a region and must remain distinct. Common
+curves merge while retaining both original fields' ownership and orientation.
+
+Outgoing rays use sign octants, gradient cross products within one octant and an
+exact quadratic curvature comparison at equal-tangent contacts. This orders both
+sides of a tangency without floating angles or regularization. A separate bounded
+polynomial predicate admits derivative-cross coefficients up to 2^20 within the
+existing 1024-bit arithmetic; coordinate forms retain their 2040 limit. Closed
+face-left loops carry both strict interior signs, with zero reserved for a whole
+zero field. An arc between two common zeros uses its eliminant's quadratic term
+to determine the other field's open-arc sign, without an approximate midpoint.
+
+Nonzero interior constraints retain a unique containing region, located using
+exact upper/lower graph-side signs on their vertical slice. No point is discarded
+or moved to a nearby boundary. Geometry, source ownership and cancellation remain
+separate from coordinated curve refinement, triangle approximation and GPU
+publication; independent chords could otherwise create false crossings.
 
 `PlaneSubdivision::refine` converts its edges to certified adaptive polylines.
 Original exact nodes remain the vertex prefix; distinct points are never welded

@@ -306,3 +306,138 @@ fn source_owned_zero_face_survives_original_drop_and_cancels_without_partial_own
     drop(prior);
     assert!(weak.upgrade().is_none());
 }
+
+#[test]
+fn source_joint_regions_retain_all_original_constraints_and_exact_phase_owners() {
+    for axis in 0..3 {
+        let mut dimensions = [2; 3];
+        dimensions[axis] = 3;
+        let [u, v] = transverse(axis);
+        for (values, regions) in [
+            ([[2; 4], [-2; 4]], 1),
+            ([[-2; 4], [-2; 4]], 1),
+            ([[0; 4], [0; 4]], 1),
+            ([[2, -4, 8, -4], [8, -4, 2, -4]], 9),
+            ([[0, -2, 0, 2], [6, -58, 6, 38]], 5),
+        ] {
+            let field = fractional(source(dimensions, true, false), |p| {
+                if p[axis] == 1 {
+                    0
+                } else {
+                    values[usize::from(p[axis] == 2)][[0, 1, 3, 2][p[u] + 2 * p[v]]]
+                }
+            });
+            let mut origin = [0; 3];
+            origin[axis] = 1;
+            let face = field
+                .source_face(
+                    FaceKey {
+                        origin,
+                        axis: axis as u8,
+                    },
+                    || false,
+                )
+                .unwrap();
+            let partition = face.zero_subdivision(|| false).unwrap().unwrap();
+            assert_eq!(partition.face().field().key(), field.key());
+            assert_eq!(partition.face().field().revision(), field.revision());
+            assert_eq!(partition.face().key(), face.key());
+            let graph = partition.subdivision();
+            assert_eq!(graph.fields().map(Bilinear::values), values);
+            assert_eq!(graph.regions().count(), regions);
+            for (_, original) in face.contour().unwrap().nodes() {
+                assert!(graph.nodes().any(|(_, n)| {
+                    n.coordinates()
+                        .iter()
+                        .zip(original.coordinates())
+                        .all(|(a, b)| a.compare(*b).unwrap() == std::cmp::Ordering::Equal)
+                }));
+            }
+            for (id, region) in graph.regions() {
+                assert_eq!(
+                    partition.region_phase(id),
+                    Some(expected(region.signs, false))
+                );
+            }
+            assert_eq!(partition.region_phase(255), None);
+        }
+    }
+}
+
+#[test]
+fn source_joint_regions_leave_unavailable_cases_open_and_cancel_without_new_owners() {
+    let key = FaceKey {
+        origin: [0, 0, 2],
+        axis: 2,
+    };
+    let field = fractional(source([2, 2, 4], false, true), |p| {
+        if p[2] == 2 { 0 } else { 2 }
+    });
+    assert!(
+        field
+            .source_face(key, || false)
+            .unwrap()
+            .zero_subdivision(|| false)
+            .unwrap()
+            .is_none()
+    );
+    let field = fractional(source([2, 2, 2], false, false), |_| 0);
+    assert!(
+        field
+            .source_face(
+                FaceKey {
+                    origin: [0; 3],
+                    axis: 2
+                },
+                || false
+            )
+            .unwrap()
+            .zero_subdivision(|| false)
+            .unwrap()
+            .is_none()
+    );
+    let field = fractional(source([2, 2, 3], false, false), |_| 0);
+    let face = field
+        .source_face(
+            FaceKey {
+                origin: [0, 0, 1],
+                axis: 2,
+            },
+            || false,
+        )
+        .unwrap();
+    let calls = Cell::new(0usize);
+    let prior = face
+        .zero_subdivision(|| {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .unwrap()
+        .unwrap();
+    let count = calls.get();
+    let MaskOwner::Supplied(map) = field.owner() else {
+        panic!("Supplied owner required")
+    };
+    let weak = Arc::downgrade(map);
+    let baseline = Arc::strong_count(map);
+    for stop in 1..=count {
+        let n = Cell::new(0usize);
+        assert!(matches!(
+            face.zero_subdivision(|| {
+                n.set(n.get() + 1);
+                n.get() == stop
+            }),
+            Err(FieldError::Cancelled)
+        ));
+        let MaskOwner::Supplied(map) = field.owner() else {
+            panic!("Supplied owner required")
+        };
+        assert_eq!(Arc::strong_count(map), baseline);
+    }
+    drop(face);
+    drop(field);
+    assert!(weak.upgrade().is_some());
+    assert_eq!(prior.region_phase(0), Some(ZeroFacePhase::Interior));
+    drop(prior);
+    assert!(weak.upgrade().is_none());
+}

@@ -30,6 +30,37 @@ pub struct WholeZeroFace {
     normals: [Option<Bilinear>; 2],
     intersections: Option<BilinearIntersections>,
 }
+/// Both incident stencils are known. Region signs refer to the original inward
+/// fields, with the same source/map/revision owner as the proved zero face.
+pub struct WholeZeroSubdivision {
+    face: WholeZeroFace,
+    subdivision: JointSubdivision,
+}
+impl WholeZeroSubdivision {
+    pub fn face(&self) -> &WholeZeroFace {
+        &self.face
+    }
+    pub fn subdivision(&self) -> &JointSubdivision {
+        &self.subdivision
+    }
+    pub fn region_phase(&self, region: u8) -> Option<ZeroFacePhase> {
+        let signs = self
+            .subdivision
+            .regions()
+            .find(|(id, _)| *id == region)?
+            .1
+            .signs;
+        Some(area_phase(signs))
+    }
+}
+fn area_phase(signs: [i8; 2]) -> ZeroFacePhase {
+    match signs.map(|s| s >= 0) {
+        [true, true] => ZeroFacePhase::Interior,
+        [true, false] => ZeroFacePhase::Interface { normal: 1 },
+        [false, true] => ZeroFacePhase::Interface { normal: -1 },
+        [false, false] => ZeroFacePhase::Sheet,
+    }
+}
 impl WholeZeroFace {
     pub fn field(&self) -> &MaskField {
         &self.field
@@ -66,17 +97,15 @@ impl WholeZeroFace {
                 constraint |= sign == 0 && field.values() != [0; 4];
             }
         }
-        let phase = if inward_signs.contains(&None) {
-            ZeroFacePhase::Unresolved
-        } else if constraint {
-            ZeroFacePhase::Constraint
-        } else {
-            match inward_signs.map(|s| s.is_some_and(|s| s >= 0)) {
-                [true, true] => ZeroFacePhase::Interior,
-                [true, false] => ZeroFacePhase::Interface { normal: 1 },
-                [false, true] => ZeroFacePhase::Interface { normal: -1 },
-                [false, false] => ZeroFacePhase::Sheet,
+        let phase = match inward_signs {
+            [Some(a), Some(b)] => {
+                if constraint {
+                    ZeroFacePhase::Constraint
+                } else {
+                    area_phase([a, b])
+                }
             }
+            _ => ZeroFacePhase::Unresolved,
         };
         check_cancel(&cancel)?;
         Ok(ZeroFaceSample {
@@ -86,6 +115,31 @@ impl WholeZeroFace {
     }
 }
 impl SourceFace {
+    /// Build exact two-field regions only for a proved zero face with both
+    /// incident cells known. None leaves unknown/outside cases unresolved.
+    /// All original face constraints remain in the graph or a containing region.
+    pub fn zero_subdivision(
+        &self,
+        cancel: impl Fn() -> bool,
+    ) -> Result<Option<WholeZeroSubdivision>, FieldError> {
+        check_cancel(&cancel)?;
+        let Some(face) = self.whole_zero_face(&cancel)? else {
+            return Ok(None);
+        };
+        let [Some(a), Some(b)] = face.normals else {
+            return Ok(None);
+        };
+        let mut points = [[coordinate(Rational::new(0, 1)?)?; 2]; JointSubdivision::MAX_INSERTIONS];
+        let mut count = 0usize;
+        for (_, node) in self.contour.as_ref().ok_or(FieldError::Arithmetic)?.nodes() {
+            check_cancel(&cancel)?;
+            *points.get_mut(count).ok_or(FieldError::Capacity)? = *node.coordinates();
+            count += 1;
+        }
+        let subdivision = a.joint_subdivision(b, &points[..count], &cancel)?;
+        check_cancel(&cancel)?;
+        Ok(Some(WholeZeroSubdivision { face, subdivision }))
+    }
     /// Analyse only a proved whole-zero face. None means the face is not proved
     /// whole zero; inspect original samples to distinguish unknown from nonzero.
     /// Outside cells remain outside until a separate finite-grid policy applies.

@@ -12,16 +12,17 @@ use crate::{
 pub use critical::{
     AlgebraicRoot, AnchorLine, BilinearIntersections, CommonZero, ContourNode, ContourSegment,
     CriticalGraph, ExactCoordinate, FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode,
-    IntersectionContact, IntersectionPoint, LimitContours, PatchHalfEdge, PatchRegion,
-    PlaneSubdivision, ProjectionAnalysis, ProjectionPoint, RefinedSubdivision, RefinementLimits,
-    RegionTriangle, SubdivisionEdge, TriangulatedSubdivision, TriangulationLimits, WholeSection,
+    IntersectionContact, IntersectionPoint, JointEdge, JointRegion, JointSubdivision,
+    LimitContours, PatchHalfEdge, PatchRegion, PlaneSubdivision, ProjectionAnalysis,
+    ProjectionPoint, RefinedSubdivision, RefinementLimits, RegionTriangle, SubdivisionEdge,
+    TriangulatedSubdivision, TriangulationLimits, WholeSection,
 };
 pub use factor::{
     AxisFactor, CellFactorization, CellPhase, CellResidual, FactorPatch, ResidualKind, ZeroBoundary,
 };
 pub use neighborhood::{
     CellNeighborhood, EdgePartition, EdgePoint, NeighborhoodCell, SourceFace, WholeZeroFace,
-    ZeroFacePhase, ZeroFaceSample,
+    WholeZeroSubdivision, ZeroFacePhase, ZeroFaceSample,
 };
 use std::sync::Arc;
 

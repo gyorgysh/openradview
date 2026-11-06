@@ -3,6 +3,25 @@ use super::super::tests::{coord, positive_root, rational};
 use super::*;
 
 #[test]
+fn bounded_derivative_cross_signs_keep_the_original_coordinate_form_limit() {
+    let u = coord(positive_root(2, 0, -1), [0, 1], [1, 0]);
+    let v = coord(positive_root(3, 0, -1), [0, 1], [1, 0]);
+    let m = MAX_COEFFICIENT as i32;
+    assert_eq!(bounded_bilinear_sign([m, -m, -m, m], [u, v]), Ok(1));
+    assert_eq!(bounded_bilinear_sign([-m, m, m, -m], [u, v]), Ok(-1));
+    assert_eq!(bounded_bilinear_sign([-m / 2, 0, 0, m], [u, u]), Ok(0));
+    assert_eq!(
+        bounded_bilinear_sign([m + 1, 0, 0, 0], [u, v]),
+        Err(FieldError::Arithmetic)
+    );
+    assert_eq!(
+        bilinear_sign([2041, 0, 0, 0], [u, v]),
+        Err(FieldError::Arithmetic)
+    );
+    assert_eq!(bounded_bilinear_sign([2041, 0, 0, 0], [u, v]), Ok(1));
+}
+
+#[test]
 fn unrelated_quadratic_coordinates_order_with_signed_denominators() {
     let half = coord(positive_root(2, 0, -1), [0, 1], [1, 0]);
     let third = coord(positive_root(3, 0, -1), [0, 1], [1, 0]);

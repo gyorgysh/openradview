@@ -139,7 +139,7 @@ impl BilinearIntersections {
         Ok(())
     }
 }
-fn primitive(field: Bilinear) -> Bilinear {
+pub(super) fn primitive(field: Bilinear) -> Bilinear {
     let mut gcd = 0u16;
     for value in field.values {
         let mut b = value.unsigned_abs();

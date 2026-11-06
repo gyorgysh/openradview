@@ -3,6 +3,8 @@
 use super::*;
 use compare::bilinear_sign;
 mod intersections;
+mod joint;
+pub use joint::{JointEdge, JointRegion, JointSubdivision};
 mod subdivision;
 pub use intersections::{
     BilinearIntersections, CommonZero, IntersectionContact, IntersectionPoint,
@@ -93,60 +95,10 @@ impl FaceArrangement {
         coordinates: [ExactCoordinate; 2],
         cancel: &impl Fn() -> bool,
     ) -> Result<(), FieldError> {
-        let normalize = |value: ExactCoordinate| {
-            value
-                .rational_value()
-                .map_or(Ok(value), rational_coordinate)
-        };
-        let coordinates = [normalize(coordinates[0])?, normalize(coordinates[1])?];
-        for index in 0..self.count {
-            check_cancel(cancel)?;
-            let node = self.nodes[index].as_mut().ok_or(FieldError::Arithmetic)?;
-            if same_point(node.coordinates, coordinates)? {
-                // Equality has already been proved numerically. Choosing the
-                // same supplied expression also makes later approximations
-                // independent of which incident cell was visited first.
-                for (prior, incoming) in node.coordinates.iter_mut().zip(coordinates) {
-                    if representation(incoming) < representation(*prior) {
-                        *prior = incoming;
-                    }
-                }
-                return Ok(());
-            }
-        }
-        let mut boundary = 0;
-        for (axis, value) in coordinates.into_iter().enumerate() {
-            for upper in [false, true] {
-                boundary |=
-                    u8::from(value.compare(ExactCoordinate::endpoint(upper))? == Ordering::Equal)
-                        << (2 * axis + usize::from(upper));
-            }
-        }
-        *self.nodes.get_mut(self.count).ok_or(FieldError::Capacity)? = Some(ContourNode {
-            coordinates,
-            boundary,
-        });
-        self.count += 1;
-        Ok(())
+        add_node(&mut self.nodes, &mut self.count, coordinates, cancel)
     }
     fn canonicalize(&mut self, cancel: &impl Fn() -> bool) -> Result<(), FieldError> {
-        for i in 1..self.count {
-            let mut j = i;
-            while j > 0 {
-                check_cancel(cancel)?;
-                let left = self.nodes[j - 1].ok_or(FieldError::Arithmetic)?.coordinates;
-                let right = self.nodes[j].ok_or(FieldError::Arithmetic)?.coordinates;
-                let first = left[0].compare(right[0])?;
-                if first == Ordering::Less
-                    || (first == Ordering::Equal && left[1].compare(right[1])? != Ordering::Greater)
-                {
-                    break;
-                }
-                self.nodes.swap(j - 1, j);
-                j -= 1;
-            }
-        }
-        Ok(())
+        canonicalize_nodes(&mut self.nodes, self.count, cancel)
     }
     fn connect(
         &mut self,
@@ -182,6 +134,71 @@ impl FaceArrangement {
         }
         Ok(())
     }
+}
+fn add_node(
+    nodes: &mut [Option<ContourNode>],
+    count: &mut usize,
+    coordinates: [ExactCoordinate; 2],
+    cancel: &impl Fn() -> bool,
+) -> Result<(), FieldError> {
+    let normalize = |value: ExactCoordinate| {
+        value
+            .rational_value()
+            .map_or(Ok(value), rational_coordinate)
+    };
+    let coordinates = [normalize(coordinates[0])?, normalize(coordinates[1])?];
+    for node in nodes.iter_mut().take(*count) {
+        check_cancel(cancel)?;
+        let node = node.as_mut().ok_or(FieldError::Arithmetic)?;
+        if same_point(node.coordinates, coordinates)? {
+            // Equality has already been proved numerically. Choosing the
+            // same supplied expression also makes later approximations
+            // independent of which incident cell was visited first.
+            for (prior, incoming) in node.coordinates.iter_mut().zip(coordinates) {
+                if representation(incoming) < representation(*prior) {
+                    *prior = incoming;
+                }
+            }
+            return Ok(());
+        }
+    }
+    let mut boundary = 0;
+    for (axis, value) in coordinates.into_iter().enumerate() {
+        for upper in [false, true] {
+            boundary |=
+                u8::from(value.compare(ExactCoordinate::endpoint(upper))? == Ordering::Equal)
+                    << (2 * axis + usize::from(upper));
+        }
+    }
+    *nodes.get_mut(*count).ok_or(FieldError::Capacity)? = Some(ContourNode {
+        coordinates,
+        boundary,
+    });
+    *count += 1;
+    Ok(())
+}
+fn canonicalize_nodes(
+    nodes: &mut [Option<ContourNode>],
+    count: usize,
+    cancel: &impl Fn() -> bool,
+) -> Result<(), FieldError> {
+    for i in 1..count {
+        let mut j = i;
+        while j > 0 {
+            check_cancel(cancel)?;
+            let left = nodes[j - 1].ok_or(FieldError::Arithmetic)?.coordinates;
+            let right = nodes[j].ok_or(FieldError::Arithmetic)?.coordinates;
+            let first = left[0].compare(right[0])?;
+            if first == Ordering::Less
+                || (first == Ordering::Equal && left[1].compare(right[1])? != Ordering::Greater)
+            {
+                break;
+            }
+            nodes.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+    Ok(())
 }
 fn same_point(a: [ExactCoordinate; 2], b: [ExactCoordinate; 2]) -> Result<bool, FieldError> {
     Ok(a[0].compare(b[0])? == Ordering::Equal && a[1].compare(b[1])? == Ordering::Equal)

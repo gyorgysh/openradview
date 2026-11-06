@@ -2,7 +2,7 @@
 //! Source-bound canonical edge partitions and face insertion neighborhoods.
 use super::*;
 mod zero_face;
-pub use zero_face::{WholeZeroFace, ZeroFacePhase, ZeroFaceSample};
+pub use zero_face::{WholeZeroFace, WholeZeroSubdivision, ZeroFacePhase, ZeroFaceSample};
 const EDGE_POINTS: usize = 10;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CellNeighborhood {
