@@ -45,6 +45,24 @@ pub struct ProjectedContacts {
     _reservation: Reservation,
 }
 impl ProjectedContacts {
+    pub(in crate::surface) fn rebind_candidate(
+        &self,
+        proof: &crate::surface::field::CellReuseProof<'_>,
+        budget: &Arc<MemoryBudget>,
+        cancel: &impl Fn() -> bool,
+    ) -> Result<Self, SurfaceError> {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        let edges = Arc::new(self.edges.rebind_candidate(proof, budget, cancel)?);
+        let reservation = budget.reserve(self.bytes).ok_or(SurfaceError::Memory)?;
+        Ok(Self {
+            edges,
+            contacts: crate::surface::copy_retained(&self.contacts, cancel)?,
+            bytes: self.bytes,
+            _reservation: reservation,
+        })
+    }
     pub fn edges(&self) -> &Arc<ProjectedCellEdges> {
         &self.edges
     }

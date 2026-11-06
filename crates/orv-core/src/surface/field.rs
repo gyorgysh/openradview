@@ -50,6 +50,62 @@ pub use pipeline::{
 };
 use std::sync::Arc;
 
+#[cfg(test)]
+thread_local! {
+    static FIELD_READS: std::cell::RefCell<Option<Vec<[usize; 3]>>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+pub(in crate::surface) fn capture_field_reads<T>(f: impl FnOnce() -> T) -> (T, Vec<[usize; 3]>) {
+    FIELD_READS.with(|reads| *reads.borrow_mut() = Some(Vec::new()));
+    let result = f();
+    let reads = FIELD_READS.with(|reads| reads.borrow_mut().take().unwrap_or_default());
+    (result, reads)
+}
+
+/// Proof for one independent candidate, before any neighbor-specific face split.
+/// SourceFace reads its two incident cells and four EdgePartitions; those read
+/// all incident cell corners and half-face samples. For a cell with lower corner
+/// L every such sample lies in the clipped inclusive box [L-1, L+2].
+pub(in crate::surface) struct CellReuseProof<'a> {
+    old: &'a MaskField,
+    new: &'a MaskField,
+    origin: [usize; 3],
+}
+impl<'a> CellReuseProof<'a> {
+    fn compare(
+        old: &'a MaskField,
+        new: &'a MaskField,
+        origin: [usize; 3],
+        cancel: &impl Fn() -> bool,
+    ) -> Result<Option<Self>, crate::surface::SurfaceError> {
+        use crate::surface::SurfaceError;
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        if old.key() != new.key() || !Arc::ptr_eq(old.source(), new.source()) {
+            return Ok(None);
+        }
+        old.cell(origin).map_err(|_| SurfaceError::Geometry)?;
+        let dimensions = old.source().dimensions();
+        let start = origin.map(|v| v.saturating_sub(1));
+        let end =
+            std::array::from_fn::<_, 3, _>(|i| origin[i].saturating_add(2).min(dimensions[i] - 1));
+        for z in start[2]..=end[2] {
+            for y in start[1]..=end[1] {
+                for x in start[0]..=end[0] {
+                    if cancel() {
+                        return Err(SurfaceError::Cancelled);
+                    }
+                    if old.sample([x, y, z]) != new.sample([x, y, z]) {
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+        Ok(Some(Self { old, new, origin }))
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FieldError {
     Selection,
@@ -117,6 +173,12 @@ impl MaskField {
     }
     /// None means outside the finite source, never an exterior zero sample.
     pub fn sample(&self, voxel: [usize; 3]) -> Option<FieldSample> {
+        #[cfg(test)]
+        FIELD_READS.with(|reads| {
+            if let Some(reads) = reads.borrow_mut().as_mut() {
+                reads.push(voxel);
+            }
+        });
         let view = self.owner.view(self.key.number).ok()?;
         let membership = view.sample(voxel)?;
         let value = match &self.owner {

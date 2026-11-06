@@ -58,6 +58,28 @@ pub struct SplitProjectedConstraints {
     _reservation: Reservation,
 }
 impl SplitProjectedConstraints {
+    pub(in crate::surface) fn rebind_candidate(
+        &self,
+        proof: &crate::surface::field::CellReuseProof<'_>,
+        budget: &Arc<MemoryBudget>,
+        cancel: &impl Fn() -> bool,
+    ) -> Result<Self, SurfaceError> {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        let contacts = Arc::new(self.contacts.rebind_candidate(proof, budget, cancel)?);
+        let edges = contacts.edges.clone();
+        let reservation = budget.reserve(self.bytes).ok_or(SurfaceError::Memory)?;
+        Ok(Self {
+            contacts,
+            edges,
+            segments: crate::surface::copy_retained(&self.segments, cancel)?,
+            paths: crate::surface::copy_retained(&self.paths, cancel)?,
+            steps: crate::surface::copy_retained(&self.steps, cancel)?,
+            bytes: self.bytes,
+            _reservation: reservation,
+        })
+    }
     pub fn contacts(&self) -> &Arc<ProjectedContacts> {
         &self.contacts
     }

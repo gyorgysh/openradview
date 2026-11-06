@@ -147,6 +147,38 @@ pub struct SourceCellGraph {
     _storage: Option<Reservation>,
 }
 impl SourceCellGraph {
+    pub(in crate::surface) fn rebind_candidate(
+        &self,
+        proof: &crate::surface::field::CellReuseProof<'_>,
+        budget: &Arc<MemoryBudget>,
+        cancel: &impl Fn() -> bool,
+    ) -> Result<Self, SurfaceError> {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        if self.cell.origin().map(|v| v as usize) != proof.origin
+            || self.field.key() != proof.old.key()
+            || self.field.revision() != proof.old.revision()
+            || !Arc::ptr_eq(self.field.source(), proof.old.source())
+            || self.state != CellGraphState::Finite
+        {
+            return Err(SurfaceError::Geometry);
+        }
+        let reservation = budget.reserve(self.bytes).ok_or(SurfaceError::Memory)?;
+        Ok(Self {
+            field: proof.new.clone(),
+            cell: self.cell,
+            factorization: self.factorization,
+            state: self.state,
+            nodes: crate::surface::copy_retained(&self.nodes, cancel)?,
+            edges: crate::surface::copy_retained(&self.edges, cancel)?,
+            halves: crate::surface::copy_retained(&self.halves, cancel)?,
+            regions: crate::surface::copy_retained(&self.regions, cancel)?,
+            bytes: self.bytes,
+            _metadata: reservation,
+            _storage: None,
+        })
+    }
     pub fn field(&self) -> &MaskField {
         &self.field
     }

@@ -53,6 +53,25 @@ pub struct ProjectedCellEdges {
     _reservation: Reservation,
 }
 impl ProjectedCellEdges {
+    pub(in crate::surface) fn rebind_candidate(
+        &self,
+        proof: &crate::surface::field::CellReuseProof<'_>,
+        budget: &Arc<MemoryBudget>,
+        cancel: &impl Fn() -> bool,
+    ) -> Result<Self, SurfaceError> {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        let chart = Arc::new(self.chart.rebind_candidate(proof, budget, cancel)?);
+        let reservation = budget.reserve(self.bytes).ok_or(SurfaceError::Memory)?;
+        Ok(Self {
+            chart,
+            edges: crate::surface::copy_retained(&self.edges, cancel)?,
+            links: crate::surface::copy_retained(&self.links, cancel)?,
+            bytes: self.bytes,
+            _reservation: reservation,
+        })
+    }
     pub fn chart(&self) -> &Arc<CellProjectionChart> {
         &self.chart
     }

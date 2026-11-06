@@ -802,9 +802,11 @@ and memory budget, it reuses overlapping cells and coordinates the new box from
 independent inputs. Across revisions it reuses only unavailable, no-interior and
 family dispositions when all eight source-cell samples match, including unknown
 and invalid samples. Those dispositions are determined before face and edge
-neighborhood collection. Candidate meshes and unresolved stages are rebuilt
-across revisions; incremental edit halos and cross-box surface continuity remain
-separate work.
+neighborhood collection. An independent candidate mesh can be reused across
+revisions only when every sample in its clipped one-cell face/edge neighborhood
+matches; its retained source chain is rebound to the current revision before
+all faces in the requested box are coordinated again. Unresolved stages rebuild.
+Cross-box surface continuity remains separate work.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

@@ -235,9 +235,9 @@ impl MaskField {
             .map(|(grid, _)| grid)
     }
     /// Reuse independent cells from the same immutable revision. Across revisions,
-    /// only pre-neighborhood graph dispositions with identical eight samples are
-    /// reused. Candidate geometry and unresolved stages are rebuilt, and face
-    /// coordination is always rerun.
+    /// pre-neighborhood graph dispositions require identical cell samples, and
+    /// candidate meshes require identical complete source neighborhoods. Rebound
+    /// meshes retain the current revision; face coordination is always rerun.
     pub fn candidate_grid_reusing(
         &self,
         origin: [usize; 3],
@@ -337,8 +337,30 @@ impl MaskField {
             ];
             let position = std::array::from_fn(|i| origin[i] + offset[i]);
             let cached = previous.and_then(|grid| grid.cell_at(position).map(|cell| (grid, cell)));
+            let mut rebound = None;
             let cached = match cached {
                 Some((old, cell)) if old.field.revision() == self.revision() => Some((old, cell)),
+                Some((
+                    old,
+                    cell @ CandidateCell {
+                        state: CandidateCellState::Candidate { mesh },
+                        ..
+                    },
+                )) => {
+                    if let Some(proof) =
+                        CellReuseProof::compare(&old.field, self, position, &cancel)?
+                    {
+                        let source = old
+                            .base_meshes
+                            .get(usize::from(mesh))
+                            .ok_or(SurfaceError::Geometry)?;
+                        rebound =
+                            Some(Arc::new(source.rebind_candidate(&proof, &budget, &cancel)?));
+                        Some((old, cell))
+                    } else {
+                        None
+                    }
+                }
                 Some((old, cell))
                     if matches!(
                         cell.state,
@@ -366,11 +388,14 @@ impl MaskField {
                 match cell.state {
                     CandidateCellState::Candidate { mesh } => {
                         let id = u16::try_from(meshes.len()).map_err(|_| SurfaceError::Limit)?;
-                        meshes.push(Arc::clone(
-                            old.base_meshes
-                                .get(usize::from(mesh))
-                                .ok_or(SurfaceError::Geometry)?,
-                        ));
+                        meshes.push(match rebound {
+                            Some(current) => current,
+                            None => Arc::clone(
+                                old.base_meshes
+                                    .get(usize::from(mesh))
+                                    .ok_or(SurfaceError::Geometry)?,
+                            ),
+                        });
                         CandidateCellState::Candidate { mesh: id }
                     }
                     state => state,

@@ -71,6 +71,25 @@ pub struct EnclosedSurfaceGraph {
     _reservation: Reservation,
 }
 impl EnclosedSurfaceGraph {
+    pub(in crate::surface) fn rebind_candidate(
+        &self,
+        proof: &crate::surface::field::CellReuseProof<'_>,
+        budget: &Arc<MemoryBudget>,
+        cancel: &impl Fn() -> bool,
+    ) -> Result<Self, SurfaceError> {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        let input = Arc::new(self.input.rebind_candidate(proof, budget, cancel)?);
+        let reservation = budget.reserve(self.bytes).ok_or(SurfaceError::Memory)?;
+        Ok(Self {
+            input,
+            vertices: crate::surface::copy_retained(&self.vertices, cancel)?,
+            facets: crate::surface::copy_retained(&self.facets, cancel)?,
+            bytes: self.bytes,
+            _reservation: reservation,
+        })
+    }
     pub fn input(&self) -> &Arc<TriangulatedPlanarGraph> {
         &self.input
     }

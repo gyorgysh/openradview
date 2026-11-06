@@ -51,6 +51,28 @@ pub struct RefinedPlanarGraph {
     _reservation: Reservation,
 }
 impl RefinedPlanarGraph {
+    pub(in crate::surface) fn rebind_candidate(
+        &self,
+        proof: &crate::surface::field::CellReuseProof<'_>,
+        budget: &Arc<MemoryBudget>,
+        cancel: &impl Fn() -> bool,
+    ) -> Result<Self, SurfaceError> {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        let input = Arc::new(self.input.rebind_candidate(proof, budget, cancel)?);
+        let reservation = budget.reserve(self.bytes).ok_or(SurfaceError::Memory)?;
+        // The subdivision contains only numeric fields and curves; it has no mask owner.
+        Ok(Self {
+            input,
+            curves: self.curves.clone(),
+            added: crate::surface::copy_retained(&self.added, cancel)?,
+            indices: crate::surface::copy_retained(&self.indices, cancel)?,
+            paths: crate::surface::copy_retained(&self.paths, cancel)?,
+            bytes: self.bytes,
+            _reservation: reservation,
+        })
+    }
     pub fn input(&self) -> &Arc<ProjectedPlanarGraph> {
         &self.input
     }

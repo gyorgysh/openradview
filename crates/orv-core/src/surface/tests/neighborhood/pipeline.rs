@@ -70,6 +70,223 @@ fn assert_same_grid(actual: &CandidateGrid, expected: &CandidateGrid) {
     }
 }
 
+fn same_neighbor_samples(old: &MaskField, new: &MaskField, lower: [usize; 3]) -> bool {
+    let dimensions = old.source().dimensions();
+    (-1isize..=2).all(|z| {
+        (-1isize..=2).all(|y| {
+            (-1isize..=2).all(|x| {
+                let mut position = [0usize; 3];
+                for (axis, delta) in [x, y, z].into_iter().enumerate() {
+                    let Some(value) = lower[axis].checked_add_signed(delta) else {
+                        return true;
+                    };
+                    if value >= dimensions[axis] {
+                        return true;
+                    }
+                    position[axis] = value;
+                }
+                old.sample(position) == new.sample(position)
+            })
+        })
+    })
+}
+
+#[test]
+fn source_graph_reads_stay_within_the_checked_neighborhood() {
+    let mut saw_incident_neighbor = false;
+    for missing in [false, true] {
+        let volume = source([5; 3], true, missing);
+        for seed in 0u32..128 {
+            let field = fractional(volume.clone(), |[x, y, z]| {
+                if seed == 0 {
+                    return if [x, y, z] == [2; 3] { 26 } else { -6 };
+                }
+                let mut hash = (x as u32).wrapping_mul(0x9e37_79b9)
+                    ^ (y as u32).wrapping_mul(0x85eb_ca6b)
+                    ^ (z as u32).wrapping_mul(0xc2b2_ae35)
+                    ^ seed.wrapping_mul(0x27d4_eb2d);
+                hash ^= hash >> 16;
+                hash = hash.wrapping_mul(0x7feb_352d);
+                hash ^= hash >> 15;
+                hash = hash.wrapping_mul(0x846c_a68b);
+                hash ^= hash >> 16;
+                if hash & 1 == 0 { 26 } else { -6 }
+            });
+            let (_, reads) = crate::surface::field::capture_field_reads(|| {
+                field.cell_graph([2; 3], CellGraphLimits::default(), || false)
+            });
+            assert!(!reads.is_empty());
+            for point in reads {
+                assert!(
+                    point.into_iter().all(|v| (1..=4).contains(&v)),
+                    "seed {seed}: {point:?}"
+                );
+                saw_incident_neighbor |= point.into_iter().any(|v| v == 1 || v == 4);
+            }
+        }
+    }
+    assert!(
+        saw_incident_neighbor,
+        "fixture must exercise face and incident-edge reads"
+    );
+}
+
+#[test]
+fn single_voxel_edits_only_reuse_candidates_outside_the_source_neighborhood() {
+    use crate::labels::{BrushAction, BrushShape, PhysicalBrush};
+    let volume = source([6; 3], true, false);
+    let map = labels(volume.clone(), |p| u8::from(p == [2, 2, 2]));
+    let original = MaskField::new(MaskOwner::Manual(map.clone()), 1).unwrap();
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let old = original
+        .candidate_grid_with_budget([2; 3], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    assert_eq!(old.meshes().len(), 1);
+    for z in 0..6 {
+        for y in 0..6 {
+            for x in 0..6 {
+                let voxel = [x, y, z];
+                let settings = PhysicalBrush {
+                    label: 1,
+                    action: if voxel == [2; 3] {
+                        BrushAction::Erase
+                    } else {
+                        BrushAction::Add
+                    },
+                    radius_mm: 0.05,
+                    shape: BrushShape::Sphere,
+                    clip: None,
+                    protected_ids: [false; 256],
+                };
+                let world = volume.voxel_to_world(voxel.map(|v| v as f64));
+                let stroke = map
+                    .propose_physical_stroke(&settings, &[world], || false)
+                    .unwrap();
+                assert_eq!(stroke.summary().changed_voxels, 1, "{voxel:?}");
+                let changed =
+                    MaskField::new(MaskOwner::Manual(stroke.preview().clone()), 1).unwrap();
+                let (updated, stats) = changed
+                    .candidate_grid_reusing_with_budget(
+                        [2; 3],
+                        [1; 3],
+                        2,
+                        limits(),
+                        (Some(&old), budget.clone()),
+                        || false,
+                    )
+                    .unwrap();
+                let inside = voxel.into_iter().all(|v| (1..=4).contains(&v));
+                assert_eq!(stats.reused_cells, usize::from(!inside), "{voxel:?}");
+                let clean = changed
+                    .candidate_grid_with_budget([2; 3], [1; 3], 2, limits(), budget.clone(), || {
+                        false
+                    })
+                    .unwrap();
+                assert_same_grid(&updated, &clean);
+                for mesh in updated.meshes() {
+                    let field = mesh
+                        .input()
+                        .input()
+                        .input()
+                        .input()
+                        .input()
+                        .edges()
+                        .chart()
+                        .graph()
+                        .field();
+                    assert_eq!(field.revision(), changed.revision());
+                }
+            }
+        }
+    }
+    drop(old);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn rebound_candidate_is_atomic_and_does_not_retain_the_old_mask_owner() {
+    let volume = source([8, 3, 2], true, false);
+    let map = labels(volume, |p| u8::from(p == [0; 3]));
+    let weak_old = Arc::downgrade(&map);
+    let original = MaskField::new(MaskOwner::Manual(map.clone()), 1).unwrap();
+    let mut edited = map.try_clone(|| false).unwrap();
+    edited.paint(1, &[[6., 1.]], 1, 1, || false).unwrap();
+    let changed = MaskField::new(MaskOwner::Manual(Arc::new(edited)), 1).unwrap();
+    let budget = MemoryBudget::new(512 * 1024 * 1024);
+    let old = original
+        .candidate_grid_with_budget([0; 3], [1; 3], 2, limits(), budget.clone(), || false)
+        .unwrap();
+    assert_eq!(old.meshes().len(), 1);
+    let used = budget.used();
+    let calls = Cell::new(0usize);
+    let (sample, stats) = changed
+        .candidate_grid_reusing_with_budget(
+            [0; 3],
+            [1; 3],
+            2,
+            limits(),
+            (Some(&old), budget.clone()),
+            || {
+                calls.set(calls.get() + 1);
+                false
+            },
+        )
+        .unwrap();
+    assert_eq!(stats.reused_cells, 1);
+    let total = calls.get();
+    drop(sample);
+    assert_eq!(budget.used(), used);
+    for stop in [1, total / 2, total] {
+        let calls = Cell::new(0usize);
+        assert!(matches!(
+            changed.candidate_grid_reusing_with_budget(
+                [0; 3],
+                [1; 3],
+                2,
+                limits(),
+                (Some(&old), budget.clone()),
+                || {
+                    calls.set(calls.get() + 1);
+                    calls.get() >= stop
+                }
+            ),
+            Err(SurfaceError::Cancelled)
+        ));
+        assert_eq!(budget.used(), used);
+    }
+    budget.set_limit(used + old.referenced_bytes() + 1);
+    assert!(matches!(
+        changed.candidate_grid_reusing_with_budget(
+            [0; 3],
+            [1; 3],
+            2,
+            limits(),
+            (Some(&old), budget.clone()),
+            || false,
+        ),
+        Err(SurfaceError::Memory)
+    ));
+    assert_eq!(budget.used(), used);
+    budget.set_limit(512 * 1024 * 1024);
+    let (updated, stats) = changed
+        .candidate_grid_reusing_with_budget(
+            [0; 3],
+            [1; 3],
+            2,
+            limits(),
+            (Some(&old), budget.clone()),
+            || false,
+        )
+        .unwrap();
+    assert_eq!(stats.reused_cells, 1);
+    drop((old, original, map));
+    assert!(weak_old.upgrade().is_none());
+    assert!(budget.used() > 0);
+    assert_eq!(updated.meshes().len(), 1);
+    drop(updated);
+    assert_eq!(budget.used(), 0);
+}
+
 #[test]
 fn overlapping_grid_reuses_independent_cells_and_recoordinates_like_a_clean_build() {
     let field = fractional(source([4, 3, 2], true, false), |[x, y, z]| {
@@ -200,7 +417,7 @@ fn reuse_rejects_different_selection_source_settings_and_budget() {
 }
 
 #[test]
-fn changed_revision_reuses_only_identical_pre_neighborhood_dispositions() {
+fn changed_revision_reuses_only_identical_cell_dependencies() {
     for (missing, family) in [(false, false), (true, false), (false, true), (true, true)] {
         let volume = source([8, 3, 2], true, missing);
         let map = labels(volume, |[x, y, z]| {
@@ -229,6 +446,21 @@ fn changed_revision_reuses_only_identical_pre_neighborhood_dispositions() {
                 !old.meshes().is_empty(),
                 "the fixture needs a candidate mesh"
             );
+            assert!(
+                !old.faces().is_empty(),
+                "the fixture needs adjacent candidates"
+            );
+            assert!(
+                old.cells().iter().any(|cell| matches!(
+                    cell.state,
+                    CandidateCellState::Candidate { .. }
+                ) && !same_neighbor_samples(
+                    &before,
+                    &after,
+                    cell.origin
+                )),
+                "one adjacent candidate must rebuild"
+            );
         }
         if missing {
             assert!(old.cells().iter().any(|cell| matches!(
@@ -239,18 +471,32 @@ fn changed_revision_reuses_only_identical_pre_neighborhood_dispositions() {
         let expected_reused = old
             .cells()
             .iter()
-            .filter(|cell| {
-                matches!(
-                    cell.state,
-                    CandidateCellState::Graph(
-                        CellGraphState::Unavailable { .. }
-                            | CellGraphState::NoInteriorInterface
-                            | CellGraphState::Family { .. }
-                    )
-                ) && before.cell(cell.origin).unwrap() == after.cell(cell.origin).unwrap()
+            .filter(|cell| match cell.state {
+                CandidateCellState::Graph(
+                    CellGraphState::Unavailable { .. }
+                    | CellGraphState::NoInteriorInterface
+                    | CellGraphState::Family { .. },
+                ) => before.cell(cell.origin).unwrap() == after.cell(cell.origin).unwrap(),
+                CandidateCellState::Candidate { .. } => {
+                    same_neighbor_samples(&before, &after, cell.origin)
+                }
+                _ => false,
             })
             .count();
         assert!(expected_reused > 0 && expected_reused < old.cells().len());
+        if !family {
+            assert!(
+                old.cells().iter().any(|cell| matches!(
+                    cell.state,
+                    CandidateCellState::Candidate { .. }
+                ) && same_neighbor_samples(
+                    &before,
+                    &after,
+                    cell.origin
+                )),
+                "the fixture needs a reusable mesh"
+            );
+        }
         let (incremental, stats) = after
             .candidate_grid_reusing_with_budget(
                 [0; 3],

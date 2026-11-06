@@ -118,6 +118,21 @@ fn allocated<T>(count: usize) -> Result<Vec<T>, SurfaceError> {
         .map_err(|_| SurfaceError::Memory)?;
     Ok(values)
 }
+// Callers reserve the retained storage before copying. Chunking keeps large
+// immutable geometry copies cancellable without admitting an unbounded buffer.
+fn copy_retained<T: Copy>(input: &[T], cancel: &impl Fn() -> bool) -> Result<Vec<T>, SurfaceError> {
+    let mut output = allocated(input.len())?;
+    if output.capacity() != input.len() {
+        return Err(SurfaceError::Memory);
+    }
+    for chunk in input.chunks(1024) {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        output.extend_from_slice(chunk);
+    }
+    Ok(output)
+}
 fn chunk_bytes(faces: usize) -> u64 {
     if faces == 0 {
         0

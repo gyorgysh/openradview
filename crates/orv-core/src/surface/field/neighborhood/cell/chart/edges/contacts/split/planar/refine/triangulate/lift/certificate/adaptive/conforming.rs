@@ -163,6 +163,33 @@ pub struct ConformingSurfaceMesh {
     _reservation: Reservation,
 }
 impl ConformingSurfaceMesh {
+    pub(in crate::surface) fn rebind_candidate(
+        &self,
+        proof: &crate::surface::field::CellReuseProof<'_>,
+        budget: &Arc<MemoryBudget>,
+        cancel: &impl Fn() -> bool,
+    ) -> Result<Self, SurfaceError> {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        // Coordinated meshes can depend on neighbors beyond this proof's box.
+        if self.lineage.is_some() || self.lineage_depth != 0 || !self.seam_points.is_empty() {
+            return Err(SurfaceError::Geometry);
+        }
+        let input = Arc::new(self.input.rebind_candidate(proof, budget, cancel)?);
+        let reservation = budget.reserve(self.bytes).ok_or(SurfaceError::Memory)?;
+        Ok(Self {
+            input,
+            seam_points: Vec::new(),
+            lineage: None,
+            lineage_depth: 0,
+            criterion: self.criterion,
+            vertices: crate::surface::copy_retained(&self.vertices, cancel)?,
+            triangles: crate::surface::copy_retained(&self.triangles, cancel)?,
+            bytes: self.bytes,
+            _reservation: reservation,
+        })
+    }
     pub const POSITION_DENOMINATOR: u32 = REFINED_GRID;
     pub fn input(&self) -> &Arc<EnclosedSurfaceGraph> {
         &self.input

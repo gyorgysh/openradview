@@ -57,6 +57,26 @@ pub struct ProjectedPlanarGraph {
     _reservation: Reservation,
 }
 impl ProjectedPlanarGraph {
+    pub(in crate::surface) fn rebind_candidate(
+        &self,
+        proof: &crate::surface::field::CellReuseProof<'_>,
+        budget: &Arc<MemoryBudget>,
+        cancel: &impl Fn() -> bool,
+    ) -> Result<Self, SurfaceError> {
+        if cancel() {
+            return Err(SurfaceError::Cancelled);
+        }
+        let input = Arc::new(self.input.rebind_candidate(proof, budget, cancel)?);
+        let reservation = budget.reserve(self.bytes).ok_or(SurfaceError::Memory)?;
+        Ok(Self {
+            input,
+            edges: crate::surface::copy_retained(&self.edges, cancel)?,
+            halves: crate::surface::copy_retained(&self.halves, cancel)?,
+            regions: crate::surface::copy_retained(&self.regions, cancel)?,
+            bytes: self.bytes,
+            _reservation: reservation,
+        })
+    }
     pub fn input(&self) -> &Arc<SplitProjectedConstraints> {
         &self.input
     }
