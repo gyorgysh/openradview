@@ -282,7 +282,8 @@ fn bytes(edges: usize, segments: usize, steps: usize) -> Result<u64, SurfaceErro
     ]
     .into_iter()
     .try_fold(
-        std::mem::size_of::<SplitProjectedConstraints>(),
+        std::mem::size_of::<SplitProjectedConstraints>()
+            + crate::surface::shared_header_bytes::<SplitProjectedConstraints>(),
         |sum, (n, size)| {
             n.checked_mul(size)
                 .and_then(|n| sum.checked_add(n))

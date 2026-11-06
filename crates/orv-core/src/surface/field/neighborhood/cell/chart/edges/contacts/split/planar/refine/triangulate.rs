@@ -441,7 +441,8 @@ impl RefinedPlanarGraph {
         let expected = process(self, &directory, limits, &cancel, |_| Ok(()))?;
         let bytes = size(
             &[(expected, std::mem::size_of::<PlanarTriangle>())],
-            std::mem::size_of::<TriangulatedPlanarGraph>(),
+            std::mem::size_of::<TriangulatedPlanarGraph>()
+                + crate::surface::shared_header_bytes::<TriangulatedPlanarGraph>(),
         )?;
         if bytes > limits.max_bytes {
             return Err(SurfaceError::Limit);

@@ -786,6 +786,16 @@ or memory refusal returns no partial batch. Bounded rounds, visits, updates and
 other resource limits can stop coordination before convergence. Matching
 represented candidate edges does not certify noncandidate strata, unlisted
 neighbors or a complete surface.
+`MaskField::candidate_grid` connects source-cell graph construction, charting,
+planar constraints, triangulation, enclosure, physical refinement and face
+coordination over an explicit box of at most 256 cells. Each cell retains its
+source origin and either a candidate mesh index, a nonfinite graph disposition,
+or the stage and reason that prevented construction. Face coordination reports
+its own unresolved results; a coordination limit retains the uncoordinated
+candidates. Cancellation or memory refusal publishes no partial grid. The source
+and every shared intermediate retain their own memory admission, including the
+aligned shared-reference header, so a cloned mesh can outlive the grid. A box
+with no produced candidates does not imply an empty or complete surface.
 
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,

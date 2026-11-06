@@ -413,7 +413,8 @@ impl EnclosedSurfaceGraph {
                     std::mem::size_of::<ConformingTriangle>(),
                 ),
             ],
-            std::mem::size_of::<ConformingSurfaceMesh>(),
+            std::mem::size_of::<ConformingSurfaceMesh>()
+                + crate::surface::shared_header_bytes::<ConformingSurfaceMesh>(),
         )?;
         if bytes > limits.max_bytes {
             return Err(SurfaceError::Limit);

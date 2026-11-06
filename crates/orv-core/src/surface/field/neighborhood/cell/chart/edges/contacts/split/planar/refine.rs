@@ -143,7 +143,8 @@ fn bytes(vertices: usize, indices: usize, edges: usize) -> Result<u64, SurfaceEr
             (indices, std::mem::size_of::<u32>()),
             (edges, std::mem::size_of::<Path>()),
         ],
-        std::mem::size_of::<RefinedPlanarGraph>(),
+        std::mem::size_of::<RefinedPlanarGraph>()
+            + crate::surface::shared_header_bytes::<RefinedPlanarGraph>(),
     )
 }
 fn node(chart: &JointSubdivision, id: u8) -> Result<[ExactCoordinate; 2], SurfaceError> {

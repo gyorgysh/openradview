@@ -220,7 +220,12 @@ fn retained_bytes(edges: usize, links: usize) -> Result<u64, SurfaceError> {
                 .checked_mul(std::mem::size_of::<ChartEdgeStep>())
                 .and_then(|m| n.checked_add(m))
         })
-        .and_then(|n| n.checked_add(std::mem::size_of::<ProjectedCellEdges>()))
+        .and_then(|n| {
+            n.checked_add(
+                std::mem::size_of::<ProjectedCellEdges>()
+                    + crate::surface::shared_header_bytes::<ProjectedCellEdges>(),
+            )
+        })
         .and_then(|n| u64::try_from(n).ok())
         .ok_or(SurfaceError::Limit)
 }

@@ -5,6 +5,7 @@
 mod critical;
 mod factor;
 mod neighborhood;
+mod pipeline;
 use crate::{
     mask::{MaskKey, MaskOwner, MaskRevision},
     volume::Volume,
@@ -42,6 +43,10 @@ pub use neighborhood::{
     SplitSegment, SplitStep, SurfaceEnclosureLimits, SurfaceFacetCertificate,
     TriangulatedPlanarGraph, WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch,
     ZeroFacePhase, ZeroFaceSample,
+};
+pub use pipeline::{
+    CandidateCell, CandidateCellState, CandidateGrid, CandidateGridLimits, GridCoordination,
+    PipelineStage,
 };
 use std::sync::Arc;
 

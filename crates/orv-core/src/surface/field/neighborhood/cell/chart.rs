@@ -71,7 +71,7 @@ impl CellProjectionChart {
         &self.subdivision
     }
     pub fn referenced_bytes(&self) -> u64 {
-        std::mem::size_of::<Self>() as u64
+        (std::mem::size_of::<Self>() + crate::surface::shared_header_bytes::<Self>()) as u64
     }
     /// Enclose the exact zero height even for unrelated irrational chart
     /// coordinates. Whole fibers retain all heights. Bounds are local lattice
@@ -238,7 +238,9 @@ impl SourceCellGraph {
         if count > JointSubdivision::MAX_INSERTIONS {
             return Err(SurfaceError::Limit);
         }
-        let metadata = std::mem::size_of::<CellProjectionChart>() as u64;
+        let metadata = (std::mem::size_of::<CellProjectionChart>()
+            + crate::surface::shared_header_bytes::<CellProjectionChart>())
+            as u64;
         let reservation = budget.reserve(metadata).ok_or(SurfaceError::Memory)?;
         let scratch =
             std::mem::size_of::<[[ExactCoordinate; 2]; JointSubdivision::MAX_INSERTIONS]>() as u64;

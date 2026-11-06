@@ -270,7 +270,8 @@ impl AppliedFacePair {
                     ),
                     (counts[side], std::mem::size_of::<FaceSeamCoordinate>()),
                 ],
-                std::mem::size_of::<ConformingSurfaceMesh>() + 2 * std::mem::size_of::<usize>(),
+                std::mem::size_of::<ConformingSurfaceMesh>()
+                    + crate::surface::shared_header_bytes::<ConformingSurfaceMesh>(),
             )?;
         }
         if bytes[0].checked_add(bytes[1]).ok_or(SurfaceError::Limit)? > limits.max_bytes {

@@ -194,7 +194,8 @@ impl TriangulatedPlanarGraph {
                     std::mem::size_of::<BoundedSurfaceFacet>(),
                 ),
             ],
-            std::mem::size_of::<EnclosedSurfaceGraph>(),
+            std::mem::size_of::<EnclosedSurfaceGraph>()
+                + crate::surface::shared_header_bytes::<EnclosedSurfaceGraph>(),
         )?;
         if bytes > limits.max_bytes {
             return Err(SurfaceError::Limit);

@@ -3,6 +3,7 @@ use super::*;
 use crate::surface::field::*;
 use std::{cell::Cell, collections::BTreeMap};
 mod cell;
+mod pipeline;
 mod zero_face;
 
 fn transverse(axis: usize) -> [usize; 2] {

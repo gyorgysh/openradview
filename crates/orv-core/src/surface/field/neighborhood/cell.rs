@@ -250,7 +250,9 @@ impl MaskField {
             return Err(SurfaceError::Limit);
         }
         let cell = self.cell(lower).map_err(error)?;
-        let metadata = std::mem::size_of::<SourceCellGraph>() as u64;
+        let metadata = (std::mem::size_of::<SourceCellGraph>()
+            + crate::surface::shared_header_bytes::<SourceCellGraph>())
+            as u64;
         if metadata > limits.max_bytes {
             return Err(SurfaceError::Limit);
         }

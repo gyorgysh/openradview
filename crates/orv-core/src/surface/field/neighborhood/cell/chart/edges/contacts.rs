@@ -239,7 +239,12 @@ impl ProjectedCellEdges {
         })?;
         let bytes = count
             .checked_mul(std::mem::size_of::<ProjectedContact>())
-            .and_then(|n| n.checked_add(std::mem::size_of::<ProjectedContacts>()))
+            .and_then(|n| {
+                n.checked_add(
+                    std::mem::size_of::<ProjectedContacts>()
+                        + crate::surface::shared_header_bytes::<ProjectedContacts>(),
+                )
+            })
             .and_then(|n| u64::try_from(n).ok())
             .ok_or(SurfaceError::Limit)?;
         if bytes > MAX_BYTES {

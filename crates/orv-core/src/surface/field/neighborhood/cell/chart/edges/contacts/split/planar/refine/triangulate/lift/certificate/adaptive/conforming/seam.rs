@@ -606,7 +606,8 @@ impl ConformingSurfaceMesh {
                     std::mem::size_of::<FacePartitionSpan>(),
                 ),
             ],
-            std::mem::size_of::<SharedFacePartition>() + 2 * std::mem::size_of::<usize>(),
+            std::mem::size_of::<SharedFacePartition>()
+                + crate::surface::shared_header_bytes::<SharedFacePartition>(),
         )?;
         if bytes > limits.max_bytes {
             return Err(SurfaceError::Limit);

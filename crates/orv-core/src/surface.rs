@@ -23,6 +23,20 @@ pub const MAX_CHUNKS: usize = 65536;
 pub const MAX_FACES: usize = 2 * 1024 * 1024;
 pub const MAX_BYTES: u64 = 128 * 1024 * 1024;
 
+// Arc stores two counters before the value, with padding to the value's alignment.
+// Some constructors are used both by value and inside Arc; charging the header
+// conservatively keeps a later shared owner admitted after its caller is dropped.
+fn shared_header_bytes<T>() -> usize {
+    let header = 2 * std::mem::size_of::<usize>();
+    let align = std::mem::align_of::<T>();
+    let remainder = header % align;
+    if remainder == 0 {
+        header
+    } else {
+        header + align - remainder
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SurfaceError {
     Selection,

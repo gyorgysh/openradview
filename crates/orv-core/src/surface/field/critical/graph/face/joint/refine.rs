@@ -82,7 +82,8 @@ fn bytes(vertices: usize, indices: usize, cuts: usize) -> Result<u64, SurfaceErr
         (cuts, std::mem::size_of::<ExactCoordinate>()),
     ];
     let size = arrays.into_iter().try_fold(
-        std::mem::size_of::<RefinedJointSubdivision>(),
+        std::mem::size_of::<RefinedJointSubdivision>()
+            + crate::surface::shared_header_bytes::<RefinedJointSubdivision>(),
         |sum, (count, size)| {
             count
                 .checked_mul(size)

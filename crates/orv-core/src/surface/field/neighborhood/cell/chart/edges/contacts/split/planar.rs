@@ -199,7 +199,8 @@ impl SplitProjectedConstraints {
                 (half_count, std::mem::size_of::<PlanarHalfEdge>()),
                 (half_count, std::mem::size_of::<PlanarRegion>()),
             ],
-            std::mem::size_of::<ProjectedPlanarGraph>(),
+            std::mem::size_of::<ProjectedPlanarGraph>()
+                + crate::surface::shared_header_bytes::<ProjectedPlanarGraph>(),
         )?;
         if output > MAX_BYTES {
             return Err(SurfaceError::Limit);

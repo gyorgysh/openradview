@@ -11,6 +11,30 @@ use crate::{
     vector::*,
 };
 use std::collections::BTreeSet;
+
+#[test]
+fn shared_header_admission_includes_value_alignment() {
+    #[repr(C)]
+    struct SharedLayout<T> {
+        strong: std::sync::atomic::AtomicUsize,
+        weak: std::sync::atomic::AtomicUsize,
+        value: T,
+    }
+    #[repr(align(32))]
+    struct Aligned;
+    assert_eq!(
+        shared_header_bytes::<u8>(),
+        std::mem::offset_of!(SharedLayout<u8>, value)
+    );
+    assert_eq!(
+        shared_header_bytes::<u128>(),
+        std::mem::offset_of!(SharedLayout<u128>, value)
+    );
+    assert_eq!(
+        shared_header_bytes::<Aligned>(),
+        std::mem::offset_of!(SharedLayout<Aligned>, value)
+    );
+}
 fn source(dimensions: [usize; 3], shear: bool, missing: bool) -> Arc<Volume> {
     let template = demo_study().series.remove(0).frames.remove(0);
     let [w, h, d] = dimensions;
