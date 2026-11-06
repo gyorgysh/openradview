@@ -561,6 +561,23 @@ truncation or allocation. Floating coordinates never select equality or order.
 This comparison is a prerequisite for shared insertion unions, not an assembled
 face contour or a seam-free mesh by itself.
 
+Coordinate forms admit coefficients through 2^22 for a checked graph transfer.
+Root coefficients remain bounded by 2^20. Rationalization gives magnitudes below
+2^89 for the numerator constant and positive denominator and below 2^67 for the
+radical coefficient. Cross-field ordering fits 720 bits. Same-field arithmetic
+retains checked i128 coefficients and the existing 256-bit squared comparison,
+including mixed retained i64/u64 rational coordinates. Polynomial coefficient
+limits remain separate from coordinate-form limits.
+
+`Bilinear::zero_slice` fixes u or v and returns an exact zero point, an entire
+zero line or no intersection within the closed square. Rational evaluation uses
+checked retained ratios; out-of-square zeros need no materialized ratio. An
+irrational input must retain forms bounded by 2040. One graph transfer produces
+forms of magnitude at most 3121200, within 2^22; an oversized subsequent input is
+refused. This supplies shared slice coordinates for future coordinated curve
+refinement without rounding intersections or replacing whole lines by points.
+It does not itself construct a shared adaptive partition or mesh.
+
 `Bilinear::arrangement` joins its exact boundary zeros and a bounded union of
 inserted points. It retains isolated zero corners, entire zero edges, singular
 crosses and whole zero faces. Hyperbola branches are separated by their exact
@@ -577,7 +594,7 @@ was visited first. Representation ordering never decides numerical equality.
 
 Every insertion must satisfy the exact bilinear equation. Its sign evaluation
 handles products of coordinates from unrelated quadratic fields using fixed
-checked arithmetic; the final comparison fits 592 bits. Zero contours admit 80
+checked arithmetic; the final comparison fits 768 bits. Zero contours admit 80
 raw insertions and produce at most 85 nodes and 85 segments, without per-face
 heap allocation. The common fixed arena also holds four extra domain corners
 for plane subdivision. Whole zero faces remain two-dimensional, with retained
@@ -667,7 +684,8 @@ Outgoing rays use sign octants, gradient cross products within one octant and an
 exact quadratic curvature comparison at equal-tangent contacts. This orders both
 sides of a tangency without floating angles or regularization. A separate bounded
 polynomial predicate admits derivative-cross coefficients up to 2^20 within the
-existing 1024-bit arithmetic; coordinate forms retain their 2040 limit. Closed
+existing 1024-bit arithmetic; its widened-coordinate comparison fits 808 bits.
+The ordinary polynomial limit remains 2040. Closed
 face-left loops carry both strict interior signs, with zero reserved for a whole
 zero field. An arc between two common zeros uses its eliminant's quadratic term
 to determine the other field's open-arc sign, without an approximate midpoint.
@@ -714,6 +732,10 @@ squaring; each level removes one radical, so depth is at most six. Dependent
 radicals and exact collinearity need no floating tolerance or factorization.
 Checked fixed-width signed integers use derived widths up to 65,536 bits; the
 coefficient pool is separately admitted and released. Overflow is an error.
+With the widened coordinate forms, a determinant's weighted coefficients are
+bounded by `541+22*k` bits for k radical fields. Each elimination updates the
+bound to `2*b+k+2`. The dispatch uses 16, 32, 64, 128, 256, 512 and 1024 limbs for
+zero through six fields, covering the largest 43,519-bit bound.
 
 The worker counts `n-2` triangles per region and two per isolated interior point
 before allocating. Output IDs are counterclockwise and retain region identity;

@@ -3,7 +3,7 @@ use super::super::tests::{coord, positive_root, rational};
 use super::*;
 
 #[test]
-fn bounded_derivative_cross_signs_keep_the_original_coordinate_form_limit() {
+fn bounded_derivative_cross_signs_keep_the_original_polynomial_limit() {
     let u = coord(positive_root(2, 0, -1), [0, 1], [1, 0]);
     let v = coord(positive_root(3, 0, -1), [0, 1], [1, 0]);
     let m = MAX_COEFFICIENT as i32;
@@ -19,6 +19,61 @@ fn bounded_derivative_cross_signs_keep_the_original_coordinate_form_limit() {
         Err(FieldError::Arithmetic)
     );
     assert_eq!(bounded_bilinear_sign([2041, 0, 0, 0], [u, v]), Ok(1));
+}
+
+#[test]
+fn widened_coordinate_forms_keep_same_field_cross_field_and_polynomial_signs_exact() {
+    let m = MAX_FORM as i32;
+    let root = positive_root((1 << 20) - 1, (1 << 20) - 2, -((1 << 20) - 3));
+    let x = coord(root, [0, m], [m, 0]);
+    let complement = coord(root, [m, -m], [m, 0]);
+    let huge = rational(i64::MAX, u64::MAX.into());
+    assert_eq!(x.compare_same_field(huge), Ok(Ordering::Greater));
+    assert_eq!(complement.compare_same_field(huge), Ok(Ordering::Less));
+    assert_eq!(bilinear_sign([-1, 1, 1, 0], [x, complement]), Ok(0));
+    assert_eq!(
+        bounded_bilinear_sign([-(1 << 20), 1 << 20, 1 << 20, 0], [x, complement]),
+        Ok(0)
+    );
+    // 275807²-2*195025²=-1. These expressions represent the same small
+    // positive value, with a195025-fold difference in their radical scale.
+    let small = coord(positive_root(1, 551614, -1), [0, m], [m, 0]);
+    let equivalent = coord(positive_root(2, 0, -1), [-275807, 390050], [1, 0]);
+    assert_eq!(small.compare_same_field(equivalent), Ok(Ordering::Equal));
+    assert_eq!(bilinear_sign([0, 1, -1, 0], [small, equivalent]), Ok(0));
+    assert_eq!(small.compare_same_field(huge), Ok(Ordering::Less));
+    assert!((0. ..0.00001).contains(&small.approximate().unwrap()));
+    let mut values = Vec::new();
+    for i in 0..24i32 {
+        let root = positive_root((1 << 20) - 1 - i64::from(i), 37, -117);
+        values.push(coord(root, [m / (i + 2), m / 3], [m - 1, m - 3]));
+    }
+    for (i, a) in values.iter().copied().enumerate() {
+        assert_eq!(a.compare(a), Ok(Ordering::Equal));
+        for b in values.iter().copied().skip(i + 1) {
+            assert_eq!(a.compare(b), Ok(independent_order(a, b).unwrap()));
+            assert_eq!(a.compare(b).unwrap(), b.compare(a).unwrap().reverse());
+            assert_eq!(bilinear_sign([2040, -2040, -2040, 2040], [a, b]), Ok(1));
+            assert_eq!(
+                bounded_bilinear_sign([1 << 20, -(1 << 20), -(1 << 20), 1 << 20], [a, b]),
+                Ok(1)
+            );
+        }
+    }
+    assert!(
+        ExactCoordinate::unit(
+            root,
+            Linear {
+                constant: 0,
+                slope: m + 1
+            },
+            Linear {
+                constant: m,
+                slope: 0
+            }
+        )
+        .is_err()
+    );
 }
 
 #[test]

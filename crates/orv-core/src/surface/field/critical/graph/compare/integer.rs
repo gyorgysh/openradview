@@ -3,20 +3,19 @@
 use super::*;
 
 const LIMBS: usize = 16;
-// Root coefficients <=2^20 give d<2^43. Original linear forms have rational
-// coefficients <2^33 and radical coefficients <2^11. Rationalization therefore
-// gives |P|,R<2^67 and |Q|<2^45. Cross-coordinate coefficients satisfy
-// |A|<2^135, |B|,|C|<2^112. The final sign test squares a term <2^272,
-// fitting in 544 bits. 1024 bits also cover unreduced rational inputs
-// (i64/u64) and leave arithmetic failure explicit instead of truncating it.
+// Root coefficients <=2^20 give d<2^43. Linear forms <=2^22 have rational
+// coefficients <2^44 and radical coefficients <=2^22. Rationalization gives
+// |P|,R<2^89 and |Q|<2^67, also covering retained i64/u64 rationals.
+// Cross-coordinate coefficients satisfy |A|<2^179, |B|,|C|<2^156.
+// Opposing-term squaring leaves a rational coefficient <2^360; its final
+// squared sign comparison fits720bits, without truncation.
 // A bilinear sign with coefficients <2^11 has numerator
-// (L+M sqrt(d))+(N+O sqrt(d))*sqrt(e), where |L|<2^147,
-// |M|,|N|<2^124, |O|<2^101. Opposing-term squaring gives a rational
-// coefficient <2^296 and a radical coefficient <2^273. The final squared
-// comparison fits592bits, also within this fixed width.
+// (L+M sqrt(d))+(N+O sqrt(d))*sqrt(e), where |L|<2^191,
+// |M|,|N|<2^168, |O|<2^145. Opposing-term squaring gives a rational
+// coefficient <2^384 and a radical coefficient <2^361. The final squared
+// comparison fits768bits, also within this fixed width.
 // Allowing polynomial coefficients <=2^20 adds at most10bits to L/M/N/O
-// and40bits to the final comparison, still below640bits. Coordinate forms
-// and their rationalization bounds remain unchanged.
+// and40bits to the final comparison, fitting808bits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct FixedInteger<const N: usize> {
     limbs: [u64; N],

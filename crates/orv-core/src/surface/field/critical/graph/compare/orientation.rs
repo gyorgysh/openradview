@@ -56,8 +56,8 @@ pub(crate) fn orientation(
         };
         *output = Form { p, q, r, field };
     }
-    // Rationalized magnitudes are <2^67, and sqrt(d)<2^22. Clearing the six
-    // positive denominators gives weighted coefficients <2^(409+22*k).
+    // Rationalized magnitudes are <2^89, and sqrt(d)<2^22. Clearing the six
+    // positive denominators gives weighted coefficients <2^(541+22*k).
     // Eliminating one radical squares and sums at most2^k products: the bound
     // becomes2*b+k+2. These widths cover all k<=6, including dependent fields.
     match count {
@@ -66,10 +66,10 @@ pub(crate) fn orientation(
             coefficients(&forms, &fields, &mut coefficient, cancel)?;
             Ok(coefficient[0].sign())
         }
-        1 => evaluate::<16>(&forms, &fields[..count], budget, cancel),
-        2 => evaluate::<32>(&forms, &fields[..count], budget, cancel),
-        3 => evaluate::<64>(&forms, &fields[..count], budget, cancel),
-        4 => evaluate::<128>(&forms, &fields[..count], budget, cancel),
+        1 => evaluate::<32>(&forms, &fields[..count], budget, cancel),
+        2 => evaluate::<64>(&forms, &fields[..count], budget, cancel),
+        3 => evaluate::<128>(&forms, &fields[..count], budget, cancel),
+        4 => evaluate::<256>(&forms, &fields[..count], budget, cancel),
         5 => evaluate::<512>(&forms, &fields[..count], budget, cancel),
         _ => evaluate::<1024>(&forms, &fields[..count], budget, cancel),
     }

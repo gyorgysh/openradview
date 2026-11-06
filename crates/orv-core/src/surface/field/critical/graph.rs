@@ -7,13 +7,16 @@ mod compare;
 mod face;
 mod wide;
 pub use face::{
-    BilinearIntersections, CommonZero, ContourNode, ContourSegment, FaceArrangement,
+    BilinearIntersections, BilinearSlice, CommonZero, ContourNode, ContourSegment, FaceArrangement,
     IntersectionContact, IntersectionPoint, JointEdge, JointRegion, JointSubdivision,
     PatchHalfEdge, PatchRegion, PlaneSubdivision, RefinedSubdivision, RefinementLimits,
     RegionTriangle, SubdivisionEdge, TriangulatedSubdivision, TriangulationLimits,
 };
 use wide::radical_sign;
-const MAX_FORM: u32 = 2040;
+// Original source expressions and polynomial signs retain their own narrow bound.
+// One graph evaluation of an original expression needs at most3121200 per form.
+const SOURCE_FORM: u32 = 2040;
+const MAX_FORM: u32 = 1 << 22;
 const MAX_LINES: usize = 6;
 const MAX_NODES: usize = 18;
 const MAX_EDGES: usize = MAX_LINES * (MAX_NODES - 1);
@@ -121,6 +124,10 @@ impl ExactCoordinate {
         let d = common_radicand(left_d, right_d);
         let (a, b) = self.forms(left, d)?;
         let (c, e) = other.forms(right, d)?;
+        // Reduced-radical factors cancel against the common radicand in b1*e1*d:
+        // its magnitude is bounded by the original sqrt(d_left*d_right). Thus
+        // these sums fit i128 with <=2^22 forms. The final squared comparison
+        // fits256bits, including a retained64-bit rational on either side.
         let p = sum([
             product(a.0, e.0)?,
             product(a.1, e.1)?

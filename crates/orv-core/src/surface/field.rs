@@ -10,9 +10,9 @@ use crate::{
     volume::Volume,
 };
 pub use critical::{
-    AlgebraicRoot, AnchorLine, BilinearIntersections, CommonZero, ContourNode, ContourSegment,
-    CriticalGraph, ExactCoordinate, FaceArrangement, FaceInteriorLimit, GraphEdge, GraphNode,
-    IntersectionContact, IntersectionPoint, JointEdge, JointRegion, JointSubdivision,
+    AlgebraicRoot, AnchorLine, BilinearIntersections, BilinearSlice, CommonZero, ContourNode,
+    ContourSegment, CriticalGraph, ExactCoordinate, FaceArrangement, FaceInteriorLimit, GraphEdge,
+    GraphNode, IntersectionContact, IntersectionPoint, JointEdge, JointRegion, JointSubdivision,
     LimitContours, PatchHalfEdge, PatchRegion, PlaneSubdivision, ProjectionAnalysis,
     ProjectionPoint, RefinedSubdivision, RefinementLimits, RegionTriangle, SubdivisionEdge,
     TriangulatedSubdivision, TriangulationLimits, WholeSection,

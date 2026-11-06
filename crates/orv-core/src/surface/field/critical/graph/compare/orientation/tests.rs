@@ -6,6 +6,35 @@ use std::cell::Cell;
 fn root(n: i64) -> ExactCoordinate {
     coord(positive_root(n, 0, -1), [0, 1], [1, 0])
 }
+
+#[test]
+fn large_coordinate_forms_keep_every_radical_dispatch_and_turn_orientation() {
+    let budget = MemoryBudget::new(2 * 1024 * 1024);
+    let m = MAX_FORM as i32;
+    for count in 1..=6 {
+        let mut points = [[rational(0, 1); 2]; 3];
+        for (i, value) in points.iter_mut().flatten().enumerate() {
+            let field = i % count;
+            let root = positive_root(
+                (1 << 20) - 1 - field as i64,
+                (1 << 20) - 3,
+                -((1 << 20) - 5),
+            );
+            *value = coord(
+                root,
+                [m / (i as i32 + 2), m / (i as i32 + 3)],
+                [m - 1, m - 3],
+            );
+        }
+        let expected =
+            independent(points).expect("Independent dyadic enclosures separate the turn");
+        let [a, b, c] = points;
+        for (points, sign) in [([a, b, c], 1), ([a, c, b], -1), ([b, c, a], 1)] {
+            assert_eq!(orientation(points, &budget, &|| false), Ok(sign * expected));
+            assert_eq!(budget.used(), 0);
+        }
+    }
+}
 fn independent(points: [[ExactCoordinate; 2]; 3]) -> Option<i8> {
     let mut values = [[[0i128; 2]; 2]; 3];
     let grid = 1i128 << 24;
