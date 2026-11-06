@@ -662,6 +662,25 @@ and exposes each region's selected-phase classification. Unknown or outside
 neighbors leave the result unavailable, without inventing a cap. Region data
 does not grant source-edit authority or settle finite-grid closure.
 
+`SourceFace::zero_mesh` retains the original mask/source/revision, global face key,
+known incident cells and the completed two-field triangulation. The complete
+geometry includes interior regions for constraint inspection. A separate patch
+iterator omits those regions, winds interfaces toward their signed lattice-axis
+normal and marks zero-thickness sheets for two-sided rendering. Ascending
+transverse coordinates require a winding reversal on axis1. This orientation is
+in source-lattice space; physical-affine conversion and GPU quantization remain
+separate gates. Neither triangle IDs nor phase labels grant source-edit authority.
+
+Provenance metadata, fixed subdivision preparation and both retained geometry
+stages use shared volume admission. The completed byte count excludes shared
+source/mask buffers and temporary preparation. Patches add no allocated triangle
+copy. Refinement and triangulation keep their own limits; failure or cancellation
+releases unpublished work and preserves prior owners. Unproved zero faces and
+outside/unavailable incident cells return no mesh before geometry admission,
+without a closing cap. An admitted face with only interior regions instead has
+a complete mesh and zero drawable patches. Whole-grid connectivity and a shared
+boundary-path union across neighboring patches are still required.
+
 `Bilinear::subdivision` retains the complete square boundary alongside one
 bilinear zero set. Nonzero boundary points are accepted; contour insertions still
 require exact zero membership. Coincident zero/boundary edges merge, singular
@@ -774,8 +793,8 @@ all shared constraint edges use the same completed vertex path. Scratch and
 additional retained triangles are admitted separately from the immutable input.
 Limits are 131,072 triangles and 16 MiB of additional retained typed storage;
 callers may lower them. Failure or cancellation publishes nothing and preserves
-prior owners. These are unit-square face meshes. Source-owned assembly, full
-trilinear surface connectivity, finite-grid closure and GPU conversion remain
+prior owners. These are unit-square face meshes. Whole-grid source-owned assembly,
+full trilinear surface connectivity, finite-grid closure and GPU conversion remain
 separate gates.
 
 `Trilinear::phase` uses the inclusive F>=0 level, matching retained fractional

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Incident inward fields and selected-phase classification on a zero face.
 use super::*;
+mod mesh;
+pub use mesh::{ZeroFaceMesh, ZeroFacePatch};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ZeroFacePhase {

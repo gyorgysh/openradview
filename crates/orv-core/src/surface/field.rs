@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Exact mask-field inputs and local interpolation tests for derived geometry.
-//! These primitives neither extract a mesh nor establish 3D connectivity or edit
-//! authority. Critical faces remain explicit until a shared regularization exists.
+//! Exact mask fields and local derived geometry. Local face meshes do not establish
+//! a conforming whole-grid surface, 3D connectivity or edit authority. Critical
+//! strata remain explicit.
 mod critical;
 mod factor;
 mod neighborhood;
@@ -23,7 +23,7 @@ pub use factor::{
 };
 pub use neighborhood::{
     CellNeighborhood, EdgePartition, EdgePoint, NeighborhoodCell, SourceFace, WholeZeroFace,
-    WholeZeroSubdivision, ZeroFacePhase, ZeroFaceSample,
+    WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
 };
 use std::sync::Arc;
 

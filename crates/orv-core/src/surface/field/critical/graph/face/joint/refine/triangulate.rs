@@ -63,7 +63,7 @@ impl RefinedJointSubdivision {
     ) -> Result<TriangulatedJointSubdivision, SurfaceError> {
         self.triangulate_with_budget(limits, MemoryBudget::volumes(), cancel)
     }
-    fn triangulate_with_budget(
+    pub(in crate::surface::field) fn triangulate_with_budget(
         self: &Arc<Self>,
         limits: TriangulationLimits,
         budget: Arc<MemoryBudget>,

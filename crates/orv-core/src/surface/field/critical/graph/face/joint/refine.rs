@@ -349,7 +349,7 @@ impl JointSubdivision {
     ) -> Result<RefinedJointSubdivision, SurfaceError> {
         self.refine_with_budget(limits, MemoryBudget::volumes(), cancel)
     }
-    fn refine_with_budget(
+    pub(in crate::surface::field) fn refine_with_budget(
         &self,
         limits: RefinementLimits,
         budget: Arc<MemoryBudget>,
