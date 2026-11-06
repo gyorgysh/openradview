@@ -42,6 +42,23 @@ impl TriangulatedPlanarGraph {
     pub fn triangles(&self) -> &[PlanarTriangle] {
         &self.triangles
     }
+    /// Enclose the original field's zero fiber at an exact mesh vertex.
+    /// Empty and whole fibers remain explicit; this does not lift a triangle.
+    pub fn vertex_fiber_bounds(
+        &self,
+        id: u32,
+        bits: u8,
+        cancel: impl Fn() -> bool,
+    ) -> Result<CellFiberBounds, SurfaceError> {
+        let point = *self.input.vertex(id).ok_or(SurfaceError::Geometry)?;
+        self.input
+            .input()
+            .input()
+            .edges()
+            .chart()
+            .fiber_bounds(point, bits, cancel)
+            .map_err(error)
+    }
     pub fn referenced_bytes(&self) -> u64 {
         self.bytes
     }

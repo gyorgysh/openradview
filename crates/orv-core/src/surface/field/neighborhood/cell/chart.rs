@@ -24,6 +24,20 @@ pub enum CellFiber {
     Whole,
 }
 
+/// Exact dyadic enclosure of a source-cell zero fiber. Point endpoints are
+/// inclusive, in units of `denominator`; equal endpoints are an exact height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellFiberBounds {
+    Empty,
+    Whole,
+    Point {
+        lower: u32,
+        upper: u32,
+        denominator: u32,
+        normal: i8,
+    },
+}
+
 /// One exact two-face arrangement over a source-owned finite cell graph.
 /// This is a projection domain, not a triangulated surface or a claim that all
 /// chart-region boundaries are conforming to neighboring cells.
@@ -49,6 +63,71 @@ impl CellProjectionChart {
     }
     pub fn referenced_bytes(&self) -> u64 {
         std::mem::size_of::<Self>() as u64
+    }
+    /// Enclose the exact zero height even for unrelated irrational chart
+    /// coordinates. Whole fibers retain all heights. Bounds are local lattice
+    /// heights, not an interior mesh or physical-space error certificate.
+    pub fn fiber_bounds(
+        &self,
+        point: [ExactCoordinate; 2],
+        bits: u8,
+        cancel: impl Fn() -> bool,
+    ) -> Result<CellFiberBounds, FieldError> {
+        if bits > 16 {
+            return Err(FieldError::Bounds);
+        }
+        if cancel() {
+            return Err(FieldError::Cancelled);
+        }
+        let [lo_face, hi_face] = self.subdivision.fields();
+        let lo_sign = lo_face.sign_at(point)?;
+        let hi_sign = hi_face.sign_at(point)?;
+        if lo_sign == 0 && hi_sign == 0 {
+            return Ok(CellFiberBounds::Whole);
+        }
+        if lo_sign != 0 && lo_sign == hi_sign {
+            return Ok(CellFiberBounds::Empty);
+        }
+        let normal = (hi_sign - lo_sign).signum();
+        if lo_sign == 0 || hi_sign == 0 {
+            let height = u32::from(hi_sign == 0);
+            return Ok(CellFiberBounds::Point {
+                lower: height,
+                upper: height,
+                denominator: 1,
+                normal,
+            });
+        }
+        let (mut lower, mut upper, mut denominator) = (0u32, 1u32, 1u32);
+        for _ in 0..bits {
+            if cancel() {
+                return Err(FieldError::Cancelled);
+            }
+            lower *= 2;
+            upper *= 2;
+            denominator *= 2;
+            let middle = lower + 1;
+            let sign = lo_face.blended_sign_at(hi_face, point, middle, denominator)?;
+            if sign == 0 {
+                lower = middle;
+                upper = middle;
+                break;
+            }
+            if sign == normal {
+                upper = middle;
+            } else {
+                lower = middle;
+            }
+        }
+        if cancel() {
+            return Err(FieldError::Cancelled);
+        }
+        Ok(CellFiberBounds::Point {
+            lower,
+            upper,
+            denominator,
+            normal,
+        })
     }
     /// Classify a rational chart coordinate and lift its unique zero height.
     /// Irrational coordinates and unrepresentable ratios fail explicitly; exact

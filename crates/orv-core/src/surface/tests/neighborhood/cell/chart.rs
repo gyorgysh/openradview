@@ -67,7 +67,29 @@ fn cell_projection_preserves_graph_constraints_and_exact_fibers() {
                     let lo = tensor(values, p, None);
                     p[axis] = 1.;
                     let hi = tensor(values, p, None);
-                    match chart.fiber(point).unwrap() {
+                    let exact = chart.fiber(point).unwrap();
+                    let bounds = chart.fiber_bounds(point, 16, || false).unwrap();
+                    match (exact, bounds) {
+                        (CellFiber::Empty, CellFiberBounds::Empty)
+                        | (CellFiber::Whole, CellFiberBounds::Whole) => {}
+                        (
+                            CellFiber::Point { height, normal },
+                            CellFiberBounds::Point {
+                                lower,
+                                upper,
+                                denominator,
+                                normal: got,
+                            },
+                        ) => {
+                            assert_eq!(normal, got);
+                            let n = i128::from(height.numerator()) * i128::from(denominator);
+                            let d = i128::from(height.denominator());
+                            assert!(i128::from(lower) * d <= n && n <= i128::from(upper) * d);
+                            assert!(upper - lower <= 1);
+                        }
+                        mismatch => panic!("fiber mismatch: {mismatch:?}"),
+                    }
+                    match exact {
                         CellFiber::Empty => assert!(lo * hi > 0.),
                         CellFiber::Whole => {
                             assert_eq!((lo, hi), (0., 0.));
@@ -137,4 +159,79 @@ fn projection_rejects_invalid_scope_cancellation_and_admission_without_leaking()
         ));
         assert_eq!(budget.used(), baseline);
     }
+}
+
+#[test]
+fn irrational_fibers_have_exact_dyadic_bounds_and_keep_singular_cases() {
+    let budget = MemoryBudget::new(64 * 1024 * 1024);
+    // The two end-face contours intersect at irrational coordinates.
+    let graph = Arc::new(build(
+        &field([0, -2, 2, 0, 6, -58, 34, 6]),
+        [0; 3],
+        budget.clone(),
+    ));
+    let chart = graph
+        .projection_chart_with_budget(2, budget.clone(), || false)
+        .unwrap();
+    let point = chart
+        .subdivision()
+        .nodes()
+        .map(|(_, n)| *n.coordinates())
+        .find(|p| {
+            p.iter().any(|c| c.rational_value().is_none())
+                && chart
+                    .subdivision()
+                    .fields()
+                    .iter()
+                    .all(|f| f.sign_at(*p).unwrap() == 0)
+        })
+        .expect("irrational end-face intersection");
+    assert_eq!(
+        chart.fiber_bounds(point, 16, || false),
+        Ok(CellFiberBounds::Whole)
+    );
+    assert!(matches!(chart.fiber(point), Err(FieldError::Arithmetic)));
+
+    let values = [26, -6, -6, -6, -6, -6, -6, 26];
+    let other = Arc::new(build(&field(values), [0; 3], budget.clone()));
+    let other = other
+        .projection_chart_with_budget(0, budget.clone(), || false)
+        .unwrap();
+    let (sample, bounds) = (0..=16)
+        .map(|i| [point[0], coordinate(i, 16)])
+        .find_map(|p| match other.fiber_bounds(p, 16, || false).unwrap() {
+            b @ CellFiberBounds::Point { .. } => Some((p, b)),
+            _ => None,
+        })
+        .expect("unique irrational fiber");
+    let CellFiberBounds::Point {
+        lower,
+        upper,
+        denominator,
+        normal,
+    } = bounds
+    else {
+        unreachable!()
+    };
+    let mut p = [
+        0.,
+        sample[0].approximate().unwrap(),
+        sample[1].approximate().unwrap(),
+    ];
+    let lo = tensor(values, p, None);
+    p[0] = 1.;
+    let hi = tensor(values, p, None);
+    let height = -lo / (hi - lo);
+    assert_eq!(normal, (hi - lo).signum() as i8);
+    assert!(height >= f64::from(lower) / f64::from(denominator) - 1e-10);
+    assert!(height <= f64::from(upper) / f64::from(denominator) + 1e-10);
+    assert!(upper - lower <= 1);
+    assert_eq!(
+        other.fiber_bounds(sample, 17, || false),
+        Err(FieldError::Bounds)
+    );
+    assert_eq!(
+        other.fiber_bounds(sample, 16, || true),
+        Err(FieldError::Cancelled)
+    );
 }

@@ -6,7 +6,7 @@ use super::*;
 fn bounded_derivative_cross_signs_keep_the_original_polynomial_limit() {
     let u = coord(positive_root(2, 0, -1), [0, 1], [1, 0]);
     let v = coord(positive_root(3, 0, -1), [0, 1], [1, 0]);
-    let m = MAX_COEFFICIENT as i32;
+    let m = MAX_BILINEAR_COEFFICIENT as i32;
     assert_eq!(bounded_bilinear_sign([m, -m, -m, m], [u, v]), Ok(1));
     assert_eq!(bounded_bilinear_sign([-m, m, m, -m], [u, v]), Ok(-1));
     assert_eq!(bounded_bilinear_sign([-m / 2, 0, 0, m], [u, u]), Ok(0));

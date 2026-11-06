@@ -126,15 +126,17 @@ pub(super) fn bilinear_sign(
     bounded_bilinear_sign(coefficients, point)
 }
 
-/// Derivative cross products need coefficients up to1040400, independently of
-/// coordinate forms. The wider polynomial fits the1024-bit predicate.
+// Derivative cross products and bounded dyadic fiber tests use coefficients
+// up to 2^30. Checked fixed-width arithmetic refuses overflow.
+const MAX_BILINEAR_COEFFICIENT: u64 = 1 << 30;
+
 pub(super) fn bounded_bilinear_sign(
     coefficients: [i32; 4],
     point: [ExactCoordinate; 2],
 ) -> Result<i8, FieldError> {
     if coefficients
         .into_iter()
-        .any(|v| u64::from(v.unsigned_abs()) > MAX_COEFFICIENT)
+        .any(|v| u64::from(v.unsigned_abs()) > MAX_BILINEAR_COEFFICIENT)
     {
         return Err(FieldError::Arithmetic);
     }

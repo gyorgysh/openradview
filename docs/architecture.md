@@ -690,6 +690,16 @@ certify a 3D surface interior or shared seam and has no rendering or source-edit
 authority. Output, scratch, comparisons and cancellation are bounded; inconsistent
 slice order or region incidence produces no partial mesh.
 
+`CellProjectionChart::fiber_bounds` classifies the source field at exact chart
+coordinates, including unrelated quadratic coordinates, by the exact signs on its
+two end faces. An empty fiber and a whole zero fiber remain distinct; a unique
+fiber is enclosed by inclusive dyadic height bounds at up to 16 bits, or an exact
+height when found. The bounded bilinear sign predicate evaluates each midpoint
+without floating-point decisions and can refuse unsupported arithmetic. A planar
+mesh vertex can query the chart retained through its source graph. These vertex
+bounds do not resolve whole fibers, certify triangle interiors or coordinate
+neighboring seams.
+
 `SourceCellGraph::refine_edges` retains that immutable graph and supplies one
 canonical path per original edge. All original nodes remain the vertex prefix,
 including isolated and inactive constraints. Added exact points carry their

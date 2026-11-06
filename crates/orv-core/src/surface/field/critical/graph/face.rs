@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Complete bilinear zero contours with exact, bounded insertion unions.
 use super::*;
-use compare::bilinear_sign;
+use compare::{bilinear_sign, bounded_bilinear_sign};
 mod intersections;
 mod joint;
 mod slice;
@@ -252,6 +252,28 @@ fn coefficients(field: Bilinear) -> [i32; 4] {
     [a, b - a, d - a, a - b + c - d]
 }
 impl Bilinear {
+    /// Exact sign of a dyadic blend of two source faces. The 16-bit bound
+    /// keeps every weighted coefficient within the fixed-width predicate.
+    pub(in crate::surface::field) fn blended_sign_at(
+        self,
+        other: Self,
+        point: [ExactCoordinate; 2],
+        numerator: u32,
+        denominator: u32,
+    ) -> Result<i8, FieldError> {
+        if denominator == 0 || denominator > (1 << 16) || numerator > denominator {
+            return Err(FieldError::Bounds);
+        }
+        let a = coefficients(self);
+        let b = coefficients(other);
+        let mut combined = [0i32; 4];
+        for i in 0..4 {
+            let value = i64::from(a[i]) * i64::from(denominator - numerator)
+                + i64::from(b[i]) * i64::from(numerator);
+            combined[i] = i32::try_from(value).map_err(|_| FieldError::Arithmetic)?;
+        }
+        bounded_bilinear_sign(combined, point)
+    }
     /// Exact sign at a bounded point, including unrelated quadratic coordinates.
     pub fn sign_at(self, point: [ExactCoordinate; 2]) -> Result<i8, FieldError> {
         bilinear_sign(coefficients(self), point)

@@ -345,3 +345,50 @@ fn planar_triangulation_limits_cancellation_and_pressure_keep_input() {
         assert_eq!(budget.used(), baseline);
     }
 }
+
+#[test]
+fn mesh_vertices_enclose_their_retained_source_field_fibers() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let values = [26, -6, -6, -6, -6, -6, -6, 26];
+    let input = refined(values, 0, budget.clone());
+    let mesh = input
+        .triangulate_with_budget(PlanarTriangulationLimits::default(), budget, || false)
+        .unwrap();
+    let chart = input.input().input().edges().chart();
+    let [u, v] = chart.transverse_axes();
+    let mut points = 0;
+    for id in 0..input.vertex_count() {
+        let point = *input.vertex(id as u32).unwrap();
+        let bounds = mesh.vertex_fiber_bounds(id as u32, 16, || false).unwrap();
+        assert_eq!(bounds, chart.fiber_bounds(point, 16, || false).unwrap());
+        let mut p = [0.; 3];
+        p[u] = point[0].approximate().unwrap();
+        p[v] = point[1].approximate().unwrap();
+        let lo = tensor(values, p, None);
+        p[0] = 1.;
+        let hi = tensor(values, p, None);
+        if let CellFiberBounds::Point {
+            lower,
+            upper,
+            denominator,
+            normal,
+        } = bounds
+            && (hi - lo).abs() > 1e-8
+        {
+            let height = -lo / (hi - lo);
+            assert_eq!(normal, (hi - lo).signum() as i8);
+            assert!(height >= f64::from(lower) / f64::from(denominator) - 1e-9);
+            assert!(height <= f64::from(upper) / f64::from(denominator) + 1e-9);
+            points += 1;
+        }
+    }
+    assert!(points > 0);
+    assert!(matches!(
+        mesh.vertex_fiber_bounds(input.vertex_count() as u32, 16, || false),
+        Err(SurfaceError::Geometry)
+    ));
+    assert!(matches!(
+        mesh.vertex_fiber_bounds(0, 16, || true),
+        Err(SurfaceError::Cancelled)
+    ));
+}

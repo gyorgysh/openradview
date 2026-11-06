@@ -11,7 +11,7 @@ mod collect;
 mod link;
 mod refine;
 pub use chart::{
-    CellFiber, CellProjectionChart, ChartEdgeStep, PlanarEdge, PlanarHalfEdge,
+    CellFiber, CellFiberBounds, CellProjectionChart, ChartEdgeStep, PlanarEdge, PlanarHalfEdge,
     PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
     ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
     ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedPlanarGraph,

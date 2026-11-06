@@ -4,13 +4,14 @@ use super::*;
 mod cell;
 mod zero_face;
 pub use cell::{
-    CellFiber, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge, CellGraphLimits, CellGraphNode,
-    CellGraphRegion, CellGraphState, CellPathLimits, CellPathOrigin, CellPathVertex,
-    CellProjectionChart, ChartEdgeStep, PlanarEdge, PlanarHalfEdge, PlanarRefinementLimits,
-    PlanarRegion, PlanarTriangle, PlanarTriangulationLimits, ProjectedCellEdges, ProjectedContact,
-    ProjectedContactGeometry, ProjectedContactOwner, ProjectedContacts, ProjectedEdge,
-    ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph, RefinedPlanarGraph, SourceCellGraph,
-    SplitPath, SplitProjectedConstraints, SplitSegment, SplitStep, TriangulatedPlanarGraph,
+    CellFiber, CellFiberBounds, CellGraphEdge, CellGraphGeometry, CellGraphHalfEdge,
+    CellGraphLimits, CellGraphNode, CellGraphRegion, CellGraphState, CellPathLimits,
+    CellPathOrigin, CellPathVertex, CellProjectionChart, ChartEdgeStep, PlanarEdge, PlanarHalfEdge,
+    PlanarRefinementLimits, PlanarRegion, PlanarTriangle, PlanarTriangulationLimits,
+    ProjectedCellEdges, ProjectedContact, ProjectedContactGeometry, ProjectedContactOwner,
+    ProjectedContacts, ProjectedEdge, ProjectedEdgeKind, ProjectedPlanarGraph, RefinedCellGraph,
+    RefinedPlanarGraph, SourceCellGraph, SplitPath, SplitProjectedConstraints, SplitSegment,
+    SplitStep, TriangulatedPlanarGraph,
 };
 pub use zero_face::{
     WholeZeroFace, WholeZeroSubdivision, ZeroFaceMesh, ZeroFacePatch, ZeroFacePhase, ZeroFaceSample,
