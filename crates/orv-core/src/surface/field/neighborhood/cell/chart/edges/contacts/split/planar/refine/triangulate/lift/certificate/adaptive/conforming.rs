@@ -147,6 +147,36 @@ impl ConformingSurfaceMesh {
     pub fn triangles(&self) -> &[ConformingTriangle] {
         &self.triangles
     }
+    /// Conservative physical separation for this triangle's retained axial
+    /// certificate. `None` means no numerical certificate is available; an
+    /// unresolved triangle can still have a bound above its requested tolerance.
+    /// World-coordinate rounding, GPU precision and unrepresented surface regions
+    /// are not covered.
+    pub fn triangle_physical_error_upper_mm(&self, id: u32) -> Result<Option<f64>, SurfaceError> {
+        let triangle = self
+            .triangles
+            .get(id as usize)
+            .ok_or(SurfaceError::Geometry)?;
+        let certificate = match triangle.state {
+            ConformingFacetState::WithinTolerance {
+                numerator,
+                denominator,
+            } => SurfaceFacetCertificate::Certified {
+                numerator,
+                denominator,
+            },
+            ConformingFacetState::Unresolved {
+                certificate: Some(certificate),
+                ..
+            } => certificate,
+            ConformingFacetState::Unresolved {
+                certificate: None, ..
+            } => return Ok(None),
+        };
+        let chart = self.input.input().input().input().input().edges().chart();
+        let basis = super::super::axis_basis(chart.graph().field().source(), chart.axis())?;
+        super::super::physical_upper_bound(certificate, basis)
+    }
     pub fn referenced_bytes(&self) -> u64 {
         self.bytes
     }

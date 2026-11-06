@@ -194,6 +194,12 @@ fn certified_source_facets_bound_sampled_surface_interior() {
             .unwrap();
         let chart = mesh.input().input().input().edges().chart();
         let [u, v] = chart.transverse_axes();
+        let basis = chart
+            .graph()
+            .field()
+            .source()
+            .voxel_vector_to_world(std::array::from_fn(|i| if i == axis { 1. } else { 0. }));
+        let physical_scale = basis.iter().map(|v| v * v).sum::<f64>().sqrt();
         for (id, triangle) in mesh.triangles().iter().enumerate() {
             let result = enclosed.facet_certificate(id as u32, || false).unwrap();
             let SurfaceFacetCertificate::Certified {
@@ -201,9 +207,20 @@ fn certified_source_facets_bound_sampled_surface_interior() {
                 denominator,
             } = result
             else {
+                assert_eq!(
+                    enclosed
+                        .facet_physical_error_upper_mm(id as u32, || false)
+                        .unwrap(),
+                    None
+                );
                 continue;
             };
             let bound = numerator as f64 / denominator as f64;
+            let physical_bound = enclosed
+                .facet_physical_error_upper_mm(id as u32, || false)
+                .unwrap()
+                .unwrap();
+            assert!(physical_bound + 1e-14 >= bound * physical_scale);
             let vertices =
                 triangle.vertices.map(|v| {
                     enclosed.vertex_lattice_point(v).unwrap().unwrap().map(|c| {
@@ -228,6 +245,7 @@ fn certified_source_facets_bound_sampled_surface_interior() {
                     let root = -lo / (hi - lo);
                     assert!((-1e-12..=1. + 1e-12).contains(&root));
                     assert!((z - root).abs() <= bound + 1e-10);
+                    assert!((z - root).abs() * physical_scale <= physical_bound + 1e-10);
                 }
             }
             certified += 1;
@@ -240,8 +258,80 @@ fn certified_source_facets_bound_sampled_surface_interior() {
             enclosed.facet_certificate(0, || true),
             Err(SurfaceError::Cancelled)
         ));
+        assert!(matches!(
+            enclosed.facet_physical_error_upper_mm(0, || true),
+            Err(SurfaceError::Cancelled)
+        ));
     }
     assert!(certified > 0);
+}
+
+#[test]
+fn conforming_physical_bounds_follow_the_retained_affine_source() {
+    let budget = MemoryBudget::new(128 * 1024 * 1024);
+    let field = field([26, -6, -6, -6, -6, -6, -6, 26]);
+    let mut numerical = 0usize;
+    for axis in 0..3 {
+        let mesh = adjacent_conforming_axis(&field, [0; 3], axis, 0, budget.clone());
+        let basis = field
+            .source()
+            .voxel_vector_to_world(std::array::from_fn(|i| if i == axis { 1. } else { 0. }));
+        let scale = basis.iter().map(|v| v * v).sum::<f64>().sqrt();
+        for (id, triangle) in mesh.triangles().iter().enumerate() {
+            let bound = mesh.triangle_physical_error_upper_mm(id as u32).unwrap();
+            let certificate = match triangle.state {
+                ConformingFacetState::WithinTolerance {
+                    numerator,
+                    denominator,
+                } => Some(SurfaceFacetCertificate::Certified {
+                    numerator,
+                    denominator,
+                }),
+                ConformingFacetState::Unresolved { certificate, .. } => certificate,
+            };
+            match certificate {
+                Some(SurfaceFacetCertificate::Certified {
+                    numerator,
+                    denominator,
+                }) => {
+                    assert!(
+                        bound.unwrap() + 1e-14 >= numerator as f64 / denominator as f64 * scale
+                    );
+                    numerical += 1;
+                }
+                _ => assert_eq!(bound, None),
+            }
+        }
+        assert_eq!(
+            mesh.triangle_physical_error_upper_mm(u32::MAX),
+            Err(SurfaceError::Geometry)
+        );
+    }
+    assert!(numerical > 0);
+    let partition = partition_fixture(budget.clone());
+    let pair = Arc::new(
+        partition
+            .apply_with_budget(AppliedFaceLimits::default(), budget.clone(), || false)
+            .unwrap(),
+    );
+    let retained = pair
+        .promote_cells_with_budget(FacePromotionLimits::default(), budget.clone(), || false)
+        .unwrap();
+    let compact = pair
+        .promote_cells_compacted_with_budget(FacePromotionLimits::default(), budget, || false)
+        .unwrap();
+    for side in 0..2 {
+        for id in 0..retained[side].triangles().len() {
+            assert_eq!(
+                retained[side]
+                    .triangle_physical_error_upper_mm(id as u32)
+                    .unwrap(),
+                compact[side]
+                    .triangle_physical_error_upper_mm(id as u32)
+                    .unwrap()
+            );
+        }
+    }
 }
 
 fn area(points: [[u32; 3]; 3], u: usize, v: usize) -> i128 {

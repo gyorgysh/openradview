@@ -28,6 +28,60 @@ pub enum SurfaceFacetCertificate {
     },
 }
 
+// A source-axis displacement maps to one affine basis vector. Its L1 norm is
+// an upper bound for Euclidean length, including tilted and reflected grids.
+// Round every operation outward; unrepresentable results must not look bounded.
+fn physical_upper_bound(
+    certificate: SurfaceFacetCertificate,
+    basis: [f64; 3],
+) -> Result<Option<f64>, SurfaceError> {
+    let SurfaceFacetCertificate::Certified {
+        numerator,
+        denominator,
+    } = certificate
+    else {
+        return Ok(None);
+    };
+    if denominator == 0 || basis.iter().any(|component| !component.is_finite()) {
+        return Err(SurfaceError::Geometry);
+    }
+    if numerator == 0 {
+        return Ok(Some(0.));
+    }
+    let upper = |value: f64| {
+        let next = value.next_up();
+        if next.is_finite() {
+            Ok(next)
+        } else {
+            Err(SurfaceError::Limit)
+        }
+    };
+    let mut length = 0.;
+    for component in basis {
+        let sum = length + component.abs();
+        length = if sum == 0. { 0. } else { upper(sum)? };
+    }
+    if length == 0. {
+        return Ok(Some(0.));
+    }
+    let numerator = upper(numerator as f64)?;
+    let denominator = (denominator as f64).next_down();
+    if denominator <= 0. || !denominator.is_finite() {
+        return Err(SurfaceError::Geometry);
+    }
+    let ratio = upper(numerator / denominator)?;
+    Ok(Some(upper(ratio * length)?))
+}
+
+fn axis_basis(volume: &crate::volume::Volume, axis: u8) -> Result<[f64; 3], SurfaceError> {
+    if axis >= 3 {
+        return Err(SurfaceError::Geometry);
+    }
+    Ok(volume.voxel_vector_to_world(std::array::from_fn(|i| {
+        if i == usize::from(axis) { 1. } else { 0. }
+    })))
+}
+
 // Three 16-bit coordinate enclosures have dyadic midpoints on this common grid.
 const GRID: u32 = 1 << 17;
 
@@ -219,11 +273,87 @@ impl EnclosedSurfaceGraph {
             &cancel,
         )
     }
+
+    /// Conservative millimetre separation for a certified facet, using the
+    /// retained volume's affine basis. `None` means the axial certificate was
+    /// not proved. This does not bound world-coordinate rounding, GPU precision,
+    /// curved boundaries, seams or noncandidate surface regions.
+    pub fn facet_physical_error_upper_mm(
+        &self,
+        id: u32,
+        cancel: impl Fn() -> bool,
+    ) -> Result<Option<f64>, SurfaceError> {
+        let certificate = self.facet_certificate(id, cancel)?;
+        let chart = self.input.input().input().input().edges().chart();
+        let basis = axis_basis(chart.graph().field().source(), chart.axis())?;
+        physical_upper_bound(certificate, basis)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn physical_bound_rounds_outward_and_refuses_unrepresentable_inputs() {
+        let certificate = SurfaceFacetCertificate::Certified {
+            numerator: 1,
+            denominator: 2,
+        };
+        let upper = physical_upper_bound(certificate, [3., -4., 0.])
+            .unwrap()
+            .unwrap();
+        assert!((3.5..3.500000000001).contains(&upper));
+        let large = SurfaceFacetCertificate::Certified {
+            numerator: u128::MAX,
+            denominator: u128::MAX,
+        };
+        assert!(physical_upper_bound(large, [3., 4., 0.]).unwrap().unwrap() >= 7.);
+        let small = SurfaceFacetCertificate::Certified {
+            numerator: 1,
+            denominator: u128::MAX,
+        };
+        assert!(
+            physical_upper_bound(small, [f64::from_bits(1), 0., 0.])
+                .unwrap()
+                .unwrap()
+                > 0.
+        );
+        assert_eq!(
+            physical_upper_bound(
+                SurfaceFacetCertificate::Certified {
+                    numerator: 0,
+                    denominator: 1
+                },
+                [3., 4., 0.]
+            )
+            .unwrap(),
+            Some(0.)
+        );
+        assert_eq!(
+            physical_upper_bound(SurfaceFacetCertificate::DerivativeUnproven, [3., 4., 0.])
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            physical_upper_bound(
+                SurfaceFacetCertificate::Certified {
+                    numerator: 1,
+                    denominator: 0
+                },
+                [3., 4., 0.]
+            ),
+            Err(SurfaceError::Geometry)
+        );
+        assert_eq!(
+            physical_upper_bound(certificate, [f64::NAN, 0., 0.]),
+            Err(SurfaceError::Geometry)
+        );
+        assert_eq!(
+            physical_upper_bound(certificate, [f64::MAX, 0., 0.]),
+            Err(SurfaceError::Limit)
+        );
+    }
 
     fn points(axis: usize) -> [[u32; 3]; 3] {
         let [u, v] = transverse(axis);

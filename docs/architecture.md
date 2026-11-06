@@ -714,8 +714,13 @@ projected triangle. Exact cubic Bernstein coefficients bound the source-field
 residual on its 3D planar representative; their ratio gives a conservative axial
 error to the unique zero on each projected fiber. Noncandidate, nonpositive
 projection, and failed proof cases remain explicit. The certificate is local to
-that projected triangle: curved boundary topology, shared seams, adaptive
-refinement and physical-space conversion remain separate obligations.
+that projected triangle: curved boundary topology, shared seams and adaptive
+refinement remain separate obligations. `facet_physical_error_upper_mm` and
+`ConformingSurfaceMesh::triangle_physical_error_upper_mm` convert a numerical
+certificate using the retained source's affine basis and outward-rounded L1
+axis length. This conservative separation bound includes anisotropy and shear;
+it excludes world-position rounding, GPU quantization, missing surface regions
+and boundary or seam errors. Unproved certificates have no physical bound.
 `EnclosedSurfaceGraph::refine_facet` bisects a candidate on its longest projected
 edge, samples the original field for each new midpoint and rechecks every child
 against the requested axial error tolerance. It keeps unresolved leaves when
