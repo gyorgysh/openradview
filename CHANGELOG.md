@@ -5,9 +5,9 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ## Unreleased
 
-View linked slices alongside a 3D view, inspect one label or supplied segment
-in 3D, and preview new ways to edit labels. Linked MPR and oblique views keep
-their requested detail while you navigate.
+View linked slices alongside a 3D view, inspect a label or supplied segment in
+3D, and edit labels with new physical and image-based tools. Linked MPR and
+oblique views keep their requested detail while you navigate.
 
 ### Added
 
@@ -24,10 +24,11 @@ their requested detail while you navigate.
   stamp removes one visible layer of a manual label. Sphere, disk and path edits
   can reach cells hidden in 3D or outside the displayed cut. Supplied masks
   remain read-only. Export a label map when you want to keep it.
-- **Include and exclude hints.** Mark points or draw strokes within a rectangle
-  on a source image to propose a region. Review the preview before applying it.
-  Exclude hints can remove cells from the selected label. The tool uses image
-  values and does not recognize anatomy.
+- **Include and exclude hints.** Mark at least one point or stroke of each kind
+  within a rectangle on a source image to propose a region. Review the preview
+  before applying it. Exclude hints can remove cells from the selected label.
+  The tool uses image values, can cross weak boundaries and does not recognize
+  anatomy.
 
 MPR + 3D and material views stay on your computer and are not available for
 picture export or agent sharing. See the [viewing and label guide](docs/usage.md)
@@ -44,8 +45,8 @@ for controls and limits.
 - Imported fractional masks keep their original values and whether they describe
   probability or occupancy. Overlays and counts still use half the stated maximum
   as the threshold.
-- Label edits have up to 16 undo and redo steps. Returning to the last exported
-  state clears the unsaved indicator.
+- Label edits now support redo and up to 16 undo steps, increased from two.
+  Returning to the last exported state clears the unsaved indicator.
 
 ### Fixed
 
@@ -53,8 +54,6 @@ for controls and limits.
   are off for the current run and lets you retry saving the off choice.
 - Connected-region and hint previews stop calculating when their source image
   or editing context changes.
-- A single-point physical path could move the linked crosshair and cancel its
-  own preview.
 - A label export could be reported as cancelled even after the file was saved.
 - Label exports require a `.nii` filename, matching the uncompressed file format.
 - Changing slab settings during linked MPR or oblique navigation could show an
