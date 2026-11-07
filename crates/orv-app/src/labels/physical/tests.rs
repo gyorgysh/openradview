@@ -41,6 +41,18 @@ fn prepared(state: &LabelUi) -> Preview {
 }
 
 #[test]
+fn opening_physical_tools_preserves_the_supplied_overlay_until_manual_selection() {
+    let mut state = LabelUi {
+        supplied_active: true,
+        ..Default::default()
+    };
+    state.open_physical_tools();
+    assert!(state.supplied_active);
+    state.select_manual_for_physical();
+    assert!(!state.supplied_active);
+}
+
+#[test]
 fn private_stamp_is_shared_by_planes_and_3d_then_apply_and_history_retain_exact_maps() {
     let mut state = state();
     let original = state.current.as_ref().unwrap().clone();

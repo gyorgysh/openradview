@@ -14,9 +14,33 @@ impl VolumeSession {
     fn open_physical_editor(&mut self, labels: &mut crate::labels::LabelUi) {
         self.plane_settings.erase = false;
         labels.open_physical_tools();
-        self.regions.select_manual();
-        self.material_enabled = true;
+        self.physical_region_pending = true;
         self.settings_open = false;
+    }
+    fn sync_physical_region(&mut self, labels: &mut crate::labels::LabelUi, selected: usize) {
+        if !self.physical_region_pending {
+            return;
+        }
+        if !labels.physical_dialog_open()
+            && !labels.physical_drawing()
+            && !labels.physical_preview_visible()
+        {
+            self.physical_region_pending = false;
+            return;
+        }
+        if self
+            .workbench_source
+            .as_ref()
+            .or(self.volume.as_ref())
+            .is_some_and(|volume| {
+                matches!(labels.region_maps(selected, volume).manual, Ok(Some(_)))
+            })
+        {
+            labels.select_manual_for_physical();
+            self.regions.select_manual();
+            self.material_enabled = true;
+            self.physical_region_pending = false;
+        }
     }
     pub(crate) fn from_mpr(
         volume: Arc<Volume>,
@@ -26,6 +50,8 @@ impl VolumeSession {
         ctx: egui::Context,
     ) -> Self {
         let mut session = Self::new(prefer_source);
+        // MPR can already edit this source while its 3D upload is preparing.
+        session.workbench_source = Some(volume.clone());
         session.upload = Some(match source {
             Some(source) if Arc::ptr_eq(source.volume(), &volume) => {
                 Upload::from_source(source, render.target_format, ctx)
@@ -102,6 +128,7 @@ impl VolumeSession {
                 surface_requested = true;
             }
         });
+        self.sync_physical_region(labels, selected);
         if let Some(error) = &self.error {
             ui.label(error);
             return None;
@@ -148,6 +175,7 @@ impl VolumeSession {
             self.plane_settings.erase = false;
             self.open_physical_editor(labels);
         }
+        self.sync_physical_region(labels, selected);
         if surface_requested {
             if self.surface_editor_available(labels, selected) {
                 labels.begin_surface_erase();
@@ -283,7 +311,66 @@ fn paint_cursor(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orv_core::volume_view::Camera;
+    use orv_core::{labels::Labels, study::demo_study, volume_view::Camera};
+
+    #[test]
+    fn physical_editor_waits_for_a_matching_manual_map_before_selecting_it() {
+        let mut frames = demo_study().series.remove(0).frames;
+        frames.truncate(2);
+        let source = Arc::new(Volume::new(frames).unwrap());
+        let other = Arc::new(Volume::new(source.frames().to_vec()).unwrap());
+        let mut session = VolumeSession::new(false);
+        let mut labels = crate::labels::LabelUi::default();
+        session.volume = Some(source.clone());
+        session.open_physical_editor(&mut labels);
+        session.sync_physical_region(&mut labels, 0);
+        assert!(!session.regions.enabled());
+        assert!(!session.material_enabled);
+
+        labels.current = Some(Arc::new(Labels::empty(other).unwrap()));
+        session.sync_physical_region(&mut labels, 0);
+        assert!(!session.regions.enabled());
+        labels.current = Some(Arc::new(Labels::empty(source).unwrap()));
+        session.sync_physical_region(&mut labels, 1);
+        assert!(!session.regions.enabled());
+        session.sync_physical_region(&mut labels, 0);
+        assert!(session.regions.enabled());
+        assert!(session.material_enabled);
+        assert!(!session.physical_region_pending);
+    }
+
+    #[test]
+    fn closing_physical_editor_without_a_map_cancels_the_deferred_selection() {
+        let mut frames = demo_study().series.remove(0).frames;
+        frames.truncate(2);
+        let source = Arc::new(Volume::new(frames).unwrap());
+        let mut session = VolumeSession::new(false);
+        let mut labels = crate::labels::LabelUi::default();
+        session.volume = Some(source.clone());
+        session.open_physical_editor(&mut labels);
+        labels.end_physical_tools();
+        session.sync_physical_region(&mut labels, 0);
+        labels.current = Some(Arc::new(Labels::empty(source).unwrap()));
+        session.sync_physical_region(&mut labels, 0);
+        assert!(!session.regions.enabled());
+        assert!(!session.physical_region_pending);
+    }
+
+    #[test]
+    fn physical_edit_can_select_matching_labels_while_3d_is_preparing() {
+        let mut frames = demo_study().series.remove(0).frames;
+        frames.truncate(2);
+        let source = Arc::new(Volume::new(frames).unwrap());
+        let mut session = VolumeSession::new(false);
+        session.workbench_source = Some(source.clone());
+        let mut labels = crate::labels::LabelUi::default();
+        labels.current = Some(Arc::new(Labels::empty(source).unwrap()));
+        session.open_physical_editor(&mut labels);
+        session.sync_physical_region(&mut labels, 0);
+        assert!(session.volume.is_none());
+        assert!(session.regions.enabled() && session.material_enabled);
+        assert!(!session.physical_region_pending);
+    }
 
     #[test]
     fn physical_editor_click_is_retained_while_the_3d_source_is_still_preparing() {

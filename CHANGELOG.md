@@ -36,6 +36,8 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
+- Opening physical editing no longer hides a supplied mask when there is no
+  manual label map yet.
 - Physical-edit indicators are easier to read over bright images.
 - Drawing a physical path now ends drawing mode when its preview opens.
 - Linked MPR and oblique views no longer accept an older moving preview with a

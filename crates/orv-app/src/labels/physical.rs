@@ -124,9 +124,11 @@ impl LabelUi {
         self.regions.seed_picking = None;
         self.regions.invalidate();
         self.open = false;
-        self.supplied_active = false;
         self.visible = true;
         self.physical.open = true;
+    }
+    pub(crate) fn select_manual_for_physical(&mut self) {
+        self.supplied_active = false;
     }
     pub fn physical_dialog_open(&self) -> bool {
         self.physical.open
