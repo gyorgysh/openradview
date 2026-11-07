@@ -49,8 +49,8 @@ for controls and limits.
 
 ### Fixed
 
-- If the first update preference cannot be saved, the viewer now shows that
-  automatic checks are off for the current run.
+- If the first update preference cannot be saved, the viewer shows that checks
+  are off for the current run and lets you retry saving the off choice.
 - Connected-region and hint previews stop calculating when their source image
   or editing context changes.
 - A single-point physical path could move the linked crosshair and cancel its

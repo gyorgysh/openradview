@@ -535,7 +535,10 @@ fn unsavable_preferences_honor_opt_out_and_never_enable_background_requests() {
     assert!(!updater.enabled());
     assert_eq!(updater.status(), Status::Idle);
     assert_eq!(updater.detail(), "");
-    assert!(!preferences::load(&blocked.join("updates.json")).enabled);
+    let saved = preferences::load(&blocked.join("updates.json"));
+    assert!(saved.chosen);
+    assert!(!saved.enabled);
+    assert!(!automatic_due(&saved, updater.status(), 100000, false));
 
     {
         let mut s = lock(&updater.state);
