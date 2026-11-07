@@ -76,6 +76,26 @@ fn threshold_brush_erase_preserve_other_labels_and_cancel() {
     assert_eq!(rgba.len(), 8 * 6 * 4);
     assert_eq!(rgba[(2 * 8 + 4) * 4 + 3], 0);
 }
+
+#[test]
+fn disconnected_brush_paths_are_one_edit_without_a_bridge() {
+    let mut labels = Labels::empty(source()).unwrap();
+    let points = [[1., 2.], [6., 2.]];
+    for breaks in [&[0][..], &[2][..], &[1, 1][..]] {
+        assert!(
+            labels
+                .paint_disconnected(0, &points, breaks, 1, 7, || false)
+                .is_err()
+        );
+        assert!(labels.values().iter().all(|value| *value == 0));
+    }
+    labels
+        .paint_disconnected(0, &points, &[1], 1, 7, || false)
+        .unwrap();
+    assert_eq!(*labels.values().get(2 * 8 + 1).unwrap(), 7);
+    assert_eq!(*labels.values().get(2 * 8 + 6).unwrap(), 7);
+    assert_eq!(*labels.values().get(2 * 8 + 3).unwrap(), 0);
+}
 #[test]
 fn exact_nifti_label_export_roundtrip_and_invalid_import_refusal() {
     let original = source();

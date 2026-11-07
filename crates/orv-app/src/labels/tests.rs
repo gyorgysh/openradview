@@ -377,6 +377,82 @@ fn brush_path_is_discarded_when_its_view_or_editing_context_changes() {
         );
     }
 }
+
+#[test]
+fn brush_does_not_bridge_a_pointer_path_outside_the_image() {
+    for gap in [
+        egui::Event::PointerMoved(egui::pos2(200., 0.)),
+        egui::Event::PointerGone,
+    ] {
+        let ctx = egui::Context::default();
+        let current = labels();
+        let image = current.source().frames()[1].clone();
+        let mut state = LabelUi {
+            current: Some(current.clone()),
+            paint: true,
+            radius: 1,
+            ..Default::default()
+        };
+        let start = egui::pos2(100., 200.);
+        let end = egui::pos2(320., 200.);
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut rect = egui::Rect::NOTHING;
+        for events in [
+            vec![egui::Event::PointerMoved(start)],
+            vec![
+                button(start, true),
+                gap,
+                egui::Event::PointerMoved(end),
+                button(end, false),
+            ],
+        ] {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(500., 500.),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let (_, response) = ui
+                        .allocate_exact_size(egui::vec2(400., 400.), egui::Sense::click_and_drag());
+                    rect = response.rect;
+                    state.canvas(ui, &response, &image, &ViewState::default(), 0);
+                },
+            );
+            output.textures_delta.clear();
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while state.busy() && std::time::Instant::now() < deadline {
+            state.poll();
+            std::thread::yield_now();
+        }
+        assert!(!state.busy() && state.dirty);
+        assert_eq!(state.undo.len(), 1);
+        let mut expected = current.try_clone(|| false).unwrap();
+        for pos in [start, end] {
+            let point =
+                crate::annotations::pixel_at(rect, &image, &ViewState::default(), pos).unwrap();
+            expected.paint(1, &[point], 1, 1, || false).unwrap();
+        }
+        assert!(
+            state
+                .current
+                .as_ref()
+                .unwrap()
+                .values()
+                .iter()
+                .eq(expected.values().iter())
+        );
+    }
+}
 #[test]
 fn cancelled_edit_does_not_change_the_approved_source_or_labels() {
     let current = labels();

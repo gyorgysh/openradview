@@ -315,8 +315,9 @@ impl LabelUi {
                             button: egui::PointerButton::Primary,
                             pressed,
                             ..
-                        } => Some((*pos, *pressed, !*pressed)),
-                        egui::Event::PointerMoved(pos) => Some((*pos, false, false)),
+                        } => Some((Some(*pos), *pressed, !*pressed)),
+                        egui::Event::PointerMoved(pos) => Some((Some(*pos), false, false)),
+                        egui::Event::PointerGone => Some((None, false, false)),
                         _ => None,
                     })
                     .take(8193)
@@ -328,6 +329,10 @@ impl LabelUi {
                 return;
             }
             for (pos, press, release) in events {
+                let Some(pos) = pos else {
+                    self.stroke_outside = !self.stroke.is_empty();
+                    continue;
+                };
                 if press
                     && (!self.stroke.is_empty()
                         || !response.rect.contains(pos)
@@ -339,11 +344,13 @@ impl LabelUi {
                 if !press && self.stroke.is_empty() {
                     continue;
                 }
-                if let Some(point) = pixel_at(response.rect, image, view, pos)
-                    && self
-                        .stroke
-                        .last()
-                        .is_none_or(|old| (old[0] - point[0]).hypot(old[1] - point[1]) >= 0.5)
+                let point = (response.rect.contains(pos) && ui.clip_rect().contains(pos))
+                    .then(|| pixel_at(response.rect, image, view, pos))
+                    .flatten();
+                if let Some(point) = point
+                    && self.stroke.last().is_none_or(|old| {
+                        self.stroke_outside || (old[0] - point[0]).hypot(old[1] - point[1]) >= 0.5
+                    })
                 {
                     if self.stroke.len() == 8192 {
                         self.clear_brush();
@@ -353,7 +360,15 @@ impl LabelUi {
                     if press {
                         self.brush_scope = Some(scope.clone());
                     }
+                    if self.stroke_outside {
+                        self.stroke_breaks.push(self.stroke.len());
+                        self.stroke_outside = false;
+                    }
                     self.stroke.push(point);
+                } else if point.is_none() && !self.stroke.is_empty() {
+                    // Do not interpolate through the image when the pointer
+                    // leaves the displayed footprint and later returns.
+                    self.stroke_outside = true;
                 }
                 if release {
                     released = true;
@@ -363,11 +378,13 @@ impl LabelUi {
         }
         if released && !self.stroke.is_empty() {
             let points = std::mem::take(&mut self.stroke);
+            let breaks = std::mem::take(&mut self.stroke_breaks);
             self.start(
                 Operation::Paint(
                     current,
                     z,
                     points,
+                    breaks,
                     self.radius,
                     if self.erase { 0 } else { self.label },
                 ),

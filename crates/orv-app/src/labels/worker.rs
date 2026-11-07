@@ -17,7 +17,7 @@ pub enum Operation {
     StartVolume(Arc<Volume>),
     Import(Arc<Labels>),
     Export(Arc<Labels>),
-    Paint(Arc<Labels>, usize, Vec<[f64; 2]>, u32, u8),
+    Paint(Arc<Labels>, usize, Vec<[f64; 2]>, Vec<usize>, u32, u8),
     Threshold(Arc<Labels>, Option<usize>, [f32; 2], u8),
     Preview(Arc<Labels>, SelectionRequest, u64),
     SeededPreview(
@@ -158,9 +158,9 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
             // hide the fact that it exists at the chosen destination.
             return export_labels(&current, &path, cancelled);
         }
-        Operation::Paint(current, z, points, radius, label) => {
+        Operation::Paint(current, z, points, breaks, radius, label) => {
             let mut edited = current.try_clone(cancelled)?;
-            edited.paint(z, &points, radius, label, cancelled)?;
+            edited.paint_disconnected(z, &points, &breaks, radius, label, cancelled)?;
             Output::Change(Arc::new(edited))
         }
         Operation::Threshold(current, slice, range, label) => {

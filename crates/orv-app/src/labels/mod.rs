@@ -56,6 +56,8 @@ pub struct LabelUi {
     supplied: supplied::Supplied,
     supplied_active: bool,
     stroke: Vec<[f64; 2]>,
+    stroke_breaks: Vec<usize>,
+    stroke_outside: bool,
     pub discard_question: bool,
     brush_scope: Option<canvas::BrushScope>,
 }
@@ -87,6 +89,8 @@ impl Default for LabelUi {
             supplied: Default::default(),
             supplied_active: false,
             stroke: Vec::new(),
+            stroke_breaks: Vec::new(),
+            stroke_outside: false,
             discard_question: false,
             brush_scope: None,
         }
@@ -95,6 +99,8 @@ impl Default for LabelUi {
 impl LabelUi {
     fn clear_brush(&mut self) {
         self.stroke.clear();
+        self.stroke_breaks.clear();
+        self.stroke_outside = false;
         self.brush_scope = None;
     }
     pub fn poll(&mut self) {

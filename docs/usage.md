@@ -140,6 +140,8 @@ there to choose fill, outline or hatching and hide individual numeric IDs.
 Counts use original source voxels and declared cell volume, with valid and missing
 samples kept separate; zoom and display resolution do not change them. Painting
 and threshold edits stay on source images. Slab projections omit labels.
+The brush skips pointer positions outside the displayed image; returning to it
+starts a separate segment in the same undoable edit.
 
 For a supported scalar volume, enable **Region in 3D** in the 3D controls and
 choose a manual label or supplied segment. The material view shows one opaque ID

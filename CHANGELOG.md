@@ -58,6 +58,8 @@ for controls and limits.
 - Quick source-image brush drags could leave no label or omit the end of a stroke.
   An unfinished stroke is discarded if the image, its position, size or
   orientation, or the brush settings change.
+- Source-image brush strokes no longer connect across portions drawn outside
+  the displayed image.
 - Label exports require a `.nii` filename, matching the uncompressed file format.
 - Changing slab settings during linked MPR or oblique navigation could show an
   outdated image or keep an old calculation running.

@@ -256,11 +256,28 @@ impl Labels {
         label: u8,
         cancel: impl Fn() -> bool,
     ) -> Result<(), &'static str> {
+        self.paint_disconnected(z, points, &[], radius, label, cancel)
+    }
+    /// Paint one edit without joining points separated by a path break.
+    pub fn paint_disconnected(
+        &mut self,
+        z: usize,
+        points: &[[f64; 2]],
+        breaks: &[usize],
+        radius: u32,
+        label: u8,
+        cancel: impl Fn() -> bool,
+    ) -> Result<(), &'static str> {
         let [w, h, d] = self.source.dimensions();
         if z >= d
             || !(1..=64).contains(&radius)
             || points.is_empty()
             || points.len() > 8192
+            || breaks.len() >= points.len()
+            || breaks
+                .iter()
+                .any(|index| *index == 0 || *index >= points.len())
+            || breaks.windows(2).any(|pair| pair[0] >= pair[1])
             || points.iter().flatten().any(|p| !p.is_finite())
             || points
                 .iter()
@@ -271,7 +288,12 @@ impl Labels {
         self.begin_edit();
         let mut total = 0usize;
         let mut previous = points[0];
-        for &point in points {
+        let mut breaks = breaks.iter().copied().peekable();
+        for (index, &point) in points.iter().enumerate() {
+            if breaks.peek() == Some(&index) {
+                previous = point;
+                breaks.next();
+            }
             let steps = (point[0] - previous[0])
                 .hypot(point[1] - previous[1])
                 .ceil()
