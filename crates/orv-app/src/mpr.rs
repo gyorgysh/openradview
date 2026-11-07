@@ -360,7 +360,7 @@ impl MprSession {
         } else {
             controls::display_panel(ui, "mpr-display-controls", display_controls);
         }
-        if !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume, false) {
+        if !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume) {
             let point = self.target.unwrap_or(snapshot.point);
             self.target = None;
             self.request(&snapshot.volume, point);
@@ -373,11 +373,16 @@ impl MprSession {
             labels.stop_physical_drawing();
         }
         let elapsed = self.last_input.elapsed();
-        update_status(
+        let sampling_status =
+            crate::slab_controls::pending_sampling(snapshot.images[0].slab, self.slab);
+        let show_pending = pending && elapsed >= std::time::Duration::from_millis(250);
+        crate::slab_controls::status_line(
             ui,
-            pending && elapsed >= std::time::Duration::from_millis(250),
+            sampling_status
+                .as_deref()
+                .or(show_pending.then_some("Updating linked views…")),
         );
-        if pending && elapsed < std::time::Duration::from_millis(250) {
+        if sampling_status.is_none() && pending && elapsed < std::time::Duration::from_millis(250) {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(250) - elapsed);
         }
@@ -676,22 +681,6 @@ fn workbench_rects(area: Rect) -> [Rect; 4] {
     })
 }
 
-fn update_status(ui: &mut egui::Ui, pending: bool) {
-    // Reserve exactly the same band while pending and settled. Never insert a
-    // label that changes pane height and flips the adaptive layout on/off.
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
-    if pending {
-        ui.painter().text(
-            rect.right_center(),
-            egui::Align2::RIGHT_CENTER,
-            "Updating linked views…",
-            egui::FontId::proportional(11.0),
-            theme::SILVER,
-        );
-    }
-}
-
 #[cfg(test)]
 mod layout_tests {
     use super::*;
@@ -725,7 +714,10 @@ mod layout_tests {
                         ..Default::default()
                     },
                     |ui| {
-                        update_status(ui, pending);
+                        crate::slab_controls::status_line(
+                            ui,
+                            pending.then_some("Showing MIP (80 mm, 251 samples); updating…"),
+                        );
                         let (rect, _) =
                             ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
                         panes.push(rect);

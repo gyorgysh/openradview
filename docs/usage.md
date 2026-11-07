@@ -79,6 +79,9 @@ For scalar MPR/oblique views, choose **Slab MIP**, **Slab MinIP** or **Slab mean
 physical thickness. These show the discrete maximum, minimum or mean of valid
 samples along the plane normal, with the sample count shown. Navigation retains
 the requested plane detail and slab sampling.
+When you change slab settings, the last completed image remains visible while
+the new one is calculated. A status line identifies the displayed sampling
+until it matches the selected settings.
 At most 257 samples span a slab, so features between samples can be missed.
 Slabs disable physical measurements; choose **Thin plane** to measure again. **Clipping…** in 3D/MIP
 limits the projection to explicit LPS minimum/maximum coordinates in millimeters.

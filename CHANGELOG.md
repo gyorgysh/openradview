@@ -35,7 +35,9 @@ for controls and limits.
 
 - Linked MPR and oblique views keep their requested image detail and slab
   sampling during navigation. Supported scalar views use the GPU, with a CPU
-  fallback; unchanged linked planes reuse their completed images.
+  fallback; unchanged linked planes reuse their completed images. When slab
+  settings change, a status line identifies the image still on screen while the
+  new one is prepared.
 - Some CPU slab projections with missing samples can update faster.
 - Imported fractional masks retain their original values and whether they describe
   probability or occupancy. Overlays and counts continue to use half the stated

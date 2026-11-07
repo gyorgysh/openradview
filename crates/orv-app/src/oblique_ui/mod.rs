@@ -182,7 +182,7 @@ impl ObliqueSession {
             }
         });
         let slab_changed =
-            !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume, true);
+            !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume);
         let controls = egui::CollapsingHeader::new("Plane controls")
             .default_open(width >= 800.)
             .show(ui, |ui| self.plane_controls(ui, &snapshot.volume));
@@ -211,6 +211,9 @@ impl ObliqueSession {
         if crate::actions::pressed(ui, crate::actions::Action::Previous) {
             self.view.slice = initial.saturating_sub(1);
         }
+        let sampling_status =
+            crate::slab_controls::pending_sampling(snapshot.image.slab, self.slab);
+        crate::slab_controls::status_line(ui, sampling_status.as_deref());
         let (_, response) = ui.allocate_exact_size(
             Vec2::new(width, (ui.available_height() - 62.).max(60.)),
             egui::Sense::click_and_drag(),
@@ -276,12 +279,12 @@ impl ObliqueSession {
             self.annotations.cancel_interaction(ui.ctx());
         }
         let [l, p, s] = snapshot.plane.center_mm;
-        let status = if snapshot.preview {
-            "Preview · refining"
-        } else if snapshot.generation == self.worker.generation() {
-            "Rendered"
-        } else {
+        let status = if snapshot.generation != self.worker.generation() {
             "Updating · previous plane shown"
+        } else if snapshot.preview {
+            "Preview · refining"
+        } else {
+            "Rendered"
         };
         ui.label(
             RichText::new(format!("{status} · centre L {l:.2}  P {p:.2}  S {s:.2} mm"))
