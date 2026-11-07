@@ -522,13 +522,18 @@ impl Volume {
                             return Err(GeometryError::Cancelled);
                         }
                         if let Some(value) = self.sample_voxel(add(center, *offset)) {
-                            sum += f64::from(value);
-                            count += 1;
-                            extreme = Some(extreme.map_or(value, |old| match slab.projection {
-                                crate::slab::SlabProjection::Maximum => old.max(value),
-                                crate::slab::SlabProjection::Minimum => old.min(value),
-                                crate::slab::SlabProjection::Mean => old,
-                            }));
+                            match slab.projection {
+                                crate::slab::SlabProjection::Maximum => {
+                                    extreme = Some(extreme.map_or(value, |old| old.max(value)));
+                                }
+                                crate::slab::SlabProjection::Minimum => {
+                                    extreme = Some(extreme.map_or(value, |old| old.min(value)));
+                                }
+                                crate::slab::SlabProjection::Mean => {
+                                    sum += f64::from(value);
+                                    count += 1;
+                                }
+                            }
                         }
                     }
                     // An all-missing ray stays missing for every projection.

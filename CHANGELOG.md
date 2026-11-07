@@ -33,25 +33,22 @@ for controls and limits.
 
 ### Changed
 
-- Linked MPR and oblique views keep their requested image detail and slab
-  sampling during navigation. Supported scalar views use the GPU, with a CPU
-  fallback; unchanged linked planes reuse their completed images. When slab
-  settings change, a status line identifies the image still on screen while the
-  new one is prepared.
-- Some CPU slab projections with missing samples can update faster.
-- Imported fractional masks retain their original values and whether they describe
-  probability or occupancy. Overlays and counts continue to use half the stated
-  maximum as the threshold.
+- Linked MPR and oblique views keep the selected detail and slab sampling as you
+  navigate. When slab settings change, a status line describes the image still
+  shown while the new view loads. Supported scalar views use the GPU, with a CPU
+  fallback; some slab views can update faster on the CPU.
+- Imported fractional masks keep their original values and whether they describe
+  probability or occupancy. Overlays and counts still use half the stated maximum
+  as the threshold.
 - Label edits have up to 16 undo and redo steps. Returning to the last exported
   state clears the unsaved indicator.
 
 ### Fixed
 
-- Changing slab settings during linked MPR or oblique navigation could let an
-  outdated result replace a newer view or keep an obsolete calculation running.
-- An oblique setup error could disappear after another request, leaving the view
-  waiting. Errors from older MPR or oblique requests no longer interrupt a newer
-  view.
+- Changing slab settings during linked MPR or oblique navigation could show an
+  outdated image or keep an old calculation running.
+- An oblique setup error could disappear, leaving the view waiting. Errors from
+  older MPR or oblique requests no longer interrupt the current view.
 - Short 3D camera drags could lose the last movement on release.
 - Exact quarter-turn camera angles could incorrectly hide valid samples next to
   missing data.
