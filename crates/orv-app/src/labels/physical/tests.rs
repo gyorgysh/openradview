@@ -53,6 +53,31 @@ fn opening_physical_tools_preserves_the_supplied_overlay_until_manual_selection(
 }
 
 #[test]
+fn surface_erase_requires_a_resolved_physical_edit() {
+    let mut state = state();
+    let original = state.current.as_ref().unwrap().clone();
+    let source = original.source_arc();
+    state.sync_physical(&context(&source));
+    assert!(!state.can_start_surface_erase(0, &source));
+    state.physical.open = false;
+    assert!(state.can_start_surface_erase(0, &source));
+    assert!(state.surface_erase_base(0, &source).is_some());
+
+    let preview = prepared(&state);
+    assert!(state.physical.completed(preview, Some(&original)));
+    assert!(!state.can_start_surface_erase(0, &source));
+    assert!(state.surface_erase_base(0, &source).is_none());
+    state.invalidate_physical();
+    assert!(state.can_start_surface_erase(0, &source));
+
+    state.physical.drawing = true;
+    assert!(!state.can_start_surface_erase(0, &source));
+    assert!(state.surface_erase_base(0, &source).is_none());
+    state.physical.drawing = false;
+    assert!(state.surface_erase_base(0, &source).is_some());
+}
+
+#[test]
 fn private_stamp_is_shared_by_planes_and_3d_then_apply_and_history_retain_exact_maps() {
     let mut state = state();
     let original = state.current.as_ref().unwrap().clone();

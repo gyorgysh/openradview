@@ -11,6 +11,9 @@ impl LabelUi {
         !self.busy()
             && !source.is_color()
             && !self.supplied_active
+            && !self.physical.open
+            && !self.physical_drawing()
+            && !self.physical_preview_visible()
             && self.series == selected
             && self.label != 0
             && self.display.visible_ids[usize::from(self.label)]
@@ -31,7 +34,6 @@ impl LabelUi {
         (self.can_start_surface_erase(selected, source)
             && !self.open
             && !self.paint
-            && !self.physical.open
             && !self.regions.picking
             && self.regions.preview.is_none()
             && self.regions.seeded.preview.is_none())

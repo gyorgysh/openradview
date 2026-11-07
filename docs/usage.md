@@ -162,7 +162,8 @@ only the source while the region loads. With a linked cut it says **PREVIEW
 HIDDEN · CUT**. Enable **Region in 3D**, select **Manual** and wait for it to
 finish to inspect the proposal there.
 
-**Surface stamp…** is a separate erase tool for an applied manual label. Select
+**Surface stamp…** is a separate erase tool for an applied manual label. Finish
+drawing, apply or discard any physical preview, and close Physical edit first. Select
 **Choose a face**, then click a face in the completed 3D view. Inspect the
 resulting preview, then apply or cancel. It removes one visible cell layer within
 the chosen radius; covered or ambiguous faces cannot anchor a stamp. Neither tool

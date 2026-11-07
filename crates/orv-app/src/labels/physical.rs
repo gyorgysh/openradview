@@ -316,7 +316,7 @@ impl LabelUi {
                     if let Some(preview) = &self.physical.preview {
                         let summary = preview.stroke.summary();
                         ui.label(format!("PREVIEW ONLY · {} cells would change in {} tiles.", summary.changed_voxels, summary.changed_tiles));
-                        ui.small("The planes and manual 3D region show this proposal. Counts and export use the applied map. Apply adds one undo step; nothing is saved automatically.");
+                        ui.small("The planes and manual 3D region show this proposal. Counts and export use the applied map. Apply adds one undo step; nothing is saved automatically. Apply or discard this preview before using Surface stamp.");
                         ui.horizontal_wrapped(|ui| {
                             if ui.button("Apply physical edit").clicked() { self.apply_physical(); }
                             if ui.button("Discard physical preview").clicked() { self.invalidate_physical(); }

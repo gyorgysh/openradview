@@ -3,6 +3,17 @@
 use super::*;
 use orv_render::volume_source::GpuVolumeSource;
 
+fn surface_editor_hint(labels: &crate::labels::LabelUi) -> &'static str {
+    if labels.physical_dialog_open()
+        || labels.physical_drawing()
+        || labels.physical_preview_visible()
+    {
+        "Finish drawing, apply or discard the physical preview, and close Physical edit before using Surface stamp."
+    } else {
+        "Requires Material view support and an applied manual label map. Show the selected ID in Labels before editing."
+    }
+}
+
 impl VolumeSession {
     fn surface_editor_available(&self, labels: &crate::labels::LabelUi, selected: usize) -> bool {
         self.material_editor.is_some()
@@ -120,9 +131,8 @@ impl VolumeSession {
                         self.surface_editor_available(labels, selected),
                         egui::Button::new("Surface stamp…"),
                     )
-                    .on_hover_text(
-                        "Requires Material view support and an applied manual label map. Show the selected ID in Labels before editing.",
-                    )
+                    .on_hover_text(surface_editor_hint(labels))
+                    .on_disabled_hover_text(surface_editor_hint(labels))
                     .clicked()
             {
                 surface_requested = true;
@@ -146,7 +156,7 @@ impl VolumeSession {
                 if ui.button("Physical label edit…").clicked() {
                     edit_requested = true;
                 }
-                if ui.add_enabled(self.surface_editor_available(labels,selected),egui::Button::new("Surface erase stamp…")).on_hover_text("Requires Material view support and an applied manual label map. Show the selected ID in Labels before editing.").clicked() {surface_requested=true;}
+                if ui.add_enabled(self.surface_editor_available(labels,selected),egui::Button::new("Surface erase stamp…")).on_hover_text(surface_editor_hint(labels)).on_disabled_hover_text(surface_editor_hint(labels)).clicked() {surface_requested=true;}
                 ui.weak("3D camera and appearance are independent of the MPR display.");
                 if ui.add_enabled_ui(self.material_editor.is_some(),|ui|self.plane_settings.ui(ui)).inner {self.material_enabled=true;}
                 if self.material_editor.is_none() {ui.small("Source planes are unavailable for this volume.");}
