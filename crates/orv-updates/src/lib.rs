@@ -147,7 +147,17 @@ impl Updater {
                 .spawn(move || {
                     if let (Some(path), Some(exe)) = (path, exe) {
                         worker(
-                            &shared, &*notify, &path, &exe, &version, receive, &lifecycle,
+                            WorkerContext {
+                                state: &shared,
+                                notify: &*notify,
+                                prefs_path: &path,
+                                exe: &exe,
+                                version: &version,
+                                lifecycle: &lifecycle,
+                                check: &check,
+                                on_check_selected: &|_| {},
+                            },
+                            receive,
                         );
                     }
                 });
@@ -378,15 +388,62 @@ fn unpack_bundle(
     }
     Ok(extracted.join(&manifest.bundle))
 }
-fn worker(
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CheckStart {
+    Skipped,
+    Started,
+    PreferenceSaveFailed,
+}
+
+fn begin_check(
     state: &Mutex<State>,
-    notify: &dyn Fn(),
     prefs_path: &std::path::Path,
-    exe: &std::path::Path,
-    version: &str,
-    receive: mpsc::Receiver<Task>,
-    lifecycle: &lifecycle::Lifecycle,
-) {
+    automatic: bool,
+    time: u64,
+) -> CheckStart {
+    let mut state = lock(state);
+    if state.status == Status::ReadyToRestart
+        || (automatic && !automatic_due(&state.prefs, state.status, time, state.package_managed))
+    {
+        return CheckStart::Skipped;
+    }
+    state.prefs.last_check = time;
+    if preferences::save(prefs_path, &state.prefs).is_err() && automatic {
+        state.prefs.enabled = false;
+        state.prefs.chosen = false;
+        state.status = Status::Failed;
+        state.detail = AUTOMATIC_SAVE_FAILED;
+        return CheckStart::PreferenceSaveFailed;
+    }
+    state.manifest = None;
+    state.status = Status::Checking;
+    state.detail = "";
+    CheckStart::Started
+}
+
+struct WorkerContext<'a> {
+    state: &'a Mutex<State>,
+    notify: &'a dyn Fn(),
+    prefs_path: &'a std::path::Path,
+    exe: &'a std::path::Path,
+    version: &'a str,
+    lifecycle: &'a lifecycle::Lifecycle,
+    check: &'a dyn Fn(&str) -> Result<Option<Manifest>>,
+    on_check_selected: &'a dyn Fn(bool),
+}
+
+fn worker(context: WorkerContext<'_>, receive: mpsc::Receiver<Task>) {
+    let WorkerContext {
+        state,
+        notify,
+        prefs_path,
+        exe,
+        version,
+        lifecycle,
+        check: check_update,
+        on_check_selected,
+    } = context;
     let cleanup = lock(state).prefs.cleanup.clone();
     if let Some(cleanup) = cleanup.filter(|c| c.installed_version == version)
         && let Ok(current) = install::root(exe)
@@ -418,6 +475,12 @@ fn worker(
                 if lock(state).status == Status::ReadyToRestart {
                     continue;
                 }
+                if automatic && {
+                    let s = lock(state);
+                    !automatic_due(&s.prefs, s.status, now(), s.package_managed)
+                } {
+                    continue;
+                }
                 if manual_check
                     .is_some_and(|t: std::time::Instant| t.elapsed() < Duration::from_secs(60))
                 {
@@ -429,22 +492,18 @@ fn worker(
                     );
                     continue;
                 }
-                manual_check = Some(std::time::Instant::now());
-                {
-                    let mut state = lock(state);
-                    state.prefs.last_check = now();
-                    if preferences::save(prefs_path, &state.prefs).is_err() && automatic {
-                        state.prefs.enabled = false;
-                        state.prefs.chosen = false;
-                        state.status = Status::Failed;
-                        state.detail = AUTOMATIC_SAVE_FAILED;
+                on_check_selected(automatic);
+                match begin_check(state, prefs_path, automatic, now()) {
+                    CheckStart::Skipped => continue,
+                    CheckStart::PreferenceSaveFailed => {
                         notify();
                         continue;
                     }
-                    state.manifest = None;
+                    CheckStart::Started => {}
                 }
-                change(state, notify, Status::Checking, "");
-                match check(version) {
+                manual_check = Some(std::time::Instant::now());
+                notify();
+                match check_update(version) {
                     Ok(Some(manifest)) => {
                         let readiness = install::root(exe).and_then(|root| {
                             install::current_trust(&root, Some(version), || lifecycle.closing())

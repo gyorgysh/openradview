@@ -472,6 +472,237 @@ fn background_checks_require_consent_daily_deadline_and_no_pending_restart() {
     prefs.last_check = 100000;
     assert!(!automatic_due(&prefs, Status::Idle, 90000, false));
 }
+
+#[test]
+fn automatic_check_selected_before_opt_out_does_not_start() {
+    let folder = tempfile::tempdir().unwrap();
+    let prefs_path = folder.path().join("updates.json");
+    let state = State {
+        status: Status::Idle,
+        detail: "",
+        manifest: None,
+        downloaded: 0,
+        installable: false,
+        package_managed: false,
+        prefs: Preferences {
+            chosen: true,
+            enabled: true,
+            last_check: 1,
+            ..Default::default()
+        },
+    };
+    let mut updater = Updater {
+        state: Arc::new(Mutex::new(state)),
+        tasks: None,
+        prefs_path: Some(prefs_path.clone()),
+        executable: None,
+        restart: false,
+        lifecycle: Arc::new(lifecycle::Lifecycle::default()),
+    };
+    {
+        let state = lock(&updater.state);
+        assert!(automatic_due(&state.prefs, state.status, 100_000, false));
+    }
+    // The worker has observed a due check, but has not started it yet.
+    updater.set_enabled(false).unwrap();
+    let saved = fs::read(&prefs_path).unwrap();
+    assert_eq!(
+        begin_check(&updater.state, &prefs_path, true, 100_000),
+        CheckStart::Skipped
+    );
+    assert_eq!(fs::read(&prefs_path).unwrap(), saved);
+    let state = lock(&updater.state);
+    assert!(state.prefs.chosen && !state.prefs.enabled);
+    assert_eq!(state.prefs.last_check, 1);
+    assert_eq!(state.status, Status::Idle);
+    drop(state);
+
+    // A separate manual request is still allowed after opting out.
+    assert_eq!(
+        begin_check(&updater.state, &prefs_path, false, 100_000),
+        CheckStart::Started
+    );
+    assert_eq!(updater.status(), Status::Checking);
+    let saved = preferences::load(&prefs_path);
+    assert!(saved.chosen && !saved.enabled);
+    assert_eq!(saved.last_check, 100_000);
+}
+
+#[test]
+fn updater_worker_drops_a_selected_check_after_opt_out() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let folder = tempfile::tempdir().unwrap();
+    let prefs_path = folder.path().join("updates.json");
+    let state = Arc::new(Mutex::new(State {
+        status: Status::Idle,
+        detail: "",
+        manifest: None,
+        downloaded: 0,
+        installable: false,
+        package_managed: false,
+        prefs: Preferences {
+            chosen: true,
+            enabled: true,
+            last_check: 1,
+            ..Default::default()
+        },
+    }));
+    let lifecycle = Arc::new(lifecycle::Lifecycle::default());
+    let (tasks, receive) = mpsc::sync_channel(4);
+    let mut updater = Updater {
+        state: state.clone(),
+        tasks: Some(tasks.clone()),
+        prefs_path: Some(prefs_path.clone()),
+        executable: None,
+        restart: false,
+        lifecycle: lifecycle.clone(),
+    };
+    let (selected, wait_for_selection) = mpsc::sync_channel(1);
+    let (resume, wait_to_resume) = mpsc::sync_channel(1);
+    let calls = AtomicUsize::new(0);
+    let exe = folder.path().join("viewer");
+    std::thread::scope(|scope| {
+        let calls = &calls;
+        let worker_state = state.clone();
+        let worker_lifecycle = lifecycle.clone();
+        let worker_prefs = prefs_path.clone();
+        scope.spawn(move || {
+            let selected_check = |automatic: bool| {
+                assert!(automatic);
+                selected.send(()).unwrap();
+                wait_to_resume.recv_timeout(Duration::from_secs(5)).unwrap();
+            };
+            let fake_check = |_: &str| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(None)
+            };
+            worker(
+                WorkerContext {
+                    state: &worker_state,
+                    notify: &|| {},
+                    prefs_path: &worker_prefs,
+                    exe: &exe,
+                    version: "1.4.0",
+                    lifecycle: &worker_lifecycle,
+                    check: &fake_check,
+                    on_check_selected: &selected_check,
+                },
+                receive,
+            );
+        });
+        wait_for_selection
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        updater.set_enabled(false).unwrap();
+        resume.send(()).unwrap();
+        tasks.send(Task::Stop).unwrap();
+    });
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(updater.status(), Status::Idle);
+    let saved = preferences::load(&prefs_path);
+    assert!(saved.chosen && !saved.enabled);
+    assert_eq!(saved.last_check, 1);
+}
+
+#[test]
+fn updater_worker_dispatches_due_and_explicit_checks_without_network_in_tests() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    for automatic in [false, true] {
+        let folder = tempfile::tempdir().unwrap();
+        let prefs_path = folder.path().join("updates.json");
+        let state = Arc::new(Mutex::new(State {
+            status: Status::Idle,
+            detail: "",
+            manifest: None,
+            downloaded: 0,
+            installable: false,
+            package_managed: false,
+            prefs: Preferences {
+                chosen: true,
+                enabled: automatic,
+                last_check: 1,
+                ..Default::default()
+            },
+        }));
+        let lifecycle = lifecycle::Lifecycle::default();
+        let (tasks, receive) = mpsc::sync_channel(2);
+        if !automatic {
+            tasks.send(Task::Check).unwrap();
+        }
+        let (finished, wait_for_finish) = mpsc::sync_channel(1);
+        let calls = AtomicUsize::new(0);
+        let exe = folder.path().join("viewer");
+        std::thread::scope(|scope| {
+            let worker_state = state.clone();
+            let worker_prefs = prefs_path.clone();
+            let calls = &calls;
+            scope.spawn(move || {
+                let check = |_: &str| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(None)
+                };
+                let notify = || {
+                    if lock(&worker_state).status == Status::Current {
+                        finished.send(()).unwrap();
+                    }
+                };
+                worker(
+                    WorkerContext {
+                        state: &worker_state,
+                        notify: &notify,
+                        prefs_path: &worker_prefs,
+                        exe: &exe,
+                        version: "1.4.0",
+                        lifecycle: &lifecycle,
+                        check: &check,
+                        on_check_selected: &|_| {},
+                    },
+                    receive,
+                );
+            });
+            wait_for_finish
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            tasks.send(Task::Stop).unwrap();
+        });
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let saved = preferences::load(&prefs_path);
+        assert!(saved.chosen);
+        assert_eq!(saved.enabled, automatic);
+        assert!(saved.last_check > 1);
+    }
+}
+
+#[test]
+fn automatic_check_requires_persisting_its_start_before_dispatch() {
+    let folder = tempfile::tempdir().unwrap();
+    let blocked = folder.path().join("not-a-directory");
+    fs::write(&blocked, b"file").unwrap();
+    let state = Mutex::new(State {
+        status: Status::Idle,
+        detail: "",
+        manifest: None,
+        downloaded: 0,
+        installable: false,
+        package_managed: false,
+        prefs: Preferences {
+            chosen: true,
+            enabled: true,
+            last_check: 1,
+            ..Default::default()
+        },
+    });
+    assert_eq!(
+        begin_check(&state, &blocked.join("updates.json"), true, 100_000),
+        CheckStart::PreferenceSaveFailed
+    );
+    let state = lock(&state);
+    assert!(!state.prefs.chosen && !state.prefs.enabled);
+    assert_eq!(state.status, Status::Failed);
+    assert_eq!(state.detail, AUTOMATIC_SAVE_FAILED);
+}
 #[test]
 fn concurrent_install_lock_is_nonblocking_and_released_with_its_handle() {
     let folder = tempfile::tempdir().unwrap();

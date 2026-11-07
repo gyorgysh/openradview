@@ -2125,7 +2125,10 @@ separate recipient tokens, not a live study browser. [Protocol and consent](agen
 ## Updates and release integrity
 
 Only the update worker contacts GitHub; it receives no study data. A saved choice
-is required for background checks. Downloads/installations and restart are
+is required for background checks. Before starting a selected automatic check,
+the worker revalidates that choice while holding the state lock and records the
+check as starting under the same lock. An already starting check may finish after
+the user turns checks off. Downloads/installations and restart are
 separate user actions. Ed25519 signatures bind exact manifest bytes; target,
 version, name, size and hashes are checked before bounded extraction.
 

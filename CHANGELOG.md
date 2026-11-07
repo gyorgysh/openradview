@@ -50,6 +50,8 @@ for controls and limits.
 
 ### Fixed
 
+- An automatic update check selected just before checks were switched off
+  could still start after the preference changed.
 - If the first update preference cannot be saved, the viewer shows that checks
   are off for the current run and lets you retry saving the off choice.
 - Connected-region and hint previews stop calculating when their source image
