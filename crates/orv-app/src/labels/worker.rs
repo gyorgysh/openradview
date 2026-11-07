@@ -273,6 +273,45 @@ mod tests {
     }
 
     #[test]
+    fn completed_export_marks_the_saved_revision_after_late_cancel() {
+        let original = crate::labels::tests::labels();
+        let mut state = crate::labels::LabelUi {
+            current: Some(original.clone()),
+            ..Default::default()
+        };
+        state.mark_saved();
+        let mut edited = original.try_clone(|| false).unwrap();
+        edited.paint(1, &[[3., 3.]], 1, 7, || false).unwrap();
+        let edited = Arc::new(edited);
+        state.commit_change(edited.clone());
+        assert!(state.dirty);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("labels.nii");
+        let result = export_labels(&edited, &path, || false);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender.send(result).ok().unwrap();
+        state.task = Some(Task {
+            receiver,
+            cancel: Arc::new(AtomicBool::new(true)),
+            export: true,
+        });
+        state.poll();
+        assert!(!state.dirty);
+        assert!(state.message.contains("Label map exported"));
+        let bytes = std::fs::read(path).unwrap();
+        assert_eq!(
+            &bytes[544..],
+            edited.values().iter().copied().collect::<Vec<_>>()
+        );
+
+        state.undo_edit();
+        assert!(state.dirty);
+        state.redo_edit();
+        assert!(!state.dirty);
+    }
+
+    #[test]
     fn label_export_is_private_exclusive_and_cleans_up_cancelled_output() {
         let labels = crate::labels::tests::labels();
         let dir = tempfile::tempdir().unwrap();
