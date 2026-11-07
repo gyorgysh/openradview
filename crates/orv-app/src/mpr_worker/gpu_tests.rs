@@ -275,6 +275,63 @@ fn gpu_navigation_reuses_unchanged_planes_and_source_across_canonical_mode_and_r
     assert_eq!(MemoryBudget::gpu().used(), 0);
 }
 #[test]
+fn translated_sheared_slab_reuse_matches_fresh_source_planes_on_gpu() {
+    let (device, queue) = device();
+    let frames = source(false)
+        .into_iter()
+        .enumerate()
+        .map(|(z, frame)| {
+            let mut frame = (*frame).clone();
+            let geometry = frame.geometry.as_mut().unwrap();
+            geometry.position = [
+                -394.2698709253274 + z as f64 * 0.13,
+                69.71319873438182 + z as f64 * 0.07,
+                -77.777 + z as f64 * 3.,
+            ];
+            geometry.spacing = [0.88, 1.812433865858239];
+            Arc::new(frame)
+        })
+        .collect::<Vec<_>>();
+    let mut worker = MprWorker::start(frames, egui::Context::default());
+    drop(tests::wait(&worker).unwrap());
+    worker.offer_gpu(&device, &queue);
+    let first = settled(&worker, true);
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 4.,
+        intervals: 32,
+    };
+    worker.request_slab(first.point, 512, Some(slab));
+    let mut previous = settled(&worker, true);
+    verify(&previous);
+    let [min, max] = previous.volume.bounds();
+    for axis in [0, 1, 2] {
+        let mut point = previous.point;
+        point[axis] = min[axis] + (max[axis] - min[axis]) * 16. / 51.;
+        worker.request_slab(point, 512, Some(slab));
+        let current = settled(&worker, true);
+        assert_eq!(current.point, point);
+        verify(&current);
+        for (index, normal) in [2, 1, 0].into_iter().enumerate() {
+            if normal != axis {
+                assert!(Arc::ptr_eq(&previous.images[index], &current.images[index]));
+                assert!(Arc::ptr_eq(
+                    previous.gpu_images[index].as_ref().unwrap(),
+                    current.gpu_images[index].as_ref().unwrap()
+                ));
+            }
+        }
+        previous = current;
+    }
+    let handle = worker.worker.take().unwrap();
+    drop(worker);
+    handle.join().unwrap();
+    drop((first, previous));
+    fence(&device);
+    assert_eq!(MemoryBudget::gpu().used(), 0);
+}
+
+#[test]
 fn gpu_slab_navigation_keeps_full_sampling_and_subnormal_fallback_keeps_exact_values() {
     let (device, queue) = device();
     for subnormal in [false, true] {

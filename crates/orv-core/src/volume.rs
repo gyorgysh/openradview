@@ -377,6 +377,15 @@ impl Volume {
         point: V3,
         max_side: u32,
     ) -> Result<ReformatGrid, GeometryError> {
+        self.anatomical_grid(plane, point, max_side, None)
+    }
+    pub(crate) fn anatomical_grid(
+        &self,
+        plane: Plane,
+        point: V3,
+        max_side: u32,
+        slab: Option<crate::slab::Slab>,
+    ) -> Result<ReformatGrid, GeometryError> {
         if !(2..=2048).contains(&max_side) || !finite(point) {
             return Err(GeometryError::Limit);
         }
@@ -402,7 +411,7 @@ impl Volume {
             ),
             Plane::Acquired => return Err(GeometryError::Orientation),
         };
-        self.sampling_grid(position, u, v, extent, (max_side, None))
+        self.sampling_grid(position, u, v, extent, (max_side, slab))
     }
     pub(crate) fn sampling_grid(
         &self,

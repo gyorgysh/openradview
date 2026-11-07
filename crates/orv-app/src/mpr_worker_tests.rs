@@ -195,6 +195,69 @@ fn continuous_input_publishes_previews_then_refines_the_latest_point() {
 }
 
 #[test]
+fn slab_plane_geometry_is_stable_when_the_point_moves_in_plane() {
+    use orv_core::{
+        oblique::ObliquePlane,
+        slab::{Slab, SlabProjection},
+    };
+
+    let source = frames()
+        .into_iter()
+        .enumerate()
+        .map(|(z, frame)| {
+            let mut frame = (*frame).clone();
+            frame.geometry.as_mut().unwrap().position = [
+                -394.2698709253274 + z as f64 * 0.13,
+                69.71319873438182 + z as f64 * 0.07,
+                -77.777 + z as f64 * 3.,
+            ];
+            frame.width = 257;
+            frame.pixels = vec![z as f32; 257 * 4].into();
+            frame.geometry.as_mut().unwrap().spacing = [0.88, 1.812433865858239];
+            Arc::new(frame)
+        })
+        .collect::<Vec<_>>();
+    let worker = MprWorker::start(source, egui::Context::default());
+    let snapshot = wait(&worker).unwrap();
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 4.,
+        intervals: 32,
+    };
+    for (index, plane) in PLANES.into_iter().enumerate() {
+        let axis = [2, 1, 0][index];
+        let point = snapshot.volume.center();
+        let initial = snapshot
+            .volume
+            .oblique_grid(
+                &ObliquePlane::anatomical(plane, point).unwrap(),
+                512,
+                Some(slab),
+            )
+            .unwrap();
+        for n in 0..50 {
+            let mut moved = point;
+            let [min, max] = snapshot.volume.bounds();
+            for i in 0..3 {
+                if i != axis {
+                    moved[i] = min[i] + (max[i] - min[i]) * (n as f64 + 1.) / 51.;
+                }
+            }
+            let grid = snapshot
+                .volume
+                .oblique_grid(
+                    &ObliquePlane::anatomical(plane, moved).unwrap(),
+                    512,
+                    Some(slab),
+                )
+                .unwrap();
+            assert_eq!(initial.dimensions(), grid.dimensions(), "{plane:?} at {n}");
+            assert_eq!(initial.geometry(), grid.geometry(), "{plane:?} at {n}");
+        }
+    }
+}
+
+#[test]
 fn moving_one_slider_preserves_full_detail_and_reuses_unchanged_planes() {
     let source = frames()
         .into_iter()

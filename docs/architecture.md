@@ -67,6 +67,10 @@ labels, measurements and local picture/sheet exports retain their matching CPU
 Frames. Color, unsupported arithmetic/device limits or refused GPU admission use
 the same requested CPU grids. A failed GPU path is retired for that view session,
 avoiding repeated upload or precision failures on each pointer event.
+Exact anatomical thin and slab grids use the source's world bounds and the
+plane's normal coordinate. Moving the linked point within a plane therefore
+does not change the grid through pivot-dependent floating-point rounding; only
+exactly matching anatomical axes take this path.
 Leaving linked MPR suspends that worker and releases its GPU source, plane cache
 and completed snapshot. Position, display settings and annotations stay in the
 session. Returning rebuilds from the same CPU volume on demand; inactive views
