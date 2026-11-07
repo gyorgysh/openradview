@@ -57,7 +57,7 @@ pub struct LabelUi {
     supplied_active: bool,
     stroke: Vec<[f64; 2]>,
     pub discard_question: bool,
-    stroke_slice: Option<usize>,
+    brush_scope: Option<canvas::BrushScope>,
 }
 impl Default for LabelUi {
     fn default() -> Self {
@@ -88,11 +88,15 @@ impl Default for LabelUi {
             supplied_active: false,
             stroke: Vec::new(),
             discard_question: false,
-            stroke_slice: None,
+            brush_scope: None,
         }
     }
 }
 impl LabelUi {
+    fn clear_brush(&mut self) {
+        self.stroke.clear();
+        self.brush_scope = None;
+    }
     pub fn poll(&mut self) {
         self.supplied.poll();
         let result = self.task.as_ref().and_then(Task::poll);
@@ -183,8 +187,7 @@ impl LabelUi {
         self.regions.invalidate();
         self.regions.picking = false;
         self.regions.seed_picking = None;
-        self.stroke.clear();
-        self.stroke_slice = None;
+        self.clear_brush();
         self.overlays.clear();
         self.dirty = self.current.as_ref().is_some_and(|map| {
             self.saved.as_ref().is_none_or(|(object, revision)| {
@@ -224,7 +227,7 @@ impl LabelUi {
             if !matches!(&op, Operation::Preview(..) | Operation::SeededPreview(..)) {
                 self.regions.invalidate();
             }
-            self.stroke.clear();
+            self.clear_brush();
             self.task = Some(Task::start(op, ctx.clone()));
         }
     }
@@ -251,7 +254,7 @@ impl LabelUi {
             task.cancel_region_preview();
         }
         self.paint = false;
-        self.stroke.clear();
+        self.clear_brush();
         self.regions.seeded.cancel_stroke();
         self.regions.picking = false;
         self.regions.seed_picking = None;

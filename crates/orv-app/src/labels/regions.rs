@@ -181,7 +181,7 @@ impl LabelUi {
                 }
                 if self.regions.choice != Choice::RemoveSmall {
                     if ui.button("Pick seed on source image").clicked() {
-                        self.paint = false; self.stroke.clear();
+                        self.paint = false; self.clear_brush();
                         self.regions.seed_picking = None;
                         self.regions.invalidate(); self.regions.picking = true; self.open = false;
                     }

@@ -504,7 +504,7 @@ impl LabelUi {
             ui.horizontal(|ui| {
                 for (class, text) in [(SeedClass::Include,"Draw include hint"),(SeedClass::Exclude,"Draw exclude hint")] {
                     if ui.add_enabled(slice.is_some() && self.regions.seeded.seeds.len() < MAX_SEEDS,egui::Button::new(text)).clicked() {
-                        self.paint=false; self.stroke.clear(); self.regions.invalidate();
+                        self.paint=false; self.clear_brush(); self.regions.invalidate();
                         self.regions.seed_picking=Some(class); self.regions.picking=true; self.open=false;
                     }
                 }

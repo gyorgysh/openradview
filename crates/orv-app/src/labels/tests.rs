@@ -275,6 +275,108 @@ fn held_brush_keeps_release_position_and_ignores_foreign_presses() {
             .eq(expected.values().iter())
     );
 }
+
+#[test]
+fn brush_path_is_discarded_when_its_view_or_editing_context_changes() {
+    for change in 0..10 {
+        let ctx = egui::Context::default();
+        let current = labels();
+        let mut image = current.source().frames()[1].clone();
+        let mut state = LabelUi {
+            current: Some(current.clone()),
+            paint: true,
+            radius: 1,
+            ..Default::default()
+        };
+        let mut view = ViewState::default();
+        let start = egui::pos2(100., 200.);
+        let end = egui::pos2(320., 200.);
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let frame = |state: &mut LabelUi,
+                     image: &Arc<Frame>,
+                     view: &ViewState,
+                     size: egui::Vec2,
+                     selected: usize,
+                     focused: bool,
+                     events| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(500., 500.),
+                    )),
+                    focused,
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let (_, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+                    state.canvas(ui, &response, image, view, selected);
+                },
+            );
+            output.textures_delta.clear();
+        };
+        let mut size = egui::vec2(400., 400.);
+        let mut selected = 0;
+        let mut focused = true;
+        frame(
+            &mut state,
+            &image,
+            &view,
+            size,
+            selected,
+            focused,
+            vec![egui::Event::PointerMoved(start)],
+        );
+        frame(
+            &mut state,
+            &image,
+            &view,
+            size,
+            selected,
+            focused,
+            vec![button(start, true)],
+        );
+        assert!(
+            !state.stroke.is_empty(),
+            "change {change}: press was not captured"
+        );
+        match change {
+            0 => view.zoom = 2.,
+            1 => view.transform.flip_horizontal = true,
+            2 => size.x = 380.,
+            3 => state.label = 2,
+            4 => state.radius = 2,
+            5 => state.erase = true,
+            6 => state.current = Some(Arc::new(current.try_clone(|| false).unwrap())),
+            7 => selected = 1,
+            8 => image = current.source().frames()[2].clone(),
+            _ => focused = false,
+        }
+        frame(
+            &mut state,
+            &image,
+            &view,
+            size,
+            selected,
+            focused,
+            vec![button(end, false)],
+        );
+        assert!(
+            state.stroke.is_empty(),
+            "change {change}: path was retained"
+        );
+        assert!(
+            !state.busy() && !state.dirty && state.undo.is_empty(),
+            "change {change}: an edit was started"
+        );
+    }
+}
 #[test]
 fn cancelled_edit_does_not_change_the_approved_source_or_labels() {
     let current = labels();

@@ -3,6 +3,33 @@ use super::{LabelUi, Operation};
 use crate::annotations::{pixel_at, screen_at};
 use eframe::egui;
 use orv_core::{ViewState, study::Frame};
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub(super) struct BrushScope {
+    map: Arc<orv_core::labels::Labels>,
+    image: Arc<Frame>,
+    view: ViewState,
+    rect: egui::Rect,
+    label: u8,
+    radius: u32,
+    erase: bool,
+}
+impl BrushScope {
+    fn matches(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.map, &other.map)
+            && Arc::ptr_eq(&self.image, &other.image)
+            && self.view.plane == other.view.plane
+            && self.view.slice == other.view.slice
+            && self.view.zoom == other.view.zoom
+            && self.view.pan == other.view.pan
+            && self.view.transform == other.view.transform
+            && self.rect == other.rect
+            && self.label == other.label
+            && self.radius == other.radius
+            && self.erase == other.erase
+    }
+}
 impl LabelUi {
     fn cancel_seed_capture(&mut self) {
         if self.regions.seeded.drawing() {
@@ -22,6 +49,7 @@ impl LabelUi {
         selected: usize,
     ) {
         if self.supplied_active {
+            self.clear_brush();
             self.cancel_seed_capture();
             self.overlays.clear();
             self.supplied.canvas(ui, response, image, view, selected);
@@ -29,14 +57,17 @@ impl LabelUi {
         }
         self.supplied.clear_overlays();
         if self.series != selected {
+            self.clear_brush();
             self.cancel_seed_capture();
             return;
         }
         let Some(current) = self.current.clone() else {
+            self.clear_brush();
             self.cancel_seed_capture();
             return;
         };
         let Some(z) = current.slice_index(image) else {
+            self.clear_brush();
             self.cancel_seed_capture();
             return;
         };
@@ -52,9 +83,22 @@ impl LabelUi {
             self.cancel_seed_capture();
         }
         self.sync_regions(&current, self.label, Some(z));
-        if self.stroke_slice != Some(z) {
-            self.stroke.clear();
-            self.stroke_slice = Some(z);
+        let scope = BrushScope {
+            map: current.clone(),
+            image: image.clone(),
+            view: view.clone(),
+            rect: response.rect,
+            label: self.label,
+            radius: self.radius,
+            erase: self.erase,
+        };
+        if self
+            .brush_scope
+            .as_ref()
+            .is_some_and(|old| !old.matches(&scope))
+        {
+            self.clear_brush();
+            self.message = "The image or brush settings changed; the stroke was discarded.".into();
         }
         self.prepare_planes(
             selected,
@@ -74,10 +118,11 @@ impl LabelUi {
             );
         }
         if self.task.is_some() || !self.painting(selected) {
+            self.clear_brush();
             return;
         }
         if crate::viewport::navigation_override(ui, response) {
-            self.stroke.clear();
+            self.clear_brush();
             self.regions.seeded.break_stroke();
             if !ui.input(|i| i.pointer.primary_down()) && self.regions.seeded.drawing() {
                 self.regions.seeded.cancel_stroke();
@@ -257,8 +302,8 @@ impl LabelUi {
         // A short drag may be delivered as press, movement and release in one
         // frame, so the final pointer state alone cannot recover its path.
         let mut released = false;
-        if !ui.is_enabled() || ui.input(|i| i.key_pressed(egui::Key::Space)) {
-            self.stroke.clear();
+        if !ui.is_enabled() || ui.input(|i| !i.focused || i.key_pressed(egui::Key::Space)) {
+            self.clear_brush();
         } else {
             let events = ui.input(|input| {
                 input
@@ -278,7 +323,7 @@ impl LabelUi {
                     .collect::<Vec<_>>()
             });
             if events.len() > 8192 {
-                self.stroke.clear();
+                self.clear_brush();
                 self.message = "Brush input was too long; no edit was applied.".into();
                 return;
             }
@@ -301,9 +346,12 @@ impl LabelUi {
                         .is_none_or(|old| (old[0] - point[0]).hypot(old[1] - point[1]) >= 0.5)
                 {
                     if self.stroke.len() == 8192 {
-                        self.stroke.clear();
+                        self.clear_brush();
                         self.message = "Brush input was too long; no edit was applied.".into();
                         return;
+                    }
+                    if press {
+                        self.brush_scope = Some(scope.clone());
                     }
                     self.stroke.push(point);
                 }
@@ -326,7 +374,7 @@ impl LabelUi {
                 ui.ctx(),
             );
         } else if !ui.input(|i| i.pointer.primary_down()) {
-            self.stroke.clear();
+            self.clear_brush();
         }
     }
 }

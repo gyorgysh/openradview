@@ -118,7 +118,7 @@ pub(crate) struct PhysicalContext<'a> {
 impl LabelUi {
     pub fn open_physical_tools(&mut self) {
         self.paint = false;
-        self.stroke.clear();
+        self.clear_brush();
         self.regions.seeded.cancel_stroke();
         self.regions.picking = false;
         self.regions.seed_picking = None;
