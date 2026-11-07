@@ -59,7 +59,10 @@ in CI. Local explicit publication checks the live setting before uploading.
 
 ## Build and publish
 
-Release notes come from the matching `CHANGELOG.md` section. The annotated tag
+Release notes come from the matching `CHANGELOG.md` section. When preparing a
+release, replace the `Unreleased` heading with the version and date (for example,
+`## 1.4.0 - YYYY-MM-DD`) so the release tools can select that section. Review the
+notes against the release contents before creating the tag. The annotated tag
 must match Cargo.toml, clean source and a commit reachable from main. Existing
 versions, tags and assets are never overwritten by the workflow.
 
