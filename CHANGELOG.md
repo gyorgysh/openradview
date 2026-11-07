@@ -55,6 +55,8 @@ for controls and limits.
   comparison, linked MPR and oblique views.
 - Moving the pointer to another pane during zoom could unexpectedly zoom, pan
   or scroll slices in that pane as the gesture ended.
+- At the first or last slice, reversing a scroll could feel unresponsive after
+  scrolling past the end.
 - An automatic update check selected just before checks were switched off
   could still start after the preference changed.
 - If the first update preference cannot be saved, the viewer shows that checks

@@ -18,6 +18,46 @@ fn contrast_drag_preserves_source_tables_and_fractional_analytic_widths() {
     assert!(exact.center < 0.5);
 }
 
+#[test]
+fn browsing_reverses_without_accumulated_overscroll_at_either_end() {
+    for (edge, outward, inward, adjacent) in [(0, -20., 25., 1), (47, 20., -25., 46)] {
+        let mut view = ViewState {
+            slice: edge,
+            ..Default::default()
+        };
+        let mut scroll = 0.;
+        advance_slice(&mut view, &mut scroll, outward, 48);
+        assert_eq!(view.slice, edge);
+        assert_eq!(scroll, 0., "overscroll must not resist a reversal");
+        advance_slice(&mut view, &mut scroll, inward, 48);
+        assert_eq!(view.slice, adjacent);
+
+        // A slider or arrow key may move to the endpoint while a prior
+        // fractional wheel delta is still held by this viewport.
+        view.slice = edge;
+        scroll = outward;
+        advance_slice(&mut view, &mut scroll, inward, 48);
+        assert_eq!(view.slice, adjacent);
+    }
+    let mut view = ViewState {
+        slice: 46,
+        ..Default::default()
+    };
+    let mut scroll = 0.;
+    advance_slice(&mut view, &mut scroll, 35., 48);
+    assert_eq!(view.slice, 47);
+    advance_slice(&mut view, &mut scroll, -25., 48);
+    assert_eq!(view.slice, 46);
+
+    view.slice = 24;
+    advance_slice(&mut view, &mut scroll, 10., 48);
+    advance_slice(&mut view, &mut scroll, 15., 48);
+    assert_eq!(
+        view.slice, 25,
+        "fractional input still accumulates inside the stack"
+    );
+}
+
 fn input_frame(ctx: &egui::Context, view: &mut ViewState, tool: Tool, events: Vec<Event>) {
     let mut output = ctx.run_ui(
         RawInput {

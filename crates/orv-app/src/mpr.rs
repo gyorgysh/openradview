@@ -686,6 +686,76 @@ mod layout_tests {
     use super::*;
 
     #[test]
+    fn wheel_reversal_at_a_plane_boundary_requests_the_adjacent_slice() {
+        use egui::{Event, Modifiers, MouseWheelUnit, Pos2, RawInput, TouchPhase};
+        use std::time::{Duration, Instant};
+
+        for upper in [false, true] {
+            let ctx = egui::Context::default();
+            let mut session = MprSession::start(
+                crate::mpr_worker::tests::frames(),
+                WindowLevel::SOFT_TISSUE,
+                ctx.clone(),
+            );
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !session.is_settled() {
+                session.poll();
+                assert!(Instant::now() < deadline, "initial view did not settle");
+                std::thread::yield_now();
+            }
+            let snapshot = session.snapshot.as_ref().unwrap().clone();
+            let [min, max] = snapshot.volume.bounds();
+            let count =
+                (((max[2] - min[2]) / snapshot.volume.step_mm()).ceil() as u32).clamp(1, 8191) + 1;
+            let step = (max[2] - min[2]) / f64::from(count - 1);
+            let mut edge = snapshot.point;
+            edge[2] = if upper { max[2] } else { min[2] };
+            session.request(&snapshot.volume, edge);
+            let generation = session.worker.generation();
+            let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+            let mut labels = crate::labels::LabelUi::default();
+            let mut time = 0.;
+            let mut frame = |session: &mut MprSession, wheel: Option<f32>| {
+                let mut events = vec![Event::PointerMoved(Pos2::new(200., 200.))];
+                if let Some(wheel) = wheel {
+                    events.push(Event::MouseWheel {
+                        unit: MouseWheelUnit::Point,
+                        delta: egui::vec2(0., wheel),
+                        phase: TouchPhase::Move,
+                        modifiers: Modifiers::NONE,
+                    });
+                }
+                let mut output = ctx.run_ui(
+                    RawInput {
+                        screen_rect: Some(area),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        session.prepare_plane(ui, 0, area, &snapshot, &mut labels, 0);
+                    },
+                );
+                output.textures_delta.clear();
+                time += 1. / 60.;
+            };
+            frame(&mut session, None);
+            let outward = if upper { -5. } else { 5. };
+            for _ in 0..4 {
+                frame(&mut session, Some(outward));
+            }
+            assert_eq!(session.target.unwrap(), edge);
+            assert_eq!(session.worker.generation(), generation);
+            for _ in 0..5 {
+                frame(&mut session, Some(-outward));
+            }
+            let expected = if upper { max[2] - step } else { min[2] + step };
+            assert!((session.target.unwrap()[2] - expected).abs() < 1e-9);
+            assert_eq!(session.worker.generation(), generation + 1);
+        }
+    }
+
+    #[test]
     fn batched_navigation_keys_advance_each_step() {
         use egui::{Event, Key, Modifiers, Pos2, RawInput};
         use std::time::{Duration, Instant};

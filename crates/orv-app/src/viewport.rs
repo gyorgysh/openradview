@@ -248,12 +248,23 @@ fn pan(view: &mut ViewState, rect: egui::Rect, delta: egui::Vec2) {
 }
 
 fn advance_slice(view: &mut ViewState, scroll: &mut f32, delta: f32, count: usize) {
+    let last = count.saturating_sub(1) as i64;
+    let outside = |slice: u32, remainder: f32| {
+        (slice == 0 && remainder < 0.) || (i64::from(slice) >= last && remainder > 0.)
+    };
+    // A slider or keyboard action can have reached an edge since the last
+    // wheel event. Do not let an unusable remainder resist a new direction.
+    if outside(view.slice, *scroll) {
+        *scroll = 0.;
+    }
     *scroll += delta;
     let steps = (*scroll / 25.0).trunc() as i32;
     if steps != 0 {
-        view.slice =
-            (view.slice as i64 + steps as i64).clamp(0, count.saturating_sub(1) as i64) as u32;
+        view.slice = (i64::from(view.slice) + i64::from(steps)).clamp(0, last) as u32;
         *scroll -= steps as f32 * 25.0;
+    }
+    if outside(view.slice, *scroll) {
+        *scroll = 0.;
     }
 }
 
