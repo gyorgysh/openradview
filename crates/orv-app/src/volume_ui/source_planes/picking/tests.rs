@@ -102,6 +102,94 @@ fn native_plane_probe_gates_live_display_map_owner_and_real_plane_occlusion() {
     }
     assert_eq!(view.generation, generation);
 }
+
+#[test]
+fn changed_cut_revokes_old_pick_and_new_view_only_picks_visible_cells() {
+    use orv_core::volume_view::PhysicalClip;
+
+    let source = source();
+    let mut desired = selected(&source);
+    // The coronal source plane otherwise hides the small generated region.
+    desired.planes[1] = None;
+    let mut view = view(source);
+    finish(&mut view, &desired);
+    let (frame, original) = current(view.front.as_ref().unwrap(), &desired).unwrap();
+    let old_scope = original.scope.clone();
+    let pixel = [32, 24];
+    let old = run(
+        Job {
+            engine: view.engine.clone(),
+            frame,
+            current: original.clone(),
+            pixel,
+        },
+        &|| false,
+    )
+    .unwrap();
+    assert_eq!(old.kind(), SurfaceProbeKind::Hit);
+    assert_eq!(old.hit().unwrap().face.cell(), [15, 15, 4]);
+
+    let mut cut = desired.clone();
+    cut.state.clip = Some(PhysicalClip {
+        minimum_mm: [-5., 17., -5.],
+        maximum_mm: [35., 28., 13.],
+    });
+    let engine = view.engine.clone();
+    let blocked = engine.lock().unwrap();
+    view.update(&cut);
+    assert!(!old_scope.is_active());
+    assert!(!old.is_current(&original, pixel));
+    assert!(current(view.front.as_ref().unwrap(), &cut).is_none());
+    drop(blocked);
+    finish(&mut view, &cut);
+    let (frame, clipped) = current(view.front.as_ref().unwrap(), &cut).unwrap();
+    let clipped_hit = run(
+        Job {
+            engine: view.engine.clone(),
+            frame,
+            current: clipped,
+            pixel,
+        },
+        &|| false,
+    )
+    .unwrap();
+    assert_eq!(clipped_hit.kind(), SurfaceProbeKind::Hit);
+    assert_eq!(clipped_hit.hit().unwrap().face.cell(), [15, 19, 4]);
+
+    cut.state.clip.as_mut().unwrap().minimum_mm[1] = -5.;
+    cut.state.clip.as_mut().unwrap().maximum_mm[1] = 14.;
+    finish(&mut view, &cut);
+    let (frame, hidden) = current(view.front.as_ref().unwrap(), &cut).unwrap();
+    assert!(!clipped_hit.is_current(&hidden, pixel));
+    let result = run(
+        Job {
+            engine: view.engine.clone(),
+            frame,
+            current: hidden,
+            pixel,
+        },
+        &|| false,
+    )
+    .unwrap();
+    assert_eq!(result.kind(), SurfaceProbeKind::Empty);
+    assert!(result.hit().is_none());
+
+    finish(&mut view, &desired);
+    let (frame, restored) = current(view.front.as_ref().unwrap(), &desired).unwrap();
+    assert!(!result.is_current(&restored, pixel));
+    let hit = run(
+        Job {
+            engine: view.engine.clone(),
+            frame,
+            current: restored,
+            pixel,
+        },
+        &|| false,
+    )
+    .unwrap();
+    assert_eq!(hit.kind(), SurfaceProbeKind::Hit);
+    assert_eq!(hit.hit().unwrap().face.cell(), [15, 15, 4]);
+}
 #[test]
 fn plane_camera_round_trip_needs_a_new_originating_scope_and_complete_image() {
     let source = source();
