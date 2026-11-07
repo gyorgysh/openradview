@@ -16,7 +16,7 @@ struct Job {
 struct Pending {
     generation: u64,
     pixel: [u32; 2],
-    rect: egui::Rect,
+    viewport: (egui::Id, egui::LayerId, egui::Rect, egui::Rect),
 }
 pub(super) struct Probe {
     worker: Worker<Job, SurfaceProbe>,
@@ -48,14 +48,24 @@ impl Probe {
         interacting: bool,
     ) -> Option<[f64; 3]> {
         let rect = response.rect;
-        if interacting || response.double_clicked() {
+        let viewport = (response.id, response.layer_id, rect, ui.clip_rect());
+        if interacting
+            || response.double_clicked()
+            || !ui.is_enabled()
+            || !response.enabled()
+            || egui::Popup::is_any_open(ui.ctx())
+            || !ui.input(|input| input.focused && !input.key_pressed(egui::Key::Escape))
+            || !ui
+                .ctx()
+                .memory(|memory| memory.allows_interaction(response.layer_id))
+        {
             self.clear();
             return None;
         }
         if self
             .pending
             .as_ref()
-            .is_some_and(|pending| pending.rect != rect)
+            .is_some_and(|pending| pending.viewport != viewport)
         {
             self.clear();
         }
@@ -64,7 +74,7 @@ impl Probe {
         if let Some((generation, result)) = self.worker.take()
             && let Some(pending) = self.pending.take()
             && pending.generation == generation
-            && pending.rect == rect
+            && pending.viewport == viewport
             && let Some((_, desired)) = &live
         {
             match result {
@@ -121,7 +131,7 @@ impl Probe {
                 self.pending = Some(Pending {
                     generation,
                     pixel,
-                    rect,
+                    viewport,
                 });
                 self.notice = Some("Checking the selected cell face…".into());
             } else {
@@ -245,6 +255,97 @@ mod tests {
 
     #[cfg(feature = "gpu-tests")]
     #[test]
+    fn pending_surface_pick_is_cancelled_on_escape_focus_loss_or_clipping_change() {
+        use crate::volume_ui::regions::tests::gpu;
+        use orv_core::labels::Labels;
+        let source = gpu::source();
+        let mut labels = Labels::empty(source.volume().clone()).unwrap();
+        labels.threshold(None, [0., 100.], 7, || false).unwrap();
+        let mut key = gpu::key(crate::labels::RegionMap::Manual(Arc::new(labels)), 7);
+        key.geometry = Geometry::Faces;
+        key.pick = true;
+        let mut request = gpu::request(&source, key.clone());
+        request.scope = Some(PickScope::new().unwrap());
+        request.refined = true;
+        request.size = key.refined;
+        let front = worker::run(request, &|| false).unwrap();
+        let (frame, current) = current(&front, &key).unwrap();
+        for change in 0..3 {
+            let ctx = egui::Context::default();
+            let mut probe = Probe::new(ctx.clone()).unwrap();
+            let engine = probe.engine.clone();
+            let lock = engine.lock().unwrap();
+            let mut viewport = None;
+            let mut draw = |probe: &mut Probe, events, focused, clipped| {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(500., 400.),
+                        )),
+                        events,
+                        focused,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        if clipped {
+                            ui.set_clip_rect(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(100., 100.),
+                            ));
+                        }
+                        let (_, response) = ui.allocate_exact_size(
+                            egui::vec2(200., 160.),
+                            egui::Sense::click_and_drag(),
+                        );
+                        viewport = Some((
+                            response.id,
+                            response.layer_id,
+                            response.rect,
+                            ui.clip_rect(),
+                        ));
+                        probe.show(ui, &response, Some(&front), &key, &source, false);
+                    },
+                );
+                output.textures_delta.clear();
+                viewport.unwrap()
+            };
+            let origin = draw(&mut probe, vec![], true, false);
+            let pixel = [48, 32];
+            let generation = probe.worker.submit(Job {
+                engine: engine.clone(),
+                source: source.clone(),
+                frame: frame.clone(),
+                current: current.clone(),
+                pixel,
+            });
+            probe.pending = Some(Pending {
+                generation,
+                pixel,
+                viewport: origin,
+            });
+            let events = if change == 0 {
+                vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }]
+            } else {
+                vec![]
+            };
+            draw(&mut probe, events, change != 1, change == 2);
+            assert!(
+                probe.pending.is_none(),
+                "interaction change {change} must cancel the pending pick"
+            );
+            drop(lock);
+        }
+    }
+
+    #[cfg(feature = "gpu-tests")]
+    #[test]
     fn linked_navigation_keeps_the_scene_and_hiding_it_revokes_pending_probes() {
         use crate::volume_ui::regions::tests::gpu;
         use orv_core::labels::Labels;
@@ -279,7 +380,12 @@ mod tests {
             probe.pending = Some(Pending {
                 generation,
                 pixel,
-                rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(139., 123.)),
+                viewport: (
+                    egui::Id::new("surface-test"),
+                    egui::LayerId::new(egui::Order::Background, egui::Id::new("surface-test")),
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(139., 123.)),
+                    egui::Rect::EVERYTHING,
+                ),
             });
             let mut view = View::new(source.clone(), wgpu::TextureFormat::Rgba8Unorm, ctx).unwrap();
             view.front = Some(front);
