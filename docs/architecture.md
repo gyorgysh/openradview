@@ -363,10 +363,11 @@ cell volume is the absolute determinant of the source affine, including shear.
 
 Native label overlays use a separate coalescing worker from edits/exports, with
 one active and one latest request for at most three completed images. Cache keys
-bind weak map/image identities, exact source volume, selected series, view
-generation/preview, display settings and texture-side limit. Replaced layers clear
-immediately; weak keys do not keep old maps or frame buffers alive. Rasterization
-and source counts stay off the UI thread. Prepared/cached textures retain bounded
+bind weak map/image identities, exact source volume, selected series, view kind,
+display settings and texture-side limit. Unchanged image identities retain their
+textures across MPR generations; changed planes clear immediately and only those
+planes are resampled. Weak keys do not keep old maps or frame buffers alive.
+Rasterization and source counts stay off the UI thread. Prepared/cached textures retain bounded
 CPU/GPU reservations, and upload checks the current egui texture-side allowance.
 An independent coalescing count worker recomputes only on map changes. Both wait
 on condition variables when idle; shutdown changes the predicate under the wait
@@ -1544,8 +1545,9 @@ pending or failed preparation, so they cannot substitute a source-only image.
 The native labels panel selects either manual labels or read-only supplied masks.
 Each keeps its own source association and state; manual undo/dirty guards never
 flatten supplied masks into uint8 IDs. A generic overlay cache retains weak map/
-completed-image keys, exact source and view generations, visibility/style and
-device limits. One coalescing worker samples and prepares charged CPU/GPU textures
+completed-image keys, exact source, view kind, visibility/style and device limits.
+Unchanged plane textures survive generation changes; changed frames cannot use old
+textures. One coalescing worker samples and prepares charged CPU/GPU textures
 for at most three completed planes. Supplied import uses another cancellable worker;
 failed/cancelled replacements preserve the previous set, and stale generations
 cannot attach. Manual-map removal preserves supplied masks; source closure drops

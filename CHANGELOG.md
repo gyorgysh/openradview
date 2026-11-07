@@ -37,6 +37,8 @@ for controls and limits.
   navigate. When slab settings change, a status line describes the image still
   shown while the new view loads. Supported scalar views use the GPU, with a CPU
   fallback; some slab views can update faster on the CPU.
+- Label and supplied-mask overlays stay visible on unchanged linked planes while
+  another plane updates.
 - Imported fractional masks keep their original values and whether they describe
   probability or occupancy. Overlays and counts still use half the stated maximum
   as the threshold.
