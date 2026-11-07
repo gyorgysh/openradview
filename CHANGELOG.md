@@ -8,7 +8,8 @@ Versions follow [Semantic Versioning](https://semver.org).
 ### Added
 
 - **MPR + 3D.** View three linked planes beside a 3D view of the same volume.
-  Show thin source planes in 3D, or cut the 3D view at the linked point.
+  Show thin source planes in 3D, or cut the 3D view at the linked point. The
+  combined view stays local and is not available for picture export or sharing.
 - **Regions in 3D.** Show one manual label or supplied segment at a time over a
   scalar material view. Cell faces can be lit and selected to move the linked
   MPR point. Missing boundaries remain open, and foreground material or source
@@ -16,8 +17,11 @@ Versions follow [Semantic Versioning](https://semver.org).
 - **Physical label editing.** Preview a sphere, disk or drawn path in MPR + 3D,
   then apply or discard it. A separate surface stamp erases one visible cell
   layer. Applied edits can be undone and redone; supplied masks remain read-only.
+  The 3D view indicates when it is not showing the active physical preview.
 - **3D appearance.** Adjust the brightness and opacity of scalar values and add
   lighting for depth cues. These controls do not change the source images.
+  Material views stay local; use Volume or MIP for supported picture exports or
+  a separate sharing approval.
 - **Include and exclude hints.** Draw strokes or mark points on one scalar source
   image, then preview a proposed region before applying it. Remove a whole stroke
   when needed. Missing samples and other labels act as barriers. This tool uses
@@ -36,22 +40,16 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
-- The 3D view now indicates when a physical preview is not the region shown.
-- Opening physical editing no longer hides a supplied mask when there is no
-  manual label map yet.
-- Physical-edit indicators are easier to read over bright images.
-- Drawing a physical path now ends drawing mode when its preview opens.
-- Linked MPR and oblique views no longer accept an older moving preview with a
-  different slab setting or image resolution after those settings change.
-- A 3D region could fail to appear at certain window sizes when a ray crossed a
-  cell boundary. The source image remained visible when this happened.
+- Changing slab settings during linked MPR or oblique navigation could briefly
+  show an older projection.
 - An oblique setup error could disappear after another request, leaving the view
   waiting. Errors from older MPR or oblique requests no longer interrupt a newer
   view.
 - Short 3D camera drags could lose the last movement on release.
 - Exact quarter-turn camera angles could incorrectly hide valid samples next to
-  missing data. Label controls also handle small rounding differences in acquired
-  plane positions.
+  missing data.
+- Source-image label tools recognize acquired planes whose stored positions differ
+  slightly from the fitted volume grid.
 
 ## 1.3.0 - 2026-11-03
 
