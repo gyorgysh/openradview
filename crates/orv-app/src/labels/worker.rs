@@ -196,6 +196,13 @@ fn export_labels(
     if cancelled() {
         return Ok(Output::Cancelled);
     }
+    if !path
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("nii"))
+    {
+        return Err("Choose a .nii filename for the uncompressed label map".into());
+    }
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -343,5 +350,27 @@ mod tests {
                 0
             );
         }
+    }
+
+    #[test]
+    fn label_export_rejects_names_that_do_not_describe_its_uncompressed_nifti() {
+        let mut labels = crate::labels::tests::labels().try_clone(|| false).unwrap();
+        labels.paint(1, &[[3., 3.]], 1, 7, || false).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["labels.nii.gz", "labels.img", "labels", "labels.nii.txt"] {
+            let path = dir.path().join(name);
+            assert!(export_labels(&labels, &path, || false).is_err(), "{name}");
+            assert!(!path.exists(), "{name}");
+        }
+        let path = dir.path().join("labels.NII");
+        assert!(matches!(
+            export_labels(&labels, &path, || false),
+            Ok(Output::Saved)
+        ));
+        let study = orv_core::index::index_paths(&[path], || false, |_| {}).unwrap();
+        assert_eq!(study.series.len(), 1);
+        let volume = study.series[0].volume(|| false).unwrap();
+        let imported = Labels::import(labels.source_arc(), &volume, || false).unwrap();
+        assert!(imported.values().iter().eq(labels.values().iter()));
     }
 }
