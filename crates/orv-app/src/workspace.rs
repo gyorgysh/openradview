@@ -1394,6 +1394,26 @@ mod label_safety_tests {
         workspace.close();
     }
     #[test]
+    fn hidden_window_close_keeps_unsaved_labels_during_logic_only_update() {
+        let ctx = egui::Context::default();
+        let mut workspace = Workspace::default();
+        workspace.labels.dirty = true;
+        let mut input = egui::RawInput::default();
+        let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+        viewport.occluded = Some(true);
+        viewport.events.push(egui::ViewportEvent::Close);
+
+        let output = ctx.run_logic(&input, |ctx| workspace.protect_labels_on_quit(ctx));
+
+        assert!(
+            output.viewport_commands[&egui::ViewportId::ROOT]
+                .contains(&egui::ViewportCommand::CancelClose)
+        );
+        assert!(
+            workspace.labels.dirty && workspace.pending_quit && workspace.labels.discard_question
+        );
+    }
+    #[test]
     fn native_close_request_waits_for_explicit_disposition_of_unsaved_labels() {
         let ctx = egui::Context::default();
         let mut workspace = Workspace::default();

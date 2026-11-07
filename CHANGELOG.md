@@ -51,6 +51,9 @@ for controls and limits.
 
 ### Fixed
 
+- Quitting while the viewer was temporarily hidden could discard unsaved labels
+  without showing the confirmation. The confirmation now also works when the
+  window is hidden.
 - Rapid arrow-key presses could move fewer slices than requested in image,
   comparison, linked MPR and oblique views.
 - Moving the pointer to another pane during zoom could unexpectedly zoom, pan

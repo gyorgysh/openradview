@@ -153,13 +153,9 @@ fn system_reduce_motion() -> bool {
 }
 
 impl eframe::App for OpenRadView {
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        #[cfg(feature = "qa")]
-        let measured_start = Instant::now();
-        let ctx = ui.ctx().clone();
-        self.preferences.poll(&ctx);
-        let external_dialog_was_open =
-            self.help_open || self.privacy_open || self.licenses.open || self.preferences.open;
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Close requests also arrive while the native window is occluded, when
+        // eframe runs logic without drawing the UI.
         #[cfg(feature = "updates")]
         {
             if ctx.input(|i| i.viewport().close_requested())
@@ -177,7 +173,16 @@ impl eframe::App for OpenRadView {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
-        self.workspace.protect_labels_on_quit(&ctx);
+        self.workspace.protect_labels_on_quit(ctx);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        #[cfg(feature = "qa")]
+        let measured_start = Instant::now();
+        let ctx = ui.ctx().clone();
+        self.preferences.poll(&ctx);
+        let external_dialog_was_open =
+            self.help_open || self.privacy_open || self.licenses.open || self.preferences.open;
         let animation_time = if self.reduce_motion { 0.0 } else { 0.2 };
         if ctx.global_style().animation_time != animation_time {
             ctx.style_mut_of(egui::Theme::Dark, |style| {
@@ -392,5 +397,31 @@ impl eframe::App for OpenRadView {
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         Color32::from_gray(10).to_normalized_gamma_f32()
+    }
+}
+
+#[cfg(all(test, not(feature = "updates")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_guards_unsaved_labels_when_only_logic_runs() {
+        let ctx = egui::Context::default();
+        let creation = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut app = OpenRadView::new(&creation);
+        app.workspace.labels.dirty = true;
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut input = egui::RawInput::default();
+        let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+        viewport.occluded = Some(true);
+        viewport.events.push(egui::ViewportEvent::Close);
+
+        let output = ctx.run_logic(&input, |ctx| eframe::App::logic(&mut app, ctx, &mut frame));
+
+        assert!(
+            output.viewport_commands[&egui::ViewportId::ROOT]
+                .contains(&egui::ViewportCommand::CancelClose)
+        );
+        assert!(app.workspace.labels.dirty && app.workspace.labels.discard_question);
     }
 }
