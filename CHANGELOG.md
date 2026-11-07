@@ -51,6 +51,7 @@ for controls and limits.
 
 ### Fixed
 
+- A rendering error message could remain over an image after rendering recovered.
 - Quitting while the viewer was temporarily hidden could discard unsaved labels
   without showing the confirmation. The confirmation now also works when the
   window is hidden.

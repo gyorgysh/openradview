@@ -115,7 +115,9 @@ impl egui_wgpu::CallbackTrait for SliceCallback {
             if let Err(e) = engine.set_view(queue, &self.image, &self.view, self.aspect) {
                 state.error = Some(e);
             }
-            if state.error.is_some() && previous != state.error {
+            // The UI paints the previous callback state; redraw on both failure
+            // and recovery so a resolved error does not remain over the image.
+            if previous != state.error {
                 self.repaint.request_repaint();
             }
         }
