@@ -110,6 +110,22 @@ fn exact_nifti_label_export_roundtrip_and_invalid_import_refusal() {
     let volume = Volume::new(study.series[0].volume_frames(|| false).unwrap()).unwrap();
     let imported = Labels::import(original.clone(), &volume, || false).unwrap();
     assert!(imported.values.iter().eq(labels.values.iter()));
+
+    // Keep the categorical data and dimensions identical while moving the sform.
+    let translation = f64::from_le_bytes(bytes[424..432].try_into().unwrap());
+    bytes[424..432].copy_from_slice(&(translation + 10.).to_le_bytes());
+    std::fs::write(&path, &bytes).unwrap();
+    let shifted = crate::index::index_paths(std::slice::from_ref(&path), || false, |_| {}).unwrap();
+    let shifted = Volume::new(shifted.series[0].volume_frames(|| false).unwrap()).unwrap();
+    assert_eq!(shifted.dimensions(), volume.dimensions());
+    for (a, b) in shifted.frames().iter().zip(volume.frames()) {
+        assert_eq!(a.pixels, b.pixels);
+    }
+    assert_eq!(
+        Labels::import(original.clone(), &shifted, || false).err(),
+        Some("Label dimensions, reference and affine must match; registration is not performed")
+    );
+    assert!(imported.values.iter().eq(labels.values.iter()));
     std::fs::remove_file(&path).unwrap();
     let mut frames = volume.frames().to_vec();
     let mut bad = (*frames[0]).clone();
