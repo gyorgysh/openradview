@@ -75,12 +75,7 @@ impl MprSession {
         self.views[index].slice = initial;
         self.views[index].window = self.window;
         if self.active == index {
-            if crate::actions::pressed(&ui, crate::actions::Action::Next) {
-                self.views[index].slice = initial.saturating_add(1).min(count - 1);
-            }
-            if crate::actions::pressed(&ui, crate::actions::Action::Previous) {
-                self.views[index].slice = initial.saturating_sub(1);
-            }
+            self.views[index].slice = crate::actions::navigate(&ui, initial, count - 1);
         }
         viewport::interact(
             &mut ui,

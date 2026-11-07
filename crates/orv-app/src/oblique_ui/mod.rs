@@ -205,12 +205,7 @@ impl ObliqueSession {
             .round()
             .clamp(0., f64::from(count - 1)) as u32;
         self.view.slice = initial;
-        if crate::actions::pressed(ui, crate::actions::Action::Next) {
-            self.view.slice = initial.saturating_add(1).min(count - 1);
-        }
-        if crate::actions::pressed(ui, crate::actions::Action::Previous) {
-            self.view.slice = initial.saturating_sub(1);
-        }
+        self.view.slice = crate::actions::navigate(ui, initial, count - 1);
         let sampling_status =
             crate::slab_controls::pending_sampling(snapshot.image.slab, self.slab);
         crate::slab_controls::status_line(ui, sampling_status.as_deref());

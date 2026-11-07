@@ -686,6 +686,59 @@ mod layout_tests {
     use super::*;
 
     #[test]
+    fn batched_navigation_keys_advance_each_step() {
+        use egui::{Event, Key, Modifiers, Pos2, RawInput};
+        use std::time::{Duration, Instant};
+
+        let ctx = egui::Context::default();
+        let mut session = MprSession::start(
+            crate::mpr_worker::tests::frames(),
+            WindowLevel::SOFT_TISSUE,
+            ctx.clone(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !session.is_settled() {
+            session.poll();
+            assert!(Instant::now() < deadline, "initial view did not settle");
+            std::thread::yield_now();
+        }
+        let snapshot = session.snapshot.as_ref().unwrap().clone();
+        let [min, max] = snapshot.volume.bounds();
+        let count =
+            (((max[2] - min[2]) / snapshot.volume.step_mm()).ceil() as u32).clamp(1, 8191) + 1;
+        let step = (max[2] - min[2]) / f64::from(count - 1);
+        let initial = ((session.target.unwrap()[2] - min[2]) / step).round() as u32;
+        let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+        let mut labels = crate::labels::LabelUi::default();
+        let generation = session.worker.generation();
+        let events = (0..5)
+            .flat_map(|_| {
+                [true, false].map(|pressed| Event::Key {
+                    key: Key::ArrowDown,
+                    physical_key: None,
+                    pressed,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                })
+            })
+            .collect();
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(area),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                session.prepare_plane(ui, 0, area, &snapshot, &mut labels, 0);
+            },
+        );
+        output.textures_delta.clear();
+        let expected = min[2] + step * f64::from(initial.saturating_add(5).min(count - 1));
+        assert_eq!(session.target.unwrap()[2], expected);
+        assert_eq!(session.worker.generation(), generation + 1);
+    }
+
+    #[test]
     fn quick_slider_drag_requests_release_position() {
         use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
         use std::time::{Duration, Instant};

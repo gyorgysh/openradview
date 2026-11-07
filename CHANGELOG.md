@@ -51,6 +51,8 @@ for controls and limits.
 
 ### Fixed
 
+- Rapid arrow-key presses could move fewer slices than requested in image,
+  comparison, linked MPR and oblique views.
 - An automatic update check selected just before checks were switched off
   could still start after the preference changed.
 - If the first update preference cannot be saved, the viewer shows that checks

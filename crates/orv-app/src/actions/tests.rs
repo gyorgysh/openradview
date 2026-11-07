@@ -20,6 +20,53 @@ fn frame(ctx: &egui::Context, events: Vec<egui::Event>, run: impl FnMut(&mut egu
     output.textures_delta.clear();
 }
 #[test]
+fn navigation_preserves_order_at_boundaries_and_keeps_other_keys() {
+    let ctx = egui::Context::default();
+    for (keys, expected) in [
+        (vec![egui::Key::ArrowDown, egui::Key::ArrowUp], 4),
+        (vec![egui::Key::ArrowUp, egui::Key::ArrowDown], 5),
+    ] {
+        let mut events: Vec<_> = keys
+            .into_iter()
+            .map(|key_value| key(key_value, egui::Modifiers::NONE))
+            .collect();
+        events.push(key(egui::Key::ArrowDown, egui::Modifiers::SHIFT));
+        events.push(key(egui::Key::P, egui::Modifiers::NONE));
+        frame(&ctx, events, |ui| {
+            assert_eq!(navigate(ui, 5, 5), expected);
+            assert_eq!(ui.input(|input| input.events.len()), 2);
+            assert!(pressed(ui, Action::Pan));
+        });
+    }
+}
+
+#[test]
+fn navigation_respects_input_ownership_and_repeated_keys() {
+    let ctx = egui::Context::default();
+    let mut repeat = key(egui::Key::ArrowDown, egui::Modifiers::NONE);
+    if let egui::Event::Key { repeat, .. } = &mut repeat {
+        *repeat = true;
+    }
+    frame(&ctx, vec![repeat], |ui| {
+        ui.add_enabled_ui(false, |ui| assert_eq!(navigate(ui, 2, 5), 2));
+        view_input_enabled(ui.ctx(), false);
+        assert_eq!(navigate(ui, 2, 5), 2);
+        view_input_enabled(ui.ctx(), true);
+        assert_eq!(navigate(ui, 2, 5), 3);
+    });
+    let popup = egui::Id::new("navigation-menu-test");
+    egui::Popup::open_id(&ctx, popup);
+    frame(
+        &ctx,
+        vec![key(egui::Key::ArrowDown, egui::Modifiers::NONE)],
+        |ui| {
+            assert_eq!(navigate(ui, 2, 5), 2);
+            assert_eq!(ui.input(|input| input.events.len()), 1);
+        },
+    );
+    egui::Popup::close_all(&ctx);
+}
+#[test]
 fn remapping_rejects_conflicts_and_changes_input_and_labels_together() {
     let ctx = egui::Context::default();
     let mut bindings = Bindings::default();

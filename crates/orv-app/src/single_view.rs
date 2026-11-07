@@ -29,12 +29,7 @@ impl Workspace {
             return;
         }
         crate::actions::tool_input(ui, &mut self.tool, !color, false, true);
-        if crate::actions::pressed(ui, crate::actions::Action::Next) {
-            self.view.slice = self.view.slice.saturating_add(1).min(count as u32 - 1);
-        }
-        if crate::actions::pressed(ui, crate::actions::Action::Previous) {
-            self.view.slice = self.view.slice.saturating_sub(1);
-        }
+        self.view.slice = crate::actions::navigate(ui, self.view.slice, count as u32 - 1);
         if crate::actions::pressed(ui, crate::actions::Action::Fit) {
             self.view.zoom = 1.;
             self.view.pan = [0.; 2];
