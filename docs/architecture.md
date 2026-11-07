@@ -270,9 +270,13 @@ review window. Escape or selecting another tool stops drawing. The point-preview
 action explicitly replaces a drawn path, and an edit request made while the 3D
 source is preparing remains available to the MPR session.
 
-Thin MPR overlays and the manual 3D region use that same immutable preview map,
-labelled **PHYSICAL PREVIEW ONLY**. Its marker does not resize the 3D viewport;
-narrow windows put the edit entry inside 3D settings. Counts and explicit label
+Thin MPR overlays and the manual 3D region use that same immutable preview map.
+The 3D marker checks the actual painted region's map and ID: it shows
+**PHYSICAL PREVIEW ONLY** for that proposal and **PREVIEW NOT IN 3D** while a
+different region, source-only fallback or unavailable frame is shown. With a
+linked cut the labels also identify that cut. The marker does not resize the 3D
+viewport. Narrow windows put the edit entry inside 3D
+settings. Counts and explicit label
 exports retain the applied map; illustration capture refuses an unapplied preview.
 Apply revalidates the scope and consumes the prepared proposal once, creating one
 undo checkpoint. A no-op retains the original map/history. Closing the tool window

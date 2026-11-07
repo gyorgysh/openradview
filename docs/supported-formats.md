@@ -287,9 +287,12 @@ Region brightness and selection are independent of the 2D overlay's visibility
 and opacity. Source material in front attenuates the region; source behind it is
 occluded. Preparation runs in the background, retains complete frames while a
 changed view is prepared, and labels the source-only fallback until ready.
-This subset has no transparent/multiple-ID scene, surface smoothing, 3D painting,
-picking, picture export or agent sharing. Return to **Volume** or **MIP** for the
-existing source-only exports. Current map, source, completed
+Cell-face picking inspects a visible source-cell face; in MPR + 3D it can move
+the linked point. The workbench can also preview and apply a one-layer surface
+erase stamp to a manual label. This subset has no transparent/multiple-ID scene,
+surface smoothing, freehand 3D surface painting, picture export or agent sharing.
+Return to **Volume** or **MIP** for the existing source-only exports. Current
+map, source, completed
 plane generation/preview and display settings must match before compositing;
 unmatched old layers are hidden while the worker prepares replacements.
 Overlay buffers are limited to four Mi-pixels and the device texture-side limit;

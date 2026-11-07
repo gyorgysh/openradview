@@ -57,7 +57,8 @@ Thin planes keep their requested sampling during navigation, and planes whose
 position did not change reuse their images.
 **Oblique** adds explicit plane rotation and normal offset. **3D / MIP** projects
 the loaded volume; drag to orbit, and use the named transfer presets/controls.
-**MPR + 3D** places the linked planes beside a 3D view of the same volume.
+In Linked MPR, choose **MPR + 3D** from the layout menu to place the linked
+planes beside a 3D view of the same volume.
 MPR and projections require consistent geometry and a volume within the budget.
 Their interpolated values can differ from source pixels. In compact windows,
 2D, MPR, oblique and 3D/MIP place their display rows under **Display and tools**,
@@ -138,12 +139,35 @@ and threshold edits stay on source images. Slab projections omit labels.
 
 For a supported scalar volume, enable **Region in 3D** in the 3D controls and
 choose a manual label or supplied segment. The material view shows one opaque ID
-at a time. Fractional segments use half their declared maximum. In **MPR + 3D**,
-source-grid cell faces can be inspected with **Pick surface**; a visible source
-plane or foreground material can block a pick. Missing or unknown boundaries stay
-open, and clipping does not add a cap. Use **Physical edit…** to preview a sphere,
-disk or drawn plane path, or **Surface stamp…** to preview a visible-layer erase
-on an applied manual label. Apply or cancel the preview explicitly.
+at a time. Fractional segments use half their declared maximum. Open **Mask
+cells…**, choose **Cell faces**, then enable **Pick surface** to inspect a
+visible face. When source planes are shown, the menu is already called **Cell
+faces…**. In **MPR + 3D**, a successful pick moves the linked point to the
+source-cell centre. A visible source plane or foreground material can obscure a
+region or block a pick. Missing or unknown boundaries stay open, and clipping
+does not add a cap.
+
+In **MPR + 3D**, **Cut at linked MPR planes** keeps a chosen side of the linked
+point in 3D. These cuts combine with any separate clipping bounds; neither changes
+the source images, label map or physical editing extent. **Reset linked cuts**
+clears the linked cuts without resetting the separate clipping bounds.
+
+Choose **Physical edit…** to preview a sphere or disk at the linked point, or
+draw a path on one thin plane. Create blank manual labels first if needed; supplied
+masks stay read-only. Close the preview window to inspect the proposal, then
+reopen it to apply or discard. The preview can reach hidden cells and is not
+limited by 3D clipping. Counts and export continue to use the applied map.
+The 3D view says **PREVIEW NOT IN 3D** when it is showing a different region or
+only the source while the region loads. With a linked cut it says **PREVIEW
+HIDDEN · CUT**. Enable **Region in 3D**, select **Manual** and wait for it to
+finish to inspect the proposal there.
+
+**Surface stamp…** is a separate erase tool for an applied manual label. Select
+**Choose a face**, then click a face in the completed 3D view. Inspect the
+resulting preview, then apply or cancel. It removes one visible cell layer within
+the chosen radius; covered or ambiguous faces cannot anchor a stamp. Neither tool
+saves the label map automatically. In a compact window, both editing tools are
+inside the 3D settings.
 
 In **Labels… → Connected regions**, choose **Grow from seed**, an inclusive
 scalar interval and either the current source image (four neighbors) or the whole
