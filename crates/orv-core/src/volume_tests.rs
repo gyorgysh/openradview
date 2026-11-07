@@ -145,6 +145,82 @@ fn anatomical_reformats_are_world_aligned_with_correct_superior_direction() {
 }
 
 #[test]
+fn slab_grid_matches_individual_samples_with_shear_and_missing_data() {
+    use crate::{
+        oblique::ObliquePlane,
+        slab::{Slab, SlabProjection},
+    };
+    let mut frames = stack();
+    for z in 0..frames.len() {
+        change(&mut frames, z, |frame| {
+            frame.geometry.as_mut().unwrap().position[1] += z as f64 * 0.2;
+            let mut validity = vec![1; frame.pixels.len()];
+            validity[z] = 0;
+            frame.validity = Some(validity.into());
+        });
+    }
+    let volume = Volume::new(frames).unwrap();
+    let mut seen = [0usize; 2];
+    for angles in [[0.; 3], [17., -23., 11.]] {
+        let plane = ObliquePlane::from_angles(volume.center(), angles).unwrap();
+        for projection in [
+            SlabProjection::Maximum,
+            SlabProjection::Minimum,
+            SlabProjection::Mean,
+        ] {
+            for intervals in [2, 32, 256] {
+                let slab = Slab {
+                    projection,
+                    thickness_mm: 4.7,
+                    intervals,
+                };
+                let grid = volume.oblique_grid(&plane, 32, Some(slab)).unwrap();
+                let image = volume.resample_grid(&grid, || false).unwrap();
+                for y in 0..image.height {
+                    for x in 0..image.width {
+                        let actual = image.pixels[(y * image.width + x) as usize];
+                        let expected = volume.reformat_sample(&grid, [x, y], || false).unwrap();
+                        match expected {
+                            Some(value) => {
+                                seen[0] += 1;
+                                assert_eq!(actual.to_bits(), value.to_bits());
+                            }
+                            None => {
+                                seen[1] += 1;
+                                assert!(actual.is_nan());
+                            }
+                        }
+                    }
+                }
+                assert_eq!(
+                    volume.resample_grid(&grid, || true).unwrap_err(),
+                    GeometryError::Cancelled
+                );
+            }
+        }
+    }
+    assert!(seen.iter().all(|count| *count > 0));
+    let plane = ObliquePlane::from_angles(volume.center(), [17., -23., 11.]).unwrap();
+    let slab = Slab {
+        projection: SlabProjection::Mean,
+        thickness_mm: 4.7,
+        intervals: 256,
+    };
+    let grid = volume.oblique_grid(&plane, 32, Some(slab)).unwrap();
+    let calls = std::cell::Cell::new(0);
+    assert_eq!(
+        volume
+            .resample_grid(&grid, || {
+                calls.set(calls.get() + 1);
+                calls.get() == 5
+            })
+            .unwrap_err(),
+        GeometryError::Cancelled
+    );
+    assert_eq!(calls.get(), 5);
+}
+
+#[test]
 fn regular_shear_is_preserved_and_irregular_gaps_or_duplicate_planes_are_rejected() {
     let mut frames = stack();
     for z in 0..3 {
