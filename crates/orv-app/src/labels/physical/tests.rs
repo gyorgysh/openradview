@@ -279,3 +279,99 @@ fn hidden_background_display_bit_does_not_protect_empty_source_cells() {
     assert_eq!(preview.stroke.summary().changed_voxels, 7);
     assert_eq!(preview.stroke.value([3, 3, 1]), Some(1));
 }
+
+#[test]
+fn single_point_path_does_not_also_move_the_linked_crosshair() {
+    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect};
+    use std::time::{Duration, Instant};
+
+    let ctx = egui::Context::default();
+    let mut session = crate::mpr::MprSession::start(
+        crate::mpr_worker::tests::frames(),
+        orv_core::WindowLevel::SOFT_TISSUE,
+        ctx.clone(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !session.is_settled() {
+        session.poll();
+        assert!(Instant::now() < deadline, "initial MPR view did not settle");
+        std::thread::yield_now();
+    }
+    let snapshot = session.snapshot.as_ref().unwrap().clone();
+    let original_point = snapshot.point;
+    let mut labels = LabelUi {
+        current: Some(Arc::new(Labels::empty(snapshot.volume.clone()).unwrap())),
+        ..Default::default()
+    };
+    labels.open_physical_tools();
+    labels.sync_physical(&session.physical_context(&snapshot, 0));
+    labels.physical.open = false;
+    labels.physical.drawing = true;
+    let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+    let mut frame = |session: &mut crate::mpr::MprSession, events: Vec<Event>| {
+        let mut image_rect = Rect::NOTHING;
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(area),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                image_rect = session
+                    .prepare_plane(ui, 0, area, &snapshot, &mut labels, 0)
+                    .image_rect();
+                labels.sync_physical(&session.physical_context(&snapshot, 0));
+            },
+        );
+        output.textures_delta.clear();
+        image_rect
+    };
+    let rect = frame(&mut session, vec![]);
+    let world = [2., 2., original_point[2]];
+    let image = &snapshot.images[0];
+    let pixel = image
+        .geometry
+        .as_ref()
+        .unwrap()
+        .world_to_pixel(world)
+        .unwrap();
+    let point = crate::annotations::screen_at(rect, image, &session.views[0], pixel).unwrap();
+    frame(&mut session, vec![Event::PointerMoved(point)]);
+    for pressed in [true, false] {
+        frame(
+            &mut session,
+            vec![Event::PointerButton {
+                pos: point,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+    }
+    drop(frame);
+    assert_eq!(
+        session.target,
+        Some(original_point),
+        "a path click must not navigate"
+    );
+    while labels.busy() {
+        labels.poll();
+        assert!(
+            Instant::now() < deadline,
+            "physical preview did not complete"
+        );
+        std::thread::yield_now();
+    }
+    assert!(labels.physical_preview_visible());
+    assert_eq!(
+        labels
+            .physical
+            .preview
+            .as_ref()
+            .unwrap()
+            .stroke
+            .points_mm()
+            .len(),
+        1
+    );
+}

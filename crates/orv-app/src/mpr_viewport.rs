@@ -18,6 +18,12 @@ pub(super) struct PlanePaint {
     #[cfg(test)]
     pub(super) slider_rect: Rect,
 }
+#[cfg(test)]
+impl PlanePaint {
+    pub(super) fn image_rect(&self) -> Rect {
+        self.response.rect
+    }
+}
 impl MprSession {
     pub(super) fn prepare_plane(
         &mut self,
@@ -91,11 +97,14 @@ impl MprSession {
             self.request(&snapshot.volume, next);
         }
         let image = snapshot.images[index].clone();
-        if labels.physical_drawing() {
+        // The release can finish a physical path in this same input pass.
+        // Keep that gesture out of crosshair navigation even after it finishes.
+        let physical_drawing = labels.physical_drawing();
+        if physical_drawing {
             labels.sync_physical(&self.physical_context(snapshot, selected));
             labels.physical_pointer(&ui, &response, &image, &self.views[index], index);
         }
-        if !labels.physical_drawing()
+        if !physical_drawing
             && self.tool == Tool::Crosshair
             && !viewport::navigation_override(&ui, &response)
             && (response.clicked_by(egui::PointerButton::Primary)
