@@ -686,6 +686,100 @@ mod layout_tests {
     use super::*;
 
     #[test]
+    fn quick_slider_drag_requests_release_position() {
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use std::time::{Duration, Instant};
+
+        let ctx = egui::Context::default();
+        let mut session = MprSession::start(
+            crate::mpr_worker::tests::frames(),
+            WindowLevel::SOFT_TISSUE,
+            ctx.clone(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !session.is_settled() {
+            session.poll();
+            assert!(Instant::now() < deadline, "initial view did not settle");
+            std::thread::yield_now();
+        }
+        let mut labels = crate::labels::LabelUi::default();
+        let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+        let mut frame = |session: &mut MprSession, events: Vec<Event>| {
+            let snapshot = session.snapshot.as_ref().unwrap().clone();
+            let mut slider_rect = Rect::NOTHING;
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(area),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    slider_rect = session
+                        .prepare_plane(ui, 0, area, &snapshot, &mut labels, 0)
+                        .slider_rect;
+                },
+            );
+            output.textures_delta.clear();
+            slider_rect
+        };
+        let slider = frame(&mut session, vec![]);
+        let start = Pos2::new(slider.left() + slider.width() * 0.2, slider.center().y);
+        let end = Pos2::new(slider.left() + slider.width() * 0.8, slider.center().y);
+        let initial = session.target.unwrap()[2];
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerMoved(end),
+                Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        let after_drag = session.target.unwrap()[2];
+        assert!(after_drag > initial, "quick drag was lost");
+        let [min, max] = session.snapshot.as_ref().unwrap().volume.bounds();
+        let fraction = (after_drag - min[2]) / (max[2] - min[2]);
+        assert!(
+            (0.7..0.95).contains(&fraction),
+            "quick drag did not reach its release position: {fraction}"
+        );
+
+        let outside = Pos2::new(area.right() + 20., slider.center().y);
+        for (press, release) in [(outside, start), (end, outside)] {
+            frame(
+                &mut session,
+                vec![
+                    Event::PointerMoved(press),
+                    Event::PointerButton {
+                        pos: press,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                    Event::PointerMoved(release),
+                    Event::PointerButton {
+                        pos: release,
+                        button: PointerButton::Primary,
+                        pressed: false,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            assert_eq!(session.target.unwrap()[2], after_drag);
+        }
+    }
+
+    #[test]
     fn held_slider_moves_request_intermediate_full_detail_views() {
         use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
         use orv_core::slab::{Slab, SlabProjection};

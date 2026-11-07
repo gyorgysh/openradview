@@ -129,12 +129,17 @@ impl MprSession {
         let mut slider_rect = Rect::NOTHING;
         ui.horizontal(|ui| {
             ui.spacing_mut().slider_width = (ui.available_width() - 110.).max(30.);
+            let track_width = ui.spacing().slider_width;
             let slider = ui.add(
                 egui::Slider::new(&mut coordinate, min[axis]..=max[axis])
                     .show_value(false)
                     .text("mm"),
             );
             changed = slider.changed();
+            if !changed && let Some(fraction) = quick_slider_release(ui, &slider, track_width) {
+                coordinate = min[axis] + (max[axis] - min[axis]) * f64::from(fraction);
+                changed = true;
+            }
             #[cfg(test)]
             {
                 slider_rect = slider.rect;
@@ -225,4 +230,63 @@ impl MprSession {
             self.annotations[index].cancel_interaction(ui.ctx());
         }
     }
+}
+
+// A complete drag can arrive between two UI passes. In that case the slider
+// may never acquire the pointer; only recover gestures contained by its rail.
+fn quick_slider_release(ui: &egui::Ui, slider: &egui::Response, track_width: f32) -> Option<f32> {
+    use egui::{Event, PointerButton};
+
+    if !ui.is_enabled() || slider.interact_pointer_pos().is_some() {
+        return None;
+    }
+    let track = Rect::from_min_size(
+        slider.rect.min,
+        Vec2::new(track_width, slider.rect.height()),
+    );
+    let (start, end) = ui.input(|input| {
+        let mut start = None;
+        let mut end = None;
+        let mut moved = false;
+        for event in &input.events {
+            match event {
+                Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers,
+                } if *modifiers == egui::Modifiers::NONE && start.is_none() => start = Some(*pos),
+                Event::PointerMoved(_) if start.is_some() && end.is_none() => moved = true,
+                Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers,
+                } if *modifiers == egui::Modifiers::NONE && start.is_some() && end.is_none() => {
+                    end = Some(*pos)
+                }
+                Event::PointerButton { .. } | Event::PointerGone | Event::WindowFocused(false) => {
+                    return None;
+                }
+                _ => {}
+            }
+        }
+        moved.then_some((start?, end?))
+    })?;
+    if !track.contains(start)
+        || !track.contains(end)
+        || !ui.clip_rect().contains(start)
+        || !ui.clip_rect().contains(end)
+        || ui.ctx().layer_id_at(start) != Some(slider.layer_id)
+        || ui.ctx().layer_id_at(end) != Some(slider.layer_id)
+    {
+        return None;
+    }
+    let radius = track.height() * 0.4;
+    let radius = match ui.visuals().handle_shape {
+        egui::style::HandleShape::Circle => radius,
+        egui::style::HandleShape::Rect { aspect_ratio } => radius * aspect_ratio,
+    };
+    let width = track.width() - 2. * radius;
+    (width > 0.).then(|| ((end.x - track.left() - radius) / width).clamp(0., 1.))
 }

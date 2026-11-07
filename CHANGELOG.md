@@ -14,7 +14,7 @@ oblique views keep their requested detail while you navigate.
 - **MPR + 3D.** See axial, coronal and sagittal slices beside a 3D view of the
   same volume. Show the slice planes in 3D or cut the view at the linked point.
 - **Regions in 3D.** Display one manual label or supplied segment at a time.
-  Select a visible cell face to move the linked slices to that location. Source
+  Select a visible face of its surface to move the linked slices to that cell. Source
   planes or material in front of a region can block a selection, and boundaries
   next to missing data remain open.
 - **3D appearance.** Adjust how image values map to brightness and opacity, and
@@ -27,8 +27,8 @@ oblique views keep their requested detail while you navigate.
 - **Include and exclude hints.** Mark at least one point or stroke of each kind
   within a rectangle on a source image to propose a region. Review the preview
   before applying it. Exclude hints can remove cells from the selected label.
-  The tool uses image values, can cross weak boundaries and does not recognize
-  anatomy.
+  The tool uses image values without an AI model. It can cross weak boundaries
+  and does not recognize anatomy.
 
 MPR + 3D and material views stay on your computer and are not available for
 picture export or agent sharing. See the [viewing and label guide](docs/usage.md)
@@ -54,8 +54,8 @@ for controls and limits.
   could still start after the preference changed.
 - If the first update preference cannot be saved, the viewer shows that checks
   are off for the current run and lets you retry saving the off choice.
-- Connected-region and hint previews stop calculating when their source image
-  or editing context changes.
+- Changing the source image or editing settings cancels outdated connected-region
+  and hint previews.
 - A label export could be reported as cancelled even after the file was saved.
 - Quick source-image brush drags could leave no label or omit the end of a stroke.
   An unfinished stroke is discarded if the image, its position, size or
@@ -65,6 +65,7 @@ for controls and limits.
 - Label exports require a `.nii` filename, matching the uncompressed file format.
 - Changing slab settings during linked MPR or oblique navigation could show an
   outdated image or keep an old calculation running.
+- A quick drag within a linked MPR slice slider could leave the slice unchanged.
 - An oblique setup error could disappear, leaving the view waiting. Errors from
   older MPR or oblique requests no longer interrupt the current view.
 - Short 3D camera drags could lose the last movement on release.

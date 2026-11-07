@@ -1919,6 +1919,11 @@ starvation, while study closure or a backend-mode change cancels it. A newly
 completed preview for an older position is accepted only if its requested side
 and slab settings still match the latest request. Oblique previews follow the
 same sampling rule. The idle worker waits on a condition variable.
+Linked-plane sliders also recover a primary drag whose press, movement and
+release all arrive in one UI pass when both endpoints are inside the visible
+rail on the active layer. Normal held gestures remain with the widget. The
+fallback maps the release through the pinned egui slider's handle geometry;
+recheck that mapping when the UI library or slider styling changes.
 Scalar slabs sample bounded discrete extrema or a mean along an explicit physical
 plane normal, excluding missing samples before display mapping. The mean sums at
 most 257 finite samples in f64 and divides by the valid count. Slab hashes keep
