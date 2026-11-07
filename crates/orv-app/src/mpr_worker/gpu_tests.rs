@@ -85,6 +85,7 @@ pub(crate) fn verify(snapshot: &MprSnapshot) {
             [image.width, image.height],
             [expected.width, expected.height]
         );
+        assert_eq!(image.validity, expected.validity);
         for (&a, &b) in image.pixels.iter().zip(expected.pixels.iter()) {
             assert_eq!(a.is_finite(), b.is_finite());
             if b.is_finite() {
@@ -277,13 +278,25 @@ fn gpu_navigation_reuses_unchanged_planes_and_source_across_canonical_mode_and_r
 #[test]
 fn sustained_requests_publish_complete_gpu_previews_before_input_stops() {
     let (device, queue) = device();
-    for slab in [
-        None,
-        Some(Slab {
-            projection: SlabProjection::Maximum,
-            thickness_mm: 4.,
-            intervals: 32,
-        }),
+    for (slab, crosshair) in [
+        (None, false),
+        (
+            Some(Slab {
+                projection: SlabProjection::Maximum,
+                thickness_mm: 4.,
+                intervals: 32,
+            }),
+            false,
+        ),
+        (None, true),
+        (
+            Some(Slab {
+                projection: SlabProjection::Maximum,
+                thickness_mm: 4.,
+                intervals: 32,
+            }),
+            true,
+        ),
     ] {
         let mut worker = MprWorker::start(source(false), egui::Context::default());
         drop(tests::wait(&worker).unwrap());
@@ -308,7 +321,13 @@ fn sustained_requests_publish_complete_gpu_previews_before_input_stops() {
                 Instant::now() < deadline,
                 "Sustained input starved GPU previews"
             );
-            point[2] = min[2] + (max[2] - min[2]) * ((requests % 97) as f64 + 0.5) / 97.;
+            let fraction = ((requests % 97) as f64 + 0.5) / 97.;
+            if crosshair {
+                point[0] = min[0] + (max[0] - min[0]) * (0.1 + 0.8 * fraction);
+                point[1] = min[1] + (max[1] - min[1]) * (0.9 - 0.8 * fraction);
+            } else {
+                point[2] = min[2] + (max[2] - min[2]) * fraction;
+            }
             worker.request_slab(point, 512, slab);
             requests += 1;
             if let Some(result) = worker.take() {
@@ -325,13 +344,31 @@ fn sustained_requests_publish_complete_gpu_previews_before_input_stops() {
             }
             std::thread::sleep(Duration::from_millis(2));
         }
+        if crosshair {
+            assert!(previews.iter().any(|preview| {
+                preview.point[0] != first.point[0] && preview.point[1] != first.point[1]
+            }));
+        }
         for preview in &previews {
             verify(preview);
-            for index in [1, 2] {
+            let unchanged: &[usize] = if crosshair { &[0] } else { &[1, 2] };
+            for &index in unchanged {
                 assert!(Arc::ptr_eq(&first.images[index], &preview.images[index]));
                 assert!(Arc::ptr_eq(
                     first.gpu_images[index].as_ref().unwrap(),
                     preview.gpu_images[index].as_ref().unwrap()
+                ));
+            }
+            if crosshair && preview.point[0] != first.point[0] && preview.point[1] != first.point[1]
+            {
+                for index in [1, 2] {
+                    assert!(!Arc::ptr_eq(&first.images[index], &preview.images[index]));
+                }
+            }
+            for index in 0..3 {
+                assert!(Arc::ptr_eq(
+                    first.gpu_images[index].as_ref().unwrap().source(),
+                    preview.gpu_images[index].as_ref().unwrap().source(),
                 ));
             }
         }
