@@ -497,3 +497,157 @@ fn gpu_interactive_oblique_keeps_full_detail_and_settles_to_canonical_cpu() {
             .all(|(a, b)| a.to_bits() == b.to_bits())
     );
 }
+
+#[test]
+fn sustained_oblique_input_publishes_full_detail_gpu_previews() {
+    use orv_core::slab::{Slab, SlabProjection};
+
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: orv_render::configured_backends().unwrap(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+        .expect("Actual GPU required");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))
+            .unwrap();
+    let mut source = frames();
+    for (z, frame) in source.iter_mut().enumerate() {
+        let frame = Arc::make_mut(frame);
+        frame.width = 65;
+        frame.height = 49;
+        frame.pixels = (0..65 * 49)
+            .map(|i| ((i % 65) * 3 + (i / 65) * 5 + z * 7) as f32)
+            .collect::<Vec<_>>()
+            .into();
+        frame.validity = Some(
+            (0..65 * 49)
+                .map(|i| u8::from(!(i + z).is_multiple_of(29)))
+                .collect::<Vec<_>>()
+                .into(),
+        );
+    }
+    let worker = Worker::start(source, egui::Context::default());
+    let first = wait(&worker).unwrap();
+    let weak_volume = Arc::downgrade(&first.volume);
+    worker.offer_gpu(&device, &queue);
+    let mut gpu_source = None;
+    for slab in [
+        None,
+        Some(Slab {
+            projection: SlabProjection::Maximum,
+            thickness_mm: 4.,
+            intervals: 32,
+        }),
+    ] {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let required_generation = worker.generation() + 100;
+        let mut requests = 0u64;
+        let mut previews = Vec::new();
+        let mut after_hundred = None;
+        let mut latest = first.plane.clone();
+        while requests < 100 || previews.len() < 3 || after_hundred.is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "sustained input starved GPU previews"
+            );
+            let fraction = ((requests % 97) as f64 + 0.5) / 97.;
+            let mut center = first.volume.center();
+            center[2] += (fraction - 0.5) * 4.;
+            latest = ObliquePlane::from_angles(center, [fraction * 18., -12., 7.]).unwrap();
+            worker.request_projection(latest.clone(), 512, slab, true);
+            requests += 1;
+            if let Some(result) = worker.take() {
+                let snapshot = result.unwrap();
+                if snapshot.preview && snapshot.generation < worker.generation() {
+                    assert!(snapshot.gpu_image.is_some(), "GPU preview required");
+                    assert_eq!(snapshot.reformat_side, 512);
+                    assert_eq!(snapshot.image.slab, slab);
+                    if snapshot.generation >= required_generation && after_hundred.is_none() {
+                        after_hundred = Some(snapshot.clone());
+                    }
+                    if previews.len() < 3 {
+                        previews.push(snapshot);
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            previews
+                .windows(2)
+                .all(|pair| pair[0].plane != pair[1].plane)
+        );
+        for preview in previews.iter().chain(after_hundred.iter()) {
+            let expected = if let Some(slab) = slab {
+                preview
+                    .volume
+                    .reformat_slab(&preview.plane, slab, 512, || false)
+                    .unwrap()
+            } else {
+                preview
+                    .volume
+                    .reformat_oblique(&preview.plane, 512, || false)
+                    .unwrap()
+            };
+            let gpu = preview.gpu_image.as_ref().unwrap();
+            assert!(Arc::ptr_eq(gpu.frame(), &preview.image));
+            assert!(Arc::ptr_eq(gpu.source().volume(), &preview.volume));
+            if let Some(source) = &gpu_source {
+                assert!(Arc::ptr_eq(source, gpu.source()));
+            } else {
+                gpu_source = Some(gpu.source().clone());
+            }
+            assert_eq!(preview.image.geometry, expected.geometry);
+            assert_eq!(
+                [preview.image.width, preview.image.height],
+                [expected.width, expected.height]
+            );
+            for (&actual, &reference) in preview.image.pixels.iter().zip(expected.pixels.iter()) {
+                assert_eq!(actual.is_finite(), reference.is_finite());
+                if reference.is_finite() {
+                    assert!((actual - reference).abs() <= 0.0002 * reference.abs());
+                }
+            }
+        }
+        let settled = loop {
+            let snapshot = wait(&worker).unwrap();
+            if !snapshot.preview {
+                break snapshot;
+            }
+        };
+        assert_eq!(settled.plane, latest);
+        assert_eq!(settled.image.slab, slab);
+        let expected = if let Some(slab) = slab {
+            settled
+                .volume
+                .reformat_slab(&latest, slab, 512, || false)
+                .unwrap()
+        } else {
+            settled
+                .volume
+                .reformat_oblique(&latest, 512, || false)
+                .unwrap()
+        };
+        assert_eq!(settled.image.geometry, expected.geometry);
+        assert!(
+            settled
+                .image
+                .pixels
+                .iter()
+                .zip(expected.pixels.iter())
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+        );
+    }
+    drop(first);
+    drop(gpu_source);
+    drop(worker);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while weak_volume.upgrade().is_some() {
+        assert!(
+            Instant::now() < deadline,
+            "closed oblique worker retained its source"
+        );
+        std::thread::yield_now();
+    }
+}
