@@ -638,6 +638,102 @@ mod tests {
         changed.visible = 1;
         check_unchanged_plane_reuse(supplied(), display, changed);
     }
+
+    #[test]
+    fn in_flight_overlay_cannot_replace_a_newer_linked_plane() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct PausedMap {
+            labels: Arc<Labels>,
+            pause_next: AtomicBool,
+            entered: AtomicBool,
+            release: AtomicBool,
+        }
+        impl OverlayMap for PausedMap {
+            type Display = Display;
+            type Plane = LabelPlane;
+
+            fn source_arc(&self) -> Arc<Volume> {
+                self.labels.source_arc()
+            }
+            fn plane(
+                &self,
+                image: &Frame,
+                cancel: &dyn Fn() -> bool,
+            ) -> Result<LabelPlane, &'static str> {
+                if self.pause_next.swap(false, Ordering::AcqRel) {
+                    self.entered.store(true, Ordering::Release);
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while !self.release.load(Ordering::Acquire) && Instant::now() < deadline {
+                        std::thread::yield_now();
+                    }
+                }
+                self.labels.sample_plane(image, cancel)
+            }
+            fn color(plane: &LabelPlane, index: usize, display: &Display) -> egui::Color32 {
+                <Labels as OverlayMap>::color(plane, index, display)
+            }
+        }
+
+        let map = Arc::new(PausedMap {
+            labels: filled(),
+            pause_next: AtomicBool::new(false),
+            entered: AtomicBool::new(false),
+            release: AtomicBool::new(false),
+        });
+        let source = map.source_arc();
+        let mut images = source.frames().to_vec();
+        let display = Display::default();
+        let ctx = egui::Context::default();
+        let mut overlays = Overlays::<PausedMap>::default();
+        let view = |generation| OverlayView::Mpr {
+            generation,
+            preview: true,
+        };
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            overlays.prepare(map.clone(), &source, &images, view(1), &display, &ctx);
+            if (0..3).all(|i| overlays.texture(i, &images[i], &map, &display).is_some()) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "initial overlays did not finish");
+            std::thread::yield_now();
+        }
+        let unchanged = [1, 2].map(|i| overlays.texture(i, &images[i], &map, &display).unwrap());
+        map.pause_next.store(true, Ordering::Release);
+        images[0] = Arc::new((*images[0]).clone());
+        overlays.prepare(map.clone(), &source, &images, view(2), &display, &ctx);
+        while !map.entered.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "overlay worker did not start");
+            std::thread::yield_now();
+        }
+        let old = images[0].clone();
+        images[0] = Arc::new((*images[0]).clone());
+        overlays.prepare(map.clone(), &source, &images, view(3), &display, &ctx);
+        assert!(overlays.texture(0, &old, &map, &display).is_none());
+        for (i, texture) in [1, 2].into_iter().zip(unchanged) {
+            assert_eq!(
+                overlays.texture(i, &images[i], &map, &display),
+                Some(texture)
+            );
+        }
+        map.release.store(true, Ordering::Release);
+        loop {
+            overlays.prepare(map.clone(), &source, &images, view(3), &display, &ctx);
+            if overlays.texture(0, &images[0], &map, &display).is_some() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "new overlay did not finish");
+            std::thread::yield_now();
+        }
+        assert!(overlays.texture(0, &old, &map, &display).is_none());
+        for (i, texture) in [1, 2].into_iter().zip(unchanged) {
+            assert_eq!(
+                overlays.texture(i, &images[i], &map, &display),
+                Some(texture)
+            );
+        }
+    }
     fn input(labels: &Arc<Labels>, display: Display) -> Input {
         Input {
             source: labels.source_arc(),
