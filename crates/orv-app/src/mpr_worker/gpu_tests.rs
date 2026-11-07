@@ -275,6 +275,79 @@ fn gpu_navigation_reuses_unchanged_planes_and_source_across_canonical_mode_and_r
     assert_eq!(MemoryBudget::gpu().used(), 0);
 }
 #[test]
+fn sustained_requests_publish_complete_gpu_previews_before_input_stops() {
+    let (device, queue) = device();
+    for slab in [
+        None,
+        Some(Slab {
+            projection: SlabProjection::Maximum,
+            thickness_mm: 4.,
+            intervals: 32,
+        }),
+    ] {
+        let mut worker = MprWorker::start(source(false), egui::Context::default());
+        drop(tests::wait(&worker).unwrap());
+        worker.offer_gpu(&device, &queue);
+        let initial = settled(&worker, true);
+        if slab.is_some() {
+            worker.request_slab(initial.point, 512, slab);
+        }
+        let first = if slab.is_some() {
+            settled(&worker, true)
+        } else {
+            initial.clone()
+        };
+        let [min, max] = first.volume.bounds();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut requests = 0u64;
+        let mut superseded = false;
+        let mut previews = Vec::new();
+        let mut point = first.point;
+        while requests < 100 || previews.len() < 3 || !superseded {
+            assert!(
+                Instant::now() < deadline,
+                "Sustained input starved GPU previews"
+            );
+            point[2] = min[2] + (max[2] - min[2]) * ((requests % 97) as f64 + 0.5) / 97.;
+            worker.request_slab(point, 512, slab);
+            requests += 1;
+            if let Some(result) = worker.take() {
+                let snapshot = result.unwrap();
+                if snapshot.preview {
+                    assert!(snapshot.gpu_images.iter().all(Option::is_some));
+                    assert_eq!(snapshot.reformat_side, 512);
+                    assert!(snapshot.images.iter().all(|image| image.slab == slab));
+                    superseded |= snapshot.generation < worker.generation();
+                    if previews.len() < 3 {
+                        previews.push(snapshot);
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        for preview in &previews {
+            verify(preview);
+            for index in [1, 2] {
+                assert!(Arc::ptr_eq(&first.images[index], &preview.images[index]));
+                assert!(Arc::ptr_eq(
+                    first.gpu_images[index].as_ref().unwrap(),
+                    preview.gpu_images[index].as_ref().unwrap()
+                ));
+            }
+        }
+        let final_view = settled(&worker, true);
+        assert_eq!(final_view.point, point);
+        verify(&final_view);
+        let handle = worker.worker.take().unwrap();
+        drop(worker);
+        handle.join().unwrap();
+        drop((initial, first, previews, final_view));
+    }
+    fence(&device);
+    assert_eq!(MemoryBudget::gpu().used(), 0);
+}
+
+#[test]
 fn translated_sheared_slab_reuse_matches_fresh_source_planes_on_gpu() {
     let (device, queue) = device();
     let frames = source(false)
