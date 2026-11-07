@@ -4,12 +4,71 @@
 use eframe::egui;
 use serde_json::{Value, json};
 use std::{
+    collections::VecDeque,
     fs::OpenOptions,
     io::{self, Write},
     time::{Duration, Instant},
 };
 
 const MAX_SAMPLES: usize = 8192;
+const MAX_PENDING_MPR: usize = 256;
+
+#[derive(Default)]
+pub struct MprTracking {
+    pending: VecDeque<(u64, Instant)>,
+    samples: Vec<MprSample>,
+    requests: u64,
+    evicted: u64,
+    unmatched: u64,
+}
+struct MprSample {
+    elapsed_ms: f64,
+    preview: bool,
+    superseded: bool,
+    slab: bool,
+    all_gpu: bool,
+}
+impl MprTracking {
+    pub fn request(&mut self, generation: u64, at: Instant) {
+        self.requests += 1;
+        if self.pending.len() == MAX_PENDING_MPR {
+            self.pending.pop_front();
+            self.evicted += 1;
+        }
+        self.pending.push_back((generation, at));
+    }
+    pub fn snapshot(
+        &mut self,
+        generation: u64,
+        current: u64,
+        at: Instant,
+        preview: bool,
+        slab: bool,
+        all_gpu: bool,
+    ) {
+        if let Some((_, started)) = self.pending.iter().find(|(id, _)| *id == generation) {
+            if let Some(elapsed) = at.checked_duration_since(*started)
+                && self.samples.len() < MAX_SAMPLES
+            {
+                self.samples.push(MprSample {
+                    elapsed_ms: elapsed.as_secs_f64() * 1000.,
+                    preview,
+                    superseded: generation != current,
+                    slab,
+                    all_gpu,
+                });
+            }
+        } else {
+            self.unmatched += 1;
+        }
+        if !preview {
+            self.pending.retain(|(id, _)| *id > generation);
+        }
+    }
+    pub fn suspend(&mut self) {
+        self.pending.clear();
+    }
+}
 
 pub struct Recorder {
     started: Instant,
@@ -23,6 +82,11 @@ pub struct Recorder {
     native_smoke: bool,
     smoke_started: Option<Instant>,
     quiet_ui_passes: u64,
+    mpr_requests: u64,
+    mpr_evicted: u64,
+    mpr_unmatched: u64,
+    mpr_dropped: u64,
+    mpr_samples: Vec<MprSample>,
 }
 impl Recorder {
     pub fn new(started: Instant) -> Self {
@@ -39,6 +103,11 @@ impl Recorder {
                 && std::env::var_os("ORV_QA_NATIVE_SMOKE").is_some_and(|value| value == "1"),
             smoke_started: None,
             quiet_ui_passes: 0,
+            mpr_requests: 0,
+            mpr_evicted: 0,
+            mpr_unmatched: 0,
+            mpr_dropped: 0,
+            mpr_samples: Vec::new(),
         }
     }
     pub fn native_smoke_enabled(&self) -> bool {
@@ -66,6 +135,15 @@ impl Recorder {
     pub fn input(&mut self, has_events: bool) {
         self.input_started = has_events.then(Instant::now);
     }
+    pub fn mpr(&mut self, tracking: &mut MprTracking) {
+        self.mpr_requests += std::mem::take(&mut tracking.requests);
+        self.mpr_evicted += std::mem::take(&mut tracking.evicted);
+        self.mpr_unmatched += std::mem::take(&mut tracking.unmatched);
+        let remaining = MAX_SAMPLES.saturating_sub(self.mpr_samples.len());
+        self.mpr_dropped += tracking.samples.len().saturating_sub(remaining) as u64;
+        self.mpr_samples
+            .extend(tracking.samples.drain(..).take(remaining));
+    }
     pub fn frame(&mut self, cpu: Duration, previous_integration_cpu_seconds: Option<f32>) {
         self.first_ui_ms
             .get_or_insert_with(|| self.started.elapsed().as_secs_f64() * 1000.);
@@ -92,6 +170,30 @@ impl Recorder {
             options.mode(0o600);
         }
         let mut file = options.open(path)?;
+        let mpr_samples = &self.mpr_samples;
+        let mpr_groups: Vec<_> = [false, true]
+            .into_iter()
+            .flat_map(|slab| {
+                [false, true].into_iter().flat_map(move |all_gpu| {
+                    [(true, false), (true, true), (false, false), (false, true)]
+                        .into_iter()
+                        .map(move |(preview, superseded)| {
+                            let times = mpr_samples
+                                .iter()
+                                .filter(|sample| {
+                                    sample.slab == slab
+                                        && sample.all_gpu == all_gpu
+                                        && sample.preview == preview
+                                        && sample.superseded == superseded
+                                })
+                                .map(|sample| sample.elapsed_ms)
+                                .collect();
+                            json!({"slab":slab,"all_three_gpu":all_gpu,"preview":preview,
+                        "superseded":superseded,"request_to_ui_poll_ms":summary(times)})
+                        })
+                })
+            })
+            .collect();
         let output = json!({
             "schema_version":1,"version":env!("CARGO_PKG_VERSION"),
             "build":"developer qa feature; excluded from distribution",
@@ -106,6 +208,9 @@ impl Recorder {
             "sample_limit_per_metric":MAX_SAMPLES,
             "ui_cpu_ms":summary(self.ui_ms),"input_dispatch_ui_cpu_ms":summary(self.dispatch_ms),
             "eframe_previous_cpu_ms":summary(self.integration_ms),
+            "linked_mpr": {"requests":self.mpr_requests,"evicted_requests":self.mpr_evicted,
+                "unmatched_snapshots":self.mpr_unmatched,"dropped_samples":self.mpr_dropped,"groups":mpr_groups,
+                "scope":"UI request to worker snapshot consumed by the UI, before rendering/presentation; coalesced requests may have no sample"},
             "data":"timing/count aggregates only; no input contents, images, tags or paths"
         });
         serde_json::to_writer_pretty(&mut file, &output).map_err(io::Error::other)?;
@@ -125,4 +230,43 @@ fn summary(mut samples: Vec<f64>) -> Value {
             .copied()
     };
     json!({"samples":samples.len(),"median":quantile(0.5),"p95":quantile(0.95),"max":samples.last()})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mpr_timings_match_generations_and_bound_retained_requests() {
+        let start = Instant::now();
+        let mut tracking = MprTracking::default();
+        tracking.request(1, start);
+        tracking.request(2, start + Duration::from_millis(4));
+        tracking.snapshot(1, 2, start + Duration::from_millis(10), true, false, true);
+        tracking.snapshot(2, 2, start + Duration::from_millis(16), true, true, false);
+        tracking.snapshot(2, 2, start + Duration::from_millis(150), false, true, false);
+        tracking.snapshot(1, 2, start + Duration::from_millis(160), true, false, true);
+        assert_eq!(tracking.unmatched, 1);
+        assert!(tracking.pending.is_empty());
+        assert_eq!(tracking.samples.len(), 3);
+        assert!(tracking.samples[0].superseded && tracking.samples[0].all_gpu);
+        assert_eq!(tracking.samples[0].elapsed_ms, 10.);
+        assert!(tracking.samples[1].slab && !tracking.samples[1].superseded);
+        assert_eq!(tracking.samples[1].elapsed_ms, 12.);
+        assert!(!tracking.samples[2].preview);
+        assert_eq!(tracking.samples[2].elapsed_ms, 146.);
+        let mut recorder = Recorder::new(start);
+        recorder.mpr(&mut tracking);
+        assert_eq!(recorder.mpr_requests, 2);
+        assert_eq!(recorder.mpr_unmatched, 1);
+        assert_eq!(recorder.mpr_samples.len(), 3);
+        assert!(tracking.samples.is_empty());
+        for generation in 0..=MAX_PENDING_MPR as u64 {
+            tracking.request(generation, start);
+        }
+        assert_eq!(tracking.pending.len(), MAX_PENDING_MPR);
+        assert_eq!(tracking.evicted, 1);
+        tracking.suspend();
+        assert!(tracking.pending.is_empty());
+    }
 }

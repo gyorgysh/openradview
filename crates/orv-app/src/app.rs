@@ -348,6 +348,9 @@ impl eframe::App for OpenRadView {
         }
         #[cfg(feature = "qa")]
         if let Some(diagnostics) = &mut self.diagnostics {
+            if let Some(mpr) = &mut self.workspace.mpr {
+                diagnostics.mpr(&mut mpr.qa);
+            }
             diagnostics.frame(measured_start.elapsed(), frame.info().cpu_usage);
             diagnostics.native_smoke_tick(&ctx);
         }

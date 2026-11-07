@@ -51,11 +51,15 @@ pub struct MprSession {
     slab: Option<orv_core::slab::Slab>,
     workbench: Option<crate::volume_ui::VolumeSession>,
     prefer_source: bool,
+    #[cfg(feature = "qa")]
+    pub(crate) qa: crate::qa::MprTracking,
 }
 impl MprSession {
     pub(super) fn set_active(&mut self, active: bool) {
         self.worker.set_suspended(!active);
         if !active {
+            #[cfg(feature = "qa")]
+            self.qa.suspend();
             self.workbench = None;
             self.snapshot = None;
             self.picture_sizes = [None; 3];
@@ -121,6 +125,8 @@ impl MprSession {
             slab: None,
             workbench: None,
             prefer_source,
+            #[cfg(feature = "qa")]
+            qa: Default::default(),
         }
     }
     pub(super) fn request(&mut self, volume: &orv_core::volume::Volume, point: [f64; 3]) {
@@ -137,6 +143,8 @@ impl MprSession {
         self.last_input = std::time::Instant::now();
         self.worker
             .request_slab(point, self.reformat_side, self.slab);
+        #[cfg(feature = "qa")]
+        self.qa.request(self.worker.generation(), self.last_input);
     }
     pub(super) fn is_settled(&self) -> bool {
         self.snapshot
@@ -151,6 +159,15 @@ impl MprSession {
         if let Some(result) = self.worker.take() {
             match result {
                 Ok(snapshot) => {
+                    #[cfg(feature = "qa")]
+                    self.qa.snapshot(
+                        snapshot.generation,
+                        self.worker.generation(),
+                        std::time::Instant::now(),
+                        snapshot.preview,
+                        snapshot.images[0].slab.is_some(),
+                        snapshot.gpu_images.iter().all(Option::is_some),
+                    );
                     if snapshot.volume.is_color() {
                         self.window = snapshot.volume.frames()[0].default_window;
                     }

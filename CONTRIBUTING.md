@@ -26,6 +26,11 @@ For a minimum-window native review, build the QA-only binary with
 `ORV_QA_COMPACT=1 cargo build --locked -p orv-app --features qa`; its initial
 window is 860×640. Omit that build variable for normal-size QA. Distribution
 builds exclude QA and this override.
+The local QA report also groups linked-MPR request-to-UI-snapshot timings by
+thin/slab, GPU-backed planes and provisional/settled status. It records bounded
+timing and count aggregates, without positions, study data or paths. Coalesced
+requests can lack a sample. These timings stop before drawing and presentation;
+they are not input-to-photon latency or proof of motion quality.
 The manual Linux package job also runs OpenGL rendering under Mesa/Xvfb and a
 QA-only native startup/idle check. This opens no study, disables input controls
 and closes after four seconds. Its temporary aggregate contains timing/count
