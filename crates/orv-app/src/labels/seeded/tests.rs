@@ -49,6 +49,45 @@ fn preview(state: &LabelUi) -> Preview {
     *preview
 }
 #[test]
+fn leaving_or_changing_slice_cancels_the_pending_hint_preview() {
+    use std::time::{Duration, Instant};
+
+    for leave in [false, true] {
+        let mut state = state();
+        let base = state.current.as_ref().unwrap().clone();
+        let seeded = &state.regions.seeded;
+        let request = seeded.request(&base, state.label, Some(1)).unwrap();
+        let (seeds, reservation) = seeded.copy_for_worker().unwrap();
+        let operation = Operation::SeededPreview(
+            base.clone(),
+            request,
+            seeds,
+            reservation,
+            seeded.version,
+            seeded.epoch,
+        );
+        state.start(operation, &egui::Context::default());
+        assert!(state.busy());
+        if leave {
+            state.stop_painting();
+        } else {
+            state.sync_regions(&base, 1, Some(2));
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while state.busy() {
+            state.poll();
+            assert!(
+                Instant::now() < deadline,
+                "hint preview worker did not stop"
+            );
+            std::thread::yield_now();
+        }
+        assert_eq!(state.message, "Cancelled; labels unchanged.");
+        assert!(Arc::ptr_eq(state.current.as_ref().unwrap(), &base));
+        assert!(!state.dirty && !state.region_preview_visible());
+    }
+}
+#[test]
 fn preview_is_private_and_apply_is_one_undoable_revision() {
     let mut state = state();
     let base = state.current.as_ref().unwrap().clone();

@@ -49,6 +49,8 @@ for controls and limits.
 
 ### Fixed
 
+- Connected-region and hint previews stop calculating when their source image
+  or editing context changes.
 - A single-point physical path could move the linked crosshair and cancel its
   own preview.
 - A label export could be reported as cancelled even after the file was saved.

@@ -247,12 +247,25 @@ impl LabelUi {
     }
     pub fn stop_painting(&mut self) {
         self.end_physical_tools();
+        if let Some(task) = &self.task {
+            task.cancel_region_preview();
+        }
         self.paint = false;
         self.stroke.clear();
         self.regions.seeded.cancel_stroke();
         self.regions.picking = false;
         self.regions.seed_picking = None;
         self.regions.invalidate();
+    }
+    fn sync_regions(&mut self, map: &Arc<Labels>, label: u8, slice: Option<usize>) -> bool {
+        let epochs = (self.regions.epoch, self.regions.seeded.epoch());
+        let cancelled_stroke = self.regions.sync(map, label, slice);
+        if epochs != (self.regions.epoch, self.regions.seeded.epoch())
+            && let Some(task) = &self.task
+        {
+            task.cancel_region_preview();
+        }
+        cancelled_stroke
     }
     pub fn painting(&self, selected: usize) -> bool {
         !self.supplied_active
@@ -270,9 +283,9 @@ impl LabelUi {
         demo_mask: Option<&'static [u8]>,
     ) {
         self.poll();
-        if let Some(map) = &self.current
-            && self.regions.sync(
-                map,
+        if let Some(map) = self.current.clone()
+            && self.sync_regions(
+                &map,
                 self.label,
                 if selected == self.series { slice } else { None },
             )

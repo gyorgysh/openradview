@@ -152,7 +152,7 @@ impl LabelUi {
         let Some(map) = self.current.clone() else {
             return;
         };
-        self.regions.sync(&map, self.label, slice);
+        self.sync_regions(&map, self.label, slice);
         ui.collapsing("Connected regions", |ui| {
             ui.label("Use source values and neighboring cells; this does not recognize shapes, organs or disease. Preview first, then explicitly apply one undoable edit.");
             egui::ComboBox::from_id_salt("region-operation").selected_text(self.regions.choice.name()).show_ui(ui, |ui| {
@@ -199,7 +199,7 @@ impl LabelUi {
                     else { ui.small("Choose a seed before previewing."); }
                 }
             });
-            self.regions.sync(&map, self.label, slice);
+            self.sync_regions(&map, self.label, slice);
             let request = self.regions.request(self.label, slice);
             let scalar_allowed = self.regions.choice != Choice::Grow || !map.source().is_color();
             if !scalar_allowed { ui.small("Grow from seed requires scalar source images."); }
@@ -221,13 +221,13 @@ impl LabelUi {
                 });
             }
         });
-        self.regions.sync(&map, self.label, slice);
+        self.sync_regions(&map, self.label, slice);
     }
     pub(super) fn apply_region_preview(&mut self, slice: Option<usize>) {
         let Some(map) = self.current.clone() else {
             return;
         };
-        self.regions.sync(&map, self.label, slice);
+        self.sync_regions(&map, self.label, slice);
         if let Some(preview) = self.regions.preview.take()
             && self.regions.accept(&preview, &map)
             && preview.summary.changed_voxels > 0

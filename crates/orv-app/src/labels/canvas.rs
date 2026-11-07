@@ -51,7 +51,7 @@ impl LabelUi {
         {
             self.cancel_seed_capture();
         }
-        self.regions.sync(&current, self.label, Some(z));
+        self.sync_regions(&current, self.label, Some(z));
         if self.stroke_slice != Some(z) {
             self.stroke.clear();
             self.stroke_slice = Some(z);
@@ -222,7 +222,7 @@ impl LabelUi {
                     self.regions.picking = false;
                     self.regions.seed_picking = None;
                     self.regions.invalidate();
-                    self.regions.sync(&current, self.label, Some(z));
+                    self.sync_regions(&current, self.label, Some(z));
                     self.open = true;
                 }
                 return;
@@ -234,7 +234,7 @@ impl LabelUi {
                 let [x, y] = point.map(|v| (v + 0.5).floor());
                 if x >= 0. && y >= 0. && x < image.width as f64 && y < image.height as f64 {
                     self.regions.pick([x as usize, y as usize, z]);
-                    self.regions.sync(&current, self.label, Some(z));
+                    self.sync_regions(&current, self.label, Some(z));
                     self.open = true;
                 }
             }

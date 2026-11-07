@@ -44,14 +44,24 @@ pub enum Output {
     Saved,
     Cancelled,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TaskKind {
+    RegionPreview,
+    Export,
+    Other,
+}
 pub struct Task {
     receiver: mpsc::Receiver<Result<Output, String>>,
     cancel: Arc<AtomicBool>,
-    export: bool,
+    kind: TaskKind,
 }
 impl Task {
     pub fn start(op: Operation, ctx: egui::Context) -> Self {
-        let export = matches!(&op, Operation::Export(_));
+        let kind = match &op {
+            Operation::Preview(..) | Operation::SeededPreview(..) => TaskKind::RegionPreview,
+            Operation::Export(..) => TaskKind::Export,
+            _ => TaskKind::Other,
+        };
         let (sender, receiver) = mpsc::sync_channel(1);
         let cancel = Arc::new(AtomicBool::new(false));
         let flag = cancel.clone();
@@ -71,19 +81,26 @@ impl Task {
         Self {
             receiver,
             cancel,
-            export,
+            kind,
         }
     }
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
+    pub(super) fn cancel_region_preview(&self) {
+        if self.kind == TaskKind::RegionPreview {
+            self.cancel();
+        }
+    }
     pub fn poll(&self) -> Option<Result<Output, String>> {
         match self.receiver.try_recv() {
-            Ok(result) => Some(if !self.export && self.cancel.load(Ordering::Acquire) {
-                Ok(Output::Cancelled)
-            } else {
-                result
-            }),
+            Ok(result) => Some(
+                if self.kind != TaskKind::Export && self.cancel.load(Ordering::Acquire) {
+                    Ok(Output::Cancelled)
+                } else {
+                    result
+                },
+            ),
             Err(mpsc::TryRecvError::Empty) => None,
             Err(mpsc::TryRecvError::Disconnected) => Some(Err("Label worker stopped".into())),
         }
@@ -242,6 +259,102 @@ fn label_dimensions(series: &Series, cancelled: &dyn Fn() -> bool) -> Result<[us
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn queued_connected_preview() -> (crate::labels::LabelUi, Arc<Labels>, Arc<AtomicBool>) {
+        use orv_core::labels::{LabelScope, RegionOperation, SelectionRequest};
+
+        let base = crate::labels::tests::labels();
+        let mut state = crate::labels::LabelUi {
+            current: Some(base.clone()),
+            ..Default::default()
+        };
+        state.regions.pick([2, 2, 1]);
+        state.regions.sync(&base, 1, Some(1));
+        let request = SelectionRequest {
+            scope: LabelScope::Slice(1),
+            label: 1,
+            operation: RegionOperation::Grow {
+                seed: [2, 2, 1],
+                range: [0., 100.],
+            },
+        };
+        let result = run(
+            Operation::Preview(base.clone(), request, state.regions.epoch),
+            &AtomicBool::new(false),
+        );
+        assert!(
+            matches!(&result, Ok(Output::Preview(preview)) if state.regions.accept(preview, &base))
+        );
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender.send(result).unwrap();
+        let cancel = Arc::new(AtomicBool::new(false));
+        state.task = Some(Task {
+            receiver,
+            cancel: cancel.clone(),
+            kind: TaskKind::RegionPreview,
+        });
+        (state, base, cancel)
+    }
+
+    #[test]
+    fn leaving_region_tools_cancels_a_queued_preview_without_changing_labels() {
+        let (mut state, base, cancel) = queued_connected_preview();
+        state.stop_painting();
+        assert!(
+            cancel.load(Ordering::Acquire),
+            "obsolete region work must stop"
+        );
+        state.poll();
+        assert!(!state.busy() && !state.dirty);
+        assert!(Arc::ptr_eq(state.current.as_ref().unwrap(), &base));
+        assert!(!state.region_preview_visible());
+    }
+
+    #[test]
+    fn changing_the_source_slice_cancels_only_after_inputs_change() {
+        let (mut state, base, cancel) = queued_connected_preview();
+        state.sync_regions(&base, 1, Some(1));
+        assert!(!cancel.load(Ordering::Acquire));
+        state.sync_regions(&base, 1, Some(2));
+        assert!(cancel.load(Ordering::Acquire));
+        state.poll();
+        assert!(!state.busy() && !state.dirty);
+        assert!(Arc::ptr_eq(state.current.as_ref().unwrap(), &base));
+        assert!(!state.region_preview_visible());
+    }
+
+    #[test]
+    fn leaving_region_tools_keeps_requested_paint_and_export_work() {
+        for kind in [TaskKind::Other, TaskKind::Export] {
+            let base = crate::labels::tests::labels();
+            let mut state = crate::labels::LabelUi {
+                current: Some(base.clone()),
+                ..Default::default()
+            };
+            state.regions.sync(&base, 1, Some(1));
+            let (sender, receiver) = mpsc::sync_channel(1);
+            let (result, expected) = if kind == TaskKind::Export {
+                (Output::Saved, base.clone())
+            } else {
+                let mut edited = base.try_clone(|| false).unwrap();
+                edited.paint(1, &[[3., 3.]], 1, 7, || false).unwrap();
+                let edited = Arc::new(edited);
+                (Output::Change(edited.clone()), edited)
+            };
+            sender.send(Ok(result)).unwrap();
+            let cancel = Arc::new(AtomicBool::new(false));
+            state.task = Some(Task {
+                receiver,
+                cancel: cancel.clone(),
+                kind,
+            });
+            state.sync_regions(&base, 1, Some(2));
+            state.stop_painting();
+            assert!(!cancel.load(Ordering::Acquire));
+            state.poll();
+            assert!(!state.busy());
+            assert!(Arc::ptr_eq(state.current.as_ref().unwrap(), &expected));
+        }
+    }
     #[test]
     fn cancellation_after_completion_suppresses_a_queued_private_edit() {
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -252,7 +365,7 @@ mod tests {
         let task = Task {
             receiver,
             cancel: Arc::new(AtomicBool::new(false)),
-            export: false,
+            kind: TaskKind::Other,
         };
         task.cancel();
         assert!(matches!(task.poll(), Some(Ok(Output::Cancelled))));
@@ -265,7 +378,7 @@ mod tests {
         let task = Task {
             receiver,
             cancel: Arc::new(AtomicBool::new(true)),
-            export: true,
+            kind: TaskKind::Export,
         };
         assert!(matches!(task.poll(), Some(Ok(Output::Saved))));
 
@@ -274,7 +387,7 @@ mod tests {
         let task = Task {
             receiver,
             cancel: Arc::new(AtomicBool::new(true)),
-            export: true,
+            kind: TaskKind::Export,
         };
         assert!(matches!(task.poll(), Some(Err(error)) if error == "cleanup failed"));
     }
@@ -301,7 +414,7 @@ mod tests {
         state.task = Some(Task {
             receiver,
             cancel: Arc::new(AtomicBool::new(true)),
-            export: true,
+            kind: TaskKind::Export,
         });
         state.poll();
         assert!(!state.dirty);

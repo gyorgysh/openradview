@@ -109,6 +109,9 @@ impl Default for Seeded {
     }
 }
 impl Seeded {
+    pub(super) fn epoch(&self) -> u64 {
+        self.epoch
+    }
     pub fn invalidate(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.preview = None;
