@@ -119,13 +119,21 @@ fn superseded_preview_errors_do_not_replace_a_newer_target() {
     let plane = ObliquePlane::from_angles([0.; 3], [0.; 3]).unwrap();
     worker.request(plane.clone(), 64);
     let old = worker.generation();
+    let sampling_generation = worker.shared.sampling_generation.load(Ordering::Acquire);
     worker.request(plane.clone(), 64);
-    publish_preview(&worker.shared, old, Err(GeometryError::Limit), &ctx);
+    publish_preview(
+        &worker.shared,
+        old,
+        sampling_generation,
+        Err(GeometryError::Limit),
+        &ctx,
+    );
     assert!(worker.take().is_none());
 
     publish_preview(
         &worker.shared,
         worker.generation(),
+        sampling_generation,
         Err(GeometryError::Limit),
         &ctx,
     );
@@ -133,11 +141,117 @@ fn superseded_preview_errors_do_not_replace_a_newer_target() {
     publish_preview(
         &worker.shared,
         worker.generation(),
+        sampling_generation,
         Err(GeometryError::Limit),
         &ctx,
     );
     worker.request(plane, 64);
     assert!(worker.take().is_none());
+}
+
+#[test]
+fn sampling_round_trip_rejects_a_late_preview() {
+    use orv_core::slab::{Slab, SlabProjection};
+
+    let producer = Worker::start(frames(), egui::Context::default());
+    let mut snapshot = wait(&producer).unwrap();
+    drop(producer);
+    let worker = Worker {
+        shared: Arc::new(Shared::default()),
+    };
+    let ctx = egui::Context::default();
+    worker.request_projection(snapshot.plane.clone(), 512, None, true);
+    let old = worker.generation();
+    let sampling_generation = worker.shared.sampling_generation.load(Ordering::Acquire);
+    snapshot.preview = true;
+    snapshot.generation = old;
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 4.,
+        intervals: 32,
+    };
+    worker.request_projection(snapshot.plane.clone(), 512, Some(slab), true);
+    worker.request_projection(snapshot.plane.clone(), 512, None, true);
+    publish_preview(
+        &worker.shared,
+        old,
+        sampling_generation,
+        Ok(snapshot.clone()),
+        &ctx,
+    );
+    assert!(
+        worker.take().is_none(),
+        "a preview from an earlier sampling epoch survived the round trip"
+    );
+    let current = worker.generation();
+    let current_sampling = worker.shared.sampling_generation.load(Ordering::Acquire);
+    snapshot.generation = current;
+    let moved = ObliquePlane::from_angles(snapshot.volume.center(), [10., 0., 0.]).unwrap();
+    worker.request_projection(moved, 512, None, true);
+    publish_preview(
+        &worker.shared,
+        current,
+        current_sampling,
+        Ok(snapshot),
+        &ctx,
+    );
+    assert!(
+        worker.take().unwrap().unwrap().preview,
+        "plane movement must not starve a compatible preview"
+    );
+}
+
+#[test]
+fn position_change_preserves_a_queued_compatible_preview() {
+    use orv_core::slab::{Slab, SlabProjection};
+
+    let producer = Worker::start(frames(), egui::Context::default());
+    let mut snapshot = wait(&producer).unwrap();
+    drop(producer);
+    let worker = Worker {
+        shared: Arc::new(Shared::default()),
+    };
+    let ctx = egui::Context::default();
+    worker.request_projection(snapshot.plane.clone(), 512, None, true);
+    let generation = worker.generation();
+    let sampling_generation = worker.shared.sampling_generation.load(Ordering::Acquire);
+    snapshot.preview = true;
+    snapshot.generation = generation;
+    publish_preview(
+        &worker.shared,
+        generation,
+        sampling_generation,
+        Ok(snapshot.clone()),
+        &ctx,
+    );
+    let moved = ObliquePlane::from_angles(snapshot.volume.center(), [10., 0., 0.]).unwrap();
+    worker.request_projection(moved.clone(), 512, None, true);
+    let retained = worker
+        .take()
+        .expect("position-only input discarded a completed compatible preview")
+        .expect("compatible preview unexpectedly failed");
+    assert!(retained.preview);
+
+    let current = worker.generation();
+    snapshot.generation = current;
+    publish_preview(
+        &worker.shared,
+        current,
+        sampling_generation,
+        Ok(snapshot),
+        &ctx,
+    );
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 4.,
+        intervals: 32,
+    };
+    worker.request_projection(moved.clone(), 512, Some(slab), true);
+    worker.request_projection(moved, 512, None, true);
+    assert!(
+        worker.take().is_none(),
+        "a sampling change must discard a queued preview even after returning"
+    );
 }
 
 #[test]

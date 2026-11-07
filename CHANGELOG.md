@@ -37,7 +37,8 @@ for controls and limits.
 ### Changed
 
 - Linked MPR and oblique views keep the selected detail and slab sampling as you
-  navigate. When slab settings change, a status line describes the image still
+  navigate. Oblique views can show completed previews while you continue moving
+  the plane. When slab settings change, a status line describes the image still
   shown while the new view loads. Supported scalar views use the GPU, with a CPU
   fallback; some slab views can update faster on the CPU.
 - Label and supplied-mask overlays stay visible on unchanged linked planes while
@@ -64,7 +65,8 @@ for controls and limits.
   the displayed image.
 - Label exports require a `.nii` filename, matching the uncompressed file format.
 - Changing slab settings during linked MPR or oblique navigation could show an
-  outdated image or keep an old calculation running.
+  outdated preview or keep an old calculation running, including when switching
+  back to an earlier setting.
 - A quick linked MPR slice slider drag could leave the slice unchanged.
 - An oblique setup error could disappear, leaving the view waiting. Errors from
   older MPR or oblique requests no longer interrupt the current view.

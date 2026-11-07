@@ -130,7 +130,13 @@ impl Worker {
                         if worker.cancelled.load(Ordering::Acquire) {
                             return;
                         }
-                        publish_preview(&worker, request.generation, result, &ctx);
+                        publish_preview(
+                            &worker,
+                            request.generation,
+                            request.sampling_generation,
+                            result,
+                            &ctx,
+                        );
                         let mut work = lock(&worker.work);
                         loop {
                             if worker.cancelled.load(Ordering::Acquire) {
@@ -205,8 +211,15 @@ impl Worker {
             self.shared
                 .sampling_generation
                 .fetch_add(1, Ordering::AcqRel);
+            if work.result.as_ref().is_some_and(Result::is_ok) {
+                work.result = None;
+            }
         }
-        work.result = work.terminal_error.as_ref().map(|error| Err(error.clone()));
+        if let Some(error) = &work.terminal_error {
+            work.result = Some(Err(error.clone()));
+        } else if work.result.as_ref().is_some_and(Result::is_err) {
+            work.result = None;
+        }
         work.latest_sampling = Some((side, slab));
         work.request = Some(Request {
             plane,
@@ -256,11 +269,13 @@ fn unavailable(worker: &Shared, error: String, ctx: &egui::Context) {
 fn publish_preview(
     worker: &Shared,
     generation: u64,
+    sampling_generation: u64,
     result: Result<Snapshot, GeometryError>,
     ctx: &egui::Context,
 ) {
     let mut work = lock(&worker.work);
     if worker.cancelled.load(Ordering::Acquire)
+        || worker.sampling_generation.load(Ordering::Acquire) != sampling_generation
         || matches!(result, Err(GeometryError::Cancelled))
         || (result.is_err() && worker.generation.load(Ordering::Acquire) != generation)
     {

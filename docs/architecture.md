@@ -1917,8 +1917,11 @@ measurements and exact-view sharing until input is quiet; settling reuses the sa
 completed pixels. A coherent set completes despite newer pointer input, preventing
 starvation, while study closure or a backend-mode change cancels it. A newly
 completed preview for an older position is accepted only if its requested side
-and slab settings still match the latest request. Oblique previews follow the
-same sampling rule. The idle worker waits on a condition variable.
+and slab settings still match the latest request, and its sampling epoch has not
+changed. Returning to earlier settings does not revive a queued or late preview
+from before an intervening sampling change. Oblique previews follow the same
+sampling rule and retain an already-completed compatible preview when a newer
+plane position is requested. The idle worker waits on a condition variable.
 Linked-plane sliders also recover a primary drag whose press, movement and
 release all arrive in one UI pass. The press must be on the visible rail, and
 both endpoints must be on its active layer. A release outside the rail is used

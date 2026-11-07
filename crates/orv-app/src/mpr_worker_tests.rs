@@ -386,6 +386,60 @@ fn stale_preview_cannot_replace_a_different_projection_or_resolution() {
     assert!(worker.take().unwrap().unwrap().preview);
 }
 
+fn sampling_round_trip_rejects_old_preview(publish_before_change: bool) {
+    use orv_core::slab::{Slab, SlabProjection};
+
+    let mut producer = MprWorker::start(frames(), egui::Context::default());
+    let mut snapshot = wait(&producer).unwrap();
+    let handle = producer.worker.take().unwrap();
+    drop(producer);
+    handle.join().unwrap();
+    let worker = MprWorker {
+        shared: Arc::new(Shared::default()),
+        worker: None,
+    };
+    let ctx = egui::Context::default();
+    worker.request_slab(snapshot.point, 512, None);
+    let old = lock(&worker.shared.work).latest.clone().unwrap();
+    snapshot.preview = true;
+    snapshot.generation = old.generation;
+    if publish_before_change {
+        publish(&worker.shared, &old, true, Ok(snapshot.clone()), &ctx);
+    }
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 4.,
+        intervals: 32,
+    };
+    worker.request_slab(snapshot.point, 512, Some(slab));
+    worker.request_slab([1., 2., 6.], 512, None);
+    if !publish_before_change {
+        publish(&worker.shared, &old, true, Ok(snapshot.clone()), &ctx);
+    }
+    assert!(
+        worker.take().is_none(),
+        "a preview from an earlier sampling epoch survived the round trip"
+    );
+    let current = lock(&worker.shared.work).latest.clone().unwrap();
+    snapshot.generation = current.generation;
+    worker.request_slab([1., 2., 7.], 512, None);
+    publish(&worker.shared, &current, true, Ok(snapshot), &ctx);
+    assert!(
+        worker.take().unwrap().unwrap().preview,
+        "position-only movement must not starve a compatible preview"
+    );
+}
+
+#[test]
+fn sampling_round_trip_discards_an_already_queued_preview() {
+    sampling_round_trip_rejects_old_preview(true);
+}
+
+#[test]
+fn sampling_round_trip_rejects_a_late_preview() {
+    sampling_round_trip_rejects_old_preview(false);
+}
+
 #[test]
 fn preview_sampling_changes_cancel_work_without_starving_navigation() {
     use orv_core::slab::{Slab, SlabProjection};

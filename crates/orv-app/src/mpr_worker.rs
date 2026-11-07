@@ -266,6 +266,9 @@ impl MprWorker {
             self.shared
                 .sampling_generation
                 .fetch_add(1, Ordering::Relaxed);
+            if work.result.as_ref().is_some_and(Result::is_ok) {
+                work.result = None;
+            }
         }
         if let Some(error) = &work.terminal_error {
             work.result = Some(Err(error.clone()));
@@ -339,6 +342,8 @@ fn publish(
     if worker.cancelled.load(Ordering::Relaxed)
         || worker.suspended.load(Ordering::Relaxed)
         || worker.canonical.load(Ordering::Relaxed) != request.canonical
+        || (preview
+            && worker.sampling_generation.load(Ordering::Relaxed) != request.sampling_generation)
         || (!preview && worker.generation.load(Ordering::Relaxed) != request.generation)
         || (result.is_err() && worker.generation.load(Ordering::Relaxed) != request.generation)
         || matches!(result, Err(GeometryError::Cancelled))
