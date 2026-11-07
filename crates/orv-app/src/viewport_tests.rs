@@ -58,6 +58,133 @@ fn browsing_reverses_without_accumulated_overscroll_at_either_end() {
     );
 }
 
+#[test]
+fn mouse_wheel_can_browse_after_zoom_and_an_idle_gap() {
+    let ctx = egui::Context::default();
+    let mut view = ViewState {
+        slice: 24,
+        ..Default::default()
+    };
+    let mut scroll = 0.;
+    let mut frame = |time, tool, wheel| {
+        let mut events = vec![Event::PointerMoved(Pos2::new(200., 200.))];
+        if let Some(wheel) = wheel {
+            events.push(Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0., wheel),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            });
+        }
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(500.))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                let (_, response) =
+                    ui.allocate_exact_size(Vec2::splat(400.), egui::Sense::click_and_drag());
+                interact(ui, &response, &mut view, tool, 48, &mut scroll);
+            },
+        );
+        output.textures_delta.clear();
+    };
+    frame(0., Tool::Zoom, None);
+    frame(0.01, Tool::Zoom, Some(-5.));
+    // A user switches tools immediately, then the UI sleeps until a new wheel
+    // event arrives. Mouse wheels need not send an explicit End event.
+    frame(0.02, Tool::Browse, None);
+    frame(1., Tool::Browse, Some(-5.));
+    frame(1.01, Tool::Browse, Some(-5.));
+    frame(1.02, Tool::Browse, Some(-5.));
+    frame(1.03, Tool::Browse, Some(-5.));
+    frame(1.04, Tool::Browse, Some(-5.));
+    assert!(view.zoom < 1.);
+    assert_eq!(
+        view.slice, 25,
+        "a new wheel gesture must browse after zoom ends"
+    );
+}
+
+#[test]
+fn paused_touch_zoom_retains_ownership_until_the_touch_ends() {
+    let ctx = egui::Context::default();
+    let mut views = [
+        ViewState {
+            slice: 24,
+            ..Default::default()
+        },
+        ViewState {
+            slice: 24,
+            ..Default::default()
+        },
+    ];
+    let mut scroll = [0.; 2];
+    let mut frame = |time, pointer, extra: Vec<Event>| {
+        let mut events = vec![Event::PointerMoved(pointer)];
+        events.extend(extra);
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(500.))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                ui.horizontal(|ui| {
+                    for index in 0..2 {
+                        let (_, response) = ui.allocate_exact_size(
+                            Vec2::new(220., 400.),
+                            egui::Sense::click_and_drag(),
+                        );
+                        interact(
+                            ui,
+                            &response,
+                            &mut views[index],
+                            Tool::Browse,
+                            48,
+                            &mut scroll[index],
+                        );
+                    }
+                });
+            },
+        );
+        output.textures_delta.clear();
+    };
+    let wheel = |phase, y| Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: Vec2::new(0., y),
+        phase,
+        modifiers: Modifiers::NONE,
+    };
+    let first = Pos2::new(80., 100.);
+    let second = Pos2::new(320., 100.);
+    frame(0., first, vec![]);
+    frame(
+        0.01,
+        first,
+        vec![
+            wheel(egui::TouchPhase::Start, 0.),
+            wheel(egui::TouchPhase::Move, -5.),
+            Event::Zoom(1.2),
+        ],
+    );
+    frame(1., second, vec![wheel(egui::TouchPhase::Move, -40.)]);
+    frame(1.01, second, vec![wheel(egui::TouchPhase::End, 0.)]);
+    for index in 0..5 {
+        frame(
+            1.02 + f64::from(index) * 0.01,
+            second,
+            vec![wheel(egui::TouchPhase::Move, -5.)],
+        );
+    }
+    assert!((views[0].zoom - 1.2).abs() < 0.001);
+    assert_eq!(views[0].slice, 24);
+    assert_eq!(views[1].slice, 25, "only the new wheel gesture may browse");
+}
+
 fn input_frame(ctx: &egui::Context, view: &mut ViewState, tool: Tool, events: Vec<Event>) {
     let mut output = ctx.run_ui(
         RawInput {

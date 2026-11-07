@@ -163,11 +163,9 @@ pub fn interact(
     scroll: &mut f32,
 ) {
     let rect = response.rect;
-    let suppression_id = egui::Id::new("orv-viewport-zoom-owns-scroll-sequence");
-    if !ui.input(|input| input.is_scrolling()) {
-        ui.ctx()
-            .data_mut(|data| data.remove::<egui::Id>(suppression_id));
-    }
+    let suppression_id =
+        egui::Id::new("orv-viewport-zoom-owns-scroll-sequence").with(ui.ctx().viewport_id());
+    let mut ownership = zoom_scroll_ownership(ui, suppression_id);
     if response.hovered() {
         let (wheel, zoom, modifiers) = ui.input_mut(|i| {
             let input = (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers);
@@ -175,16 +173,14 @@ pub fn interact(
             input
         });
         let zoom_gesture = (zoom - 1.0).abs() > f32::EPSILON || modifiers.command || modifiers.ctrl;
-        let owner = ui.ctx().data_mut(|data| {
-            let mut owner = data.get_temp::<egui::Id>(suppression_id);
-            if owner.is_none()
-                && (zoom_gesture || (tool == Tool::Zoom && wheel != egui::Vec2::ZERO))
-            {
-                owner = Some(response.id);
-                data.insert_temp(suppression_id, response.id);
-            }
-            owner
-        });
+        if ownership.owner.is_none()
+            && (zoom_gesture || (tool == Tool::Zoom && wheel != egui::Vec2::ZERO))
+        {
+            ownership.owner = Some(response.id);
+            ui.ctx()
+                .data_mut(|data| data.insert_temp(suppression_id, ownership));
+        }
+        let owner = ownership.owner;
         // Egui smooths wheel input into later frames, even if the pointer
         // moves to another pane before the zoom sequence ends.
         if owner.is_none_or(|owner| owner == response.id) {
@@ -217,6 +213,66 @@ pub fn interact(
         view.zoom = 1.0;
         view.pan = [0.0, 0.0];
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct ZoomScrollOwnership {
+    owner: Option<egui::Id>,
+    last_wheel: Option<f64>,
+    touching: bool,
+    observed_pass: Option<u64>,
+}
+
+fn zoom_scroll_ownership(ui: &egui::Ui, id: egui::Id) -> ZoomScrollOwnership {
+    let pass = ui.ctx().cumulative_pass_nr();
+    let mut state = ui
+        .ctx()
+        .data(|data| data.get_temp::<ZoomScrollOwnership>(id))
+        .unwrap_or_default();
+    if state.observed_pass != Some(pass) {
+        ui.input(|input| {
+            for event in &input.events {
+                match event {
+                    egui::Event::MouseWheel { phase, .. } => {
+                        match phase {
+                            egui::TouchPhase::Start => {
+                                state.owner = None;
+                                state.touching = true;
+                            }
+                            egui::TouchPhase::Move => {
+                                // Egui applies this same timeout to phase-less
+                                // wheel input, but a sleeping UI may not observe
+                                // the idle frame before the next event arrives.
+                                if !state.touching
+                                    && state
+                                        .last_wheel
+                                        .is_some_and(|last| input.time - last > 0.150)
+                                {
+                                    state.owner = None;
+                                }
+                            }
+                            egui::TouchPhase::End | egui::TouchPhase::Cancel => {
+                                state.owner = None;
+                                state.touching = false;
+                            }
+                        }
+                        state.last_wheel = Some(input.time);
+                    }
+                    egui::Event::WindowFocused(false) => {
+                        state = ZoomScrollOwnership::default();
+                    }
+                    _ => {}
+                }
+            }
+            if !input.is_scrolling() {
+                state.owner = None;
+                state.touching = false;
+            }
+        });
+        state.observed_pass = Some(pass);
+        ui.ctx().data_mut(|data| data.insert_temp(id, state));
+    }
+    state
 }
 
 fn adjust_contrast(window: &mut orv_core::WindowLevel, delta: egui::Vec2) {

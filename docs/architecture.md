@@ -2168,6 +2168,8 @@ canvas ownership, so activating a menu button cannot cancel a coordinate edit.
 Zoom gestures retain their originating canvas while egui's smoothed wheel input
 is active. Its remaining delta cannot zoom, pan or browse another pane, and the
 ownership clears when the scroll sequence ends, even with the pointer outside.
+For wheels without an end event, a new input after an idle gap starts a new
+sequence; an explicitly active touch keeps ownership until it ends or cancels.
 
 A sleeping worker loads and atomically replaces a bounded `controls.json` in the
 per-user application settings folder. Its versioned schema stores only the tool
