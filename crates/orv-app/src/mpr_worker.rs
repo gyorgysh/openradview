@@ -12,7 +12,7 @@ use std::sync::{
 
 pub const PLANES: [Plane; 3] = [Plane::Axial, Plane::Coronal, Plane::Sagittal];
 #[cfg(all(test, feature = "gpu-tests"))]
-mod gpu_tests;
+pub(crate) mod gpu_tests;
 #[cfg(test)]
 #[path = "mpr_worker_tests.rs"]
 pub(crate) mod tests;

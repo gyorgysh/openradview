@@ -808,6 +808,128 @@ mod layout_tests {
             }
         }
     }
+
+    #[cfg(feature = "gpu-tests")]
+    #[test]
+    fn held_slider_produces_intermediate_gpu_planes_at_requested_detail() {
+        use crate::mpr_worker::gpu_tests;
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use orv_core::slab::{Slab, SlabProjection};
+        use std::{
+            sync::Arc,
+            time::{Duration, Instant},
+        };
+
+        let (device, queue) = gpu_tests::device();
+        for slab in [
+            None,
+            Some(Slab {
+                projection: SlabProjection::Maximum,
+                thickness_mm: 4.,
+                intervals: 32,
+            }),
+        ] {
+            let ctx = egui::Context::default();
+            let mut session = MprSession::start(
+                gpu_tests::source(false),
+                WindowLevel::SOFT_TISSUE,
+                ctx.clone(),
+            );
+            session.offer_gpu(&device, &queue);
+            let wait = |session: &mut MprSession, preview: bool| {
+                let deadline = Instant::now() + Duration::from_secs(20);
+                loop {
+                    session.poll();
+                    assert!(session.error.is_none(), "{:?}", session.error);
+                    if let Some(snapshot) = &session.snapshot
+                        && snapshot.preview == preview
+                        && snapshot.generation == session.worker.generation()
+                        && snapshot.gpu_images.iter().all(Option::is_some)
+                    {
+                        return snapshot.clone();
+                    }
+                    assert!(Instant::now() < deadline, "GPU view did not complete");
+                    std::thread::yield_now();
+                }
+            };
+            let first = wait(&mut session, false);
+            if let Some(slab) = slab {
+                session.slab = Some(slab);
+                let point = session.target.take().unwrap();
+                session.request(&first.volume, point);
+                wait(&mut session, false);
+            }
+            let first = session.snapshot.as_ref().unwrap().clone();
+            let mut labels = crate::labels::LabelUi::default();
+            let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+            let mut frame = |session: &mut MprSession, events: Vec<Event>| {
+                session.poll();
+                let snapshot = session.snapshot.as_ref().unwrap().clone();
+                let mut slider_rect = Rect::NOTHING;
+                let mut output = ctx.run_ui(
+                    RawInput {
+                        screen_rect: Some(area),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        slider_rect = session
+                            .prepare_plane(ui, 0, area, &snapshot, &mut labels, 0)
+                            .slider_rect;
+                    },
+                );
+                output.textures_delta.clear();
+                slider_rect
+            };
+            let slider = frame(&mut session, vec![]);
+            let pos = |fraction: f32| {
+                Pos2::new(slider.left() + slider.width() * fraction, slider.center().y)
+            };
+            let start = pos(0.2);
+            frame(
+                &mut session,
+                vec![
+                    Event::PointerMoved(start),
+                    Event::PointerButton {
+                        pos: start,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            for fraction in [0.35, 0.5, 0.65, 0.8] {
+                frame(&mut session, vec![Event::PointerMoved(pos(fraction))]);
+                let requested = session.target.unwrap();
+                let moving = wait(&mut session, true);
+                assert_eq!(moving.point, requested);
+                assert_eq!(moving.reformat_side, 512);
+                assert!(moving.images[0].width > 128);
+                assert!(moving.images.iter().all(|image| image.slab == slab));
+                for index in [1, 2] {
+                    assert!(Arc::ptr_eq(&first.images[index], &moving.images[index]));
+                    assert!(Arc::ptr_eq(
+                        first.gpu_images[index].as_ref().unwrap(),
+                        moving.gpu_images[index].as_ref().unwrap(),
+                    ));
+                }
+                gpu_tests::verify(&moving);
+            }
+            let end = pos(0.8);
+            frame(
+                &mut session,
+                vec![Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+            let final_view = wait(&mut session, false);
+            assert_eq!(final_view.point, session.target.unwrap());
+            gpu_tests::verify(&final_view);
+        }
+    }
     #[test]
     fn short_workbench_uses_the_full_height_and_all_cells_remain_disjoint() {
         for size in [egui::vec2(608., 180.), egui::vec2(1000., 430.)] {

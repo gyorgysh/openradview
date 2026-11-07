@@ -6,7 +6,7 @@ use orv_core::{
 };
 use std::time::{Duration, Instant};
 
-fn device() -> (wgpu::Device, wgpu::Queue) {
+pub(crate) fn device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: orv_render::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -15,7 +15,7 @@ fn device() -> (wgpu::Device, wgpu::Queue) {
         .expect("Actual GPU required");
     pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter))).unwrap()
 }
-fn source(subnormal: bool) -> Vec<Arc<Frame>> {
+pub(crate) fn source(subnormal: bool) -> Vec<Arc<Frame>> {
     let template = tests::frames().remove(0);
     (0usize..16)
         .map(|z| {
@@ -61,7 +61,7 @@ fn settled(worker: &MprWorker, gpu: bool) -> MprSnapshot {
         );
     }
 }
-fn verify(snapshot: &MprSnapshot) {
+pub(crate) fn verify(snapshot: &MprSnapshot) {
     for (i, plane) in PLANES.into_iter().enumerate() {
         let expected = if let Some(slab) = snapshot.images[i].slab {
             snapshot
