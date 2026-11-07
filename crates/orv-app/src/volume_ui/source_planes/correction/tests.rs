@@ -11,8 +11,12 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_clip(None)
+    }
+    fn with_clip(clip: Option<orv_core::volume_view::PhysicalClip>) -> Self {
         let gpu = super::super::tests::source();
         let mut scene = super::super::tests::scene(gpu.clone());
+        scene.state.clip = clip;
         scene.pick = false;
         scene.erase = true;
         scene.planes = [None, None, None];
@@ -64,6 +68,62 @@ impl Fixture {
             brush: self.input.brush(1.5, &self.current),
         }
     }
+}
+
+#[test]
+fn clipped_surface_stamp_never_erases_cells_outside_the_retained_side() {
+    use orv_core::volume_view::PhysicalClip;
+
+    let uncut = Fixture::new();
+    let unrestricted = run(uncut.job(), &|| false).unwrap();
+    let mut excluded_without_cut = 0;
+    for z in 0..9 {
+        for y in 0..23 {
+            for x in 0..15 {
+                let voxel = [x, y, z];
+                if uncut.input.base.value(voxel)
+                    != unrestricted.proposal.proposal().preview().value(voxel)
+                {
+                    excluded_without_cut += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        excluded_without_cut > 0,
+        "the cut must affect the stamp footprint"
+    );
+    let f = Fixture::with_clip(Some(PhysicalClip {
+        minimum_mm: [15., -5., -5.],
+        maximum_mm: [35., 28., 13.],
+    }));
+    let output = run(f.job(), &|| false).unwrap();
+    let preview = output.proposal.proposal().preview();
+    assert!(output.proposal.summary().changed_voxels > 0);
+    let mut changed = 0;
+    for z in 0..9 {
+        for y in 0..23 {
+            for x in 0..31 {
+                let voxel = [x, y, z];
+                let before = f.input.base.value(voxel).unwrap();
+                let after = preview.value(voxel).unwrap();
+                if before != after {
+                    assert_eq!((before, after), (7, 0));
+                    assert!(x >= 15, "the stamp crossed the physical cut");
+                    changed += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(changed, output.proposal.summary().changed_voxels);
+    let mut later = f.current.clone();
+    later.scene.volume.clip.as_mut().unwrap().minimum_mm[0] = 16.;
+    assert!(!output.proposal.is_current(
+        &later,
+        &f.input.brush(1.5, &later),
+        output.proposal.proposal().points_mm(),
+    ));
+    assert_eq!(f.input.base.value([15, 11, 4]), Some(7));
 }
 fn frame(
     ctx: &egui::Context,
