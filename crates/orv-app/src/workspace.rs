@@ -1044,6 +1044,94 @@ impl Workspace {
 mod label_safety_tests {
     use super::*;
     use crate::dicom_acquisition_phantom as cine_phantom;
+
+    #[test]
+    fn switching_series_during_mpr_navigation_releases_old_volume_and_uses_new_source() {
+        use std::time::{Duration, Instant};
+
+        let ctx = egui::Context::default();
+        let mut study = orv_core::study::demo_study();
+        study.series[0].frames = crate::mpr_worker::tests::frames();
+        let mut second = orv_core::study::demo_study().series.remove(0);
+        second.number = 2;
+        second.frames = crate::mpr_worker::tests::frames()
+            .into_iter()
+            .map(|frame| {
+                let mut frame = (*frame).clone();
+                frame.pixels = frame.pixels.iter().map(|value| value + 1000.).collect();
+                frame.geometry.as_mut().unwrap().frame_of_reference = Some("second-source".into());
+                Arc::new(frame)
+            })
+            .collect();
+        let expected_source = second.frames[0].clone();
+        study.series.push(second);
+        let mut workspace = Workspace {
+            study: Some(Arc::new(study)),
+            ..Default::default()
+        };
+        workspace.set_mode(ViewMode::Mpr, &ctx);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let first_volume = loop {
+            let mpr = workspace.mpr.as_mut().unwrap();
+            mpr.poll();
+            if let Some(snapshot) = &mpr.snapshot {
+                break snapshot.volume.clone();
+            }
+            assert!(Instant::now() < deadline, "First source did not render");
+            std::thread::yield_now();
+        };
+        let old_volume = Arc::downgrade(&first_volume);
+        for i in 0..128 {
+            workspace
+                .mpr
+                .as_mut()
+                .unwrap()
+                .request(&first_volume, [1., 2., (i % 10) as f64]);
+        }
+        assert!(!workspace.mpr.as_ref().unwrap().is_settled());
+        drop(first_volume);
+        workspace.select(1);
+        assert!(workspace.mpr.is_none());
+        workspace.set_mode(ViewMode::Mpr, &ctx);
+        loop {
+            let mpr = workspace.mpr.as_mut().unwrap();
+            mpr.poll();
+            if let Some(snapshot) = &mpr.snapshot {
+                assert!(Arc::ptr_eq(&snapshot.volume.frames()[0], &expected_source));
+                assert!(snapshot.images.iter().all(|image| {
+                    image
+                        .pixels
+                        .iter()
+                        .filter(|pixel| pixel.is_finite())
+                        .all(|pixel| *pixel >= 1000.)
+                }));
+                assert!(
+                    snapshot
+                        .images
+                        .iter()
+                        .all(|image| image.pixels.iter().any(|pixel| pixel.is_finite()))
+                );
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Replacement source did not render"
+            );
+            std::thread::yield_now();
+        }
+        while old_volume.upgrade().is_some() {
+            assert!(Instant::now() < deadline, "Old worker retained its volume");
+            std::thread::yield_now();
+        }
+        let mpr = workspace.mpr.as_mut().unwrap();
+        mpr.poll();
+        assert!(Arc::ptr_eq(
+            &mpr.snapshot.as_ref().unwrap().volume.frames()[0],
+            &expected_source
+        ));
+        workspace.close_now();
+    }
+
     #[test]
     fn source_playback_is_opt_in_and_selection_or_close_releases_its_timing() {
         use orv_core::acquisition::CineMetadata;
