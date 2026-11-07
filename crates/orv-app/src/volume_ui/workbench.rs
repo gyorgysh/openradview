@@ -208,7 +208,7 @@ impl VolumeSession {
             Vec2::new(ui.available_width(), (ui.available_height() - 28.).max(32.)),
             egui::Sense::click_and_drag(),
         );
-        let shown = self.paint_viewport(ui, rect, &response, selection, Some(point), planes);
+        let painted = self.paint_viewport(ui, rect, &response, selection, Some(point), planes);
         if let (Some(view), Some(volume)) = (&mut self.plane_view, &self.volume) {
             view.sync_correction(
                 labels.surface_erase_base(selected, volume),
@@ -228,15 +228,20 @@ impl VolumeSession {
                 }
             }
         }
-        if shown.is_some() && (labels.physical_preview_visible() || self.cuts.active()) {
+        let preview = labels.physical_preview_visible();
+        let preview_in_3d = painted
+            .region
+            .as_ref()
+            .is_some_and(|region| labels.is_physical_preview_region(region));
+        if let Some(status) = workbench_status(
+            preview,
+            preview_in_3d,
+            self.cuts.active(),
+            painted.shown.is_some(),
+        ) {
             let painter = ui.painter_at(rect);
             let text = painter.layout_no_wrap(
-                match (labels.physical_preview_visible(), self.cuts.active()) {
-                    (true, true) => "PREVIEW ONLY · CUT",
-                    (true, false) => "PHYSICAL PREVIEW ONLY",
-                    _ => "LINKED CUT",
-                }
-                .into(),
+                status.into(),
                 egui::FontId::monospace(10.),
                 crate::theme::PAPER,
             );
@@ -252,7 +257,7 @@ impl VolumeSession {
             painter.galley(position, text, crate::theme::PAPER);
         }
         if self.cursor_visible
-            && let (Some(volume), Some((display, state, size))) = (&self.volume, shown)
+            && let (Some(volume), Some((display, state, size))) = (&self.volume, painted.shown)
             && let Ok(camera) = state
                 .camera
                 .frame(&display, f64::from(size[0]) / f64::from(size[1]))
@@ -263,6 +268,22 @@ impl VolumeSession {
             .as_mut()
             .and_then(source_planes::View::take_point)
             .or_else(|| self.regions.take_point())
+    }
+}
+
+fn workbench_status(
+    preview: bool,
+    preview_in_3d: bool,
+    cut: bool,
+    shown: bool,
+) -> Option<&'static str> {
+    match (preview, preview_in_3d, cut, shown) {
+        (true, true, true, _) => Some("PREVIEW ONLY · CUT"),
+        (true, true, false, _) => Some("PHYSICAL PREVIEW ONLY"),
+        (true, false, true, _) => Some("PREVIEW HIDDEN · CUT"),
+        (true, false, false, _) => Some("PREVIEW NOT IN 3D"),
+        (false, _, true, true) => Some("LINKED CUT"),
+        _ => None,
     }
 }
 
@@ -312,6 +333,35 @@ fn paint_cursor(
 mod tests {
     use super::*;
     use orv_core::{labels::Labels, study::demo_study, volume_view::Camera};
+
+    #[test]
+    fn preview_status_distinguishes_the_painted_region_from_a_hidden_proposal() {
+        assert_eq!(
+            workbench_status(true, true, false, true),
+            Some("PHYSICAL PREVIEW ONLY")
+        );
+        assert_eq!(
+            workbench_status(true, false, false, true),
+            Some("PREVIEW NOT IN 3D")
+        );
+        assert_eq!(
+            workbench_status(true, false, false, false),
+            Some("PREVIEW NOT IN 3D")
+        );
+        assert_eq!(
+            workbench_status(true, true, true, true),
+            Some("PREVIEW ONLY · CUT")
+        );
+        assert_eq!(
+            workbench_status(true, false, true, true),
+            Some("PREVIEW HIDDEN · CUT")
+        );
+        assert_eq!(
+            workbench_status(false, false, true, true),
+            Some("LINKED CUT")
+        );
+        assert_eq!(workbench_status(false, false, false, true), None);
+    }
 
     #[test]
     fn physical_editor_waits_for_a_matching_manual_map_before_selecting_it() {

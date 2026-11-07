@@ -27,6 +27,12 @@ type DisplayRange = (
     orv_core::volume_view::TransferFunction,
 );
 
+#[derive(Default)]
+struct ViewportPaint {
+    shown: Option<(ViewState, VolumeView, [u32; 2])>,
+    region: Option<crate::labels::RegionSelection>,
+}
+
 pub struct VolumeSession {
     upload: Option<Upload>,
     pending_frames: Option<crate::frame_source::FrameSource>,
@@ -256,10 +262,10 @@ impl VolumeSession {
         region_selection: Option<crate::labels::RegionSelection>,
         linked_point: Option<[f64; 3]>,
         linked_planes: Option<LinkedPlanes<'_>>,
-    ) -> Option<(ViewState, VolumeView, [u32; 2])> {
+    ) -> ViewportPaint {
         let (Some(volume), Some(state), Some(gpu)) = (&self.volume, &mut self.state, &self.gpu)
         else {
-            return None;
+            return ViewportPaint::default();
         };
         let (interacting, fit) = self.input.interact(ui, response, state, &mut self.display);
         self.needs_fit |= fit;
@@ -269,7 +275,7 @@ impl VolumeSession {
                 .fit_to_volume(volume, f64::from(rect.width() / rect.height()))
             {
                 self.error = Some(error.into());
-                return None;
+                return ViewportPaint::default();
             }
             self.needs_fit = false;
         }
@@ -295,7 +301,7 @@ impl VolumeSession {
                         sections::CutError::Empty => "Linked cut · empty",
                         sections::CutError::Unsupported(_) => "Linked cut unavailable",
                     });
-                    return None;
+                    return ViewportPaint::default();
                 }
             }
         }
@@ -315,7 +321,7 @@ impl VolumeSession {
                     }
                     source_planes::message(ui, rect, error);
                     ui.small("Planes · unavailable");
-                    return None;
+                    return ViewportPaint::default();
                 }
             };
             if self.regions.enabled() && region_selection.is_none() {
@@ -328,7 +334,7 @@ impl VolumeSession {
                     "Choose an available region or turn off Region in 3D",
                 );
                 ui.small("Planes · waiting for region");
-                return None;
+                return ViewportPaint::default();
             }
             let Some(style) = material else {
                 if let Some(view) = &mut self.plane_view {
@@ -336,7 +342,7 @@ impl VolumeSession {
                 }
                 source_planes::message(ui, rect, "Source planes require Material appearance");
                 ui.small("Planes · unavailable");
-                return None;
+                return ViewportPaint::default();
             };
             if self.plane_view.is_none()
                 && let Some((source, format)) = self.regions.gpu_context()
@@ -346,7 +352,7 @@ impl VolumeSession {
                     Err(error) => {
                         source_planes::message(ui, rect, &error);
                         ui.small("Planes · unavailable");
-                        return None;
+                        return ViewportPaint::default();
                     }
                 }
             }
@@ -365,15 +371,22 @@ impl VolumeSession {
                 surface_lighting,
                 size: callback::resolution(pixels, 2048.),
             };
-            return self.plane_view.as_mut().and_then(|view| {
-                view.show(
-                    ui,
-                    response,
-                    scene,
-                    interacting,
-                    linked_planes.is_some_and(|p| p.current),
-                )
-            });
+            return self
+                .plane_view
+                .as_mut()
+                .map_or_else(ViewportPaint::default, |view| {
+                    let shown = view.show(
+                        ui,
+                        response,
+                        scene,
+                        interacting,
+                        linked_planes.is_some_and(|p| p.current),
+                    );
+                    ViewportPaint {
+                        shown,
+                        region: view.painted_selection(),
+                    }
+                });
         }
         let region_mode = self.regions.enabled();
         let painted = if let (Some(selection), Some(style)) = (region_selection, material.as_ref())
@@ -463,7 +476,12 @@ impl VolumeSession {
                 );
             }
         }
-        shown
+        ViewportPaint {
+            shown,
+            region: painted
+                .then(|| self.regions.displayed_selection())
+                .flatten(),
+        }
     }
     fn show_controls(
         &mut self,

@@ -428,6 +428,13 @@ impl Regions {
             },
         ))
     }
+    pub(super) fn displayed_selection(&self) -> Option<RegionSelection> {
+        self.view
+            .as_ref()?
+            .front
+            .as_ref()
+            .map(|front| front.key.selection.clone())
+    }
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,

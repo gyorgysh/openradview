@@ -36,6 +36,7 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ### Fixed
 
+- The 3D view now indicates when a physical preview is not the region shown.
 - Opening physical editing no longer hides a supplied mask when there is no
   manual label map yet.
 - Physical-edit indicators are easier to read over bright images.

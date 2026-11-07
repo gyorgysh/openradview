@@ -64,6 +64,33 @@ fn private_stamp_is_shared_by_planes_and_3d_then_apply_and_history_retain_exact_
     let proposed = preview.stroke.preview().clone();
     assert!(state.physical.completed(preview, Some(&original)));
     assert!(state.physical_preview_visible());
+    let selected =
+        crate::labels::RegionSelection::new(crate::labels::RegionMap::Manual(proposed.clone()), 1)
+            .unwrap();
+    assert!(state.is_physical_preview_region(&selected));
+    let other_id =
+        crate::labels::RegionSelection::new(crate::labels::RegionMap::Manual(proposed.clone()), 2)
+            .unwrap();
+    assert!(!state.is_physical_preview_region(&other_id));
+    let applied =
+        crate::labels::RegionSelection::new(crate::labels::RegionMap::Manual(original.clone()), 1)
+            .unwrap();
+    assert!(!state.is_physical_preview_region(&applied));
+    let supplied = Arc::new(
+        orv_core::segments::Segments::from_binary(
+            source.clone(),
+            &[1],
+            &[(1, 0)],
+            &[0xff; 8],
+            None,
+            || false,
+        )
+        .unwrap(),
+    );
+    let supplied =
+        crate::labels::RegionSelection::new(crate::labels::RegionMap::Supplied(supplied), 1)
+            .unwrap();
+    assert!(!state.is_physical_preview_region(&supplied));
     assert!(Arc::ptr_eq(state.displayed_manual(&original), &proposed));
     assert!(Arc::ptr_eq(
         &state.region_maps(0, &source).manual.unwrap().unwrap(),
@@ -74,6 +101,7 @@ fn private_stamp_is_shared_by_planes_and_3d_then_apply_and_history_retain_exact_
     assert!(!state.dirty && state.undo.is_empty());
     assert!(state.illustration_masks(0).is_err());
     state.apply_physical();
+    assert!(!state.is_physical_preview_region(&selected));
     assert!(Arc::ptr_eq(state.current.as_ref().unwrap(), &proposed));
     assert!(state.dirty && state.undo.len() == 1);
     assert!(!state.physical_preview_visible());

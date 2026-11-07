@@ -47,6 +47,17 @@ pub(crate) struct RegionMaps {
     pub supplied: Result<Option<Arc<Segments>>, &'static str>,
 }
 impl LabelUi {
+    pub(crate) fn is_physical_preview_region(&self, selection: &RegionSelection) -> bool {
+        let Some(preview) = self
+            .current
+            .as_ref()
+            .and_then(|map| self.physical.displayed(map))
+        else {
+            return false;
+        };
+        selection.number == u16::from(self.label)
+            && matches!(&selection.map, RegionMap::Manual(map) if Arc::ptr_eq(map, preview))
+    }
     pub(crate) fn region_maps(&self, selected: usize, source: &Arc<Volume>) -> RegionMaps {
         let manual = if self.series != selected {
             Ok(None)

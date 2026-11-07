@@ -552,6 +552,12 @@ impl View {
             None
         }
     }
+    pub(super) fn painted_selection(&self) -> Option<RegionSelection> {
+        if self.error.is_some() {
+            return None;
+        }
+        self.front.as_ref()?.scene.selection.clone()
+    }
     pub fn sync_correction(
         &mut self,
         input: Option<(Arc<orv_core::labels::Labels>, u8)>,
