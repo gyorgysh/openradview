@@ -233,7 +233,7 @@ impl MprSession {
 }
 
 // A complete drag can arrive between two UI passes. In that case the slider
-// may never acquire the pointer; only recover gestures contained by its rail.
+// may never acquire the pointer. The press must begin on its visible rail.
 fn quick_slider_release(ui: &egui::Ui, slider: &egui::Response, track_width: f32) -> Option<f32> {
     use egui::{Event, PointerButton};
 
@@ -244,7 +244,10 @@ fn quick_slider_release(ui: &egui::Ui, slider: &egui::Response, track_width: f32
         slider.rect.min,
         Vec2::new(track_width, slider.rect.height()),
     );
-    let (start, end) = ui.input(|input| {
+    let (start, end, definitely_dragged) = ui.input(|input| {
+        if input.key_pressed(egui::Key::Escape) {
+            return None;
+        }
         let mut start = None;
         let mut end = None;
         let mut moved = false;
@@ -271,12 +274,11 @@ fn quick_slider_release(ui: &egui::Ui, slider: &egui::Response, track_width: f32
                 _ => {}
             }
         }
-        moved.then_some((start?, end?))
+        moved.then_some((start?, end?, !input.pointer.could_any_button_be_click()))
     })?;
     if !track.contains(start)
-        || !track.contains(end)
+        || (!track.contains(end) && !definitely_dragged)
         || !ui.clip_rect().contains(start)
-        || !ui.clip_rect().contains(end)
         || ui.ctx().layer_id_at(start) != Some(slider.layer_id)
         || ui.ctx().layer_id_at(end) != Some(slider.layer_id)
     {

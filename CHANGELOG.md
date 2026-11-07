@@ -65,7 +65,7 @@ for controls and limits.
 - Label exports require a `.nii` filename, matching the uncompressed file format.
 - Changing slab settings during linked MPR or oblique navigation could show an
   outdated image or keep an old calculation running.
-- A quick drag within a linked MPR slice slider could leave the slice unchanged.
+- A quick linked MPR slice slider drag could leave the slice unchanged.
 - An oblique setup error could disappear, leaving the view waiting. Errors from
   older MPR or oblique requests no longer interrupt the current view.
 - Short 3D camera drags could lose the last movement on release.

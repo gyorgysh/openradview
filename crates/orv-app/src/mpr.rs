@@ -777,6 +777,256 @@ mod layout_tests {
             );
             assert_eq!(session.target.unwrap()[2], after_drag);
         }
+
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(end),
+                Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerMoved(start),
+                Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        assert_eq!(
+            session.target.unwrap()[2],
+            after_drag,
+            "Escape cancels the drag"
+        );
+
+        let release_above = Pos2::new(start.x, slider.top() - 25.);
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(end),
+                Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerMoved(release_above),
+                Event::PointerButton {
+                    pos: release_above,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        let after_release = session.target.unwrap()[2];
+        assert!(
+            after_release < initial,
+            "release above the rail did not update the selected position"
+        );
+
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        let held_release = Pos2::new(end.x, slider.top() - 25.);
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(held_release),
+                Event::PointerButton {
+                    pos: held_release,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        assert!(
+            session.target.unwrap()[2] > initial,
+            "last movement of a held drag was lost on release"
+        );
+    }
+
+    #[test]
+    fn quick_slider_drag_across_panes_only_moves_its_originating_plane() {
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use std::time::{Duration, Instant};
+
+        let ctx = egui::Context::default();
+        let mut session = MprSession::start(
+            crate::mpr_worker::tests::frames(),
+            WindowLevel::SOFT_TISSUE,
+            ctx.clone(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !session.is_settled() {
+            session.poll();
+            assert!(Instant::now() < deadline, "initial view did not settle");
+            std::thread::yield_now();
+        }
+        let mut labels = crate::labels::LabelUi::default();
+        let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(1000., 500.));
+        let panes = [
+            Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.)),
+            Rect::from_min_size(egui::pos2(500., 0.), egui::vec2(500., 500.)),
+        ];
+        let mut frame = |session: &mut MprSession, events: Vec<Event>| {
+            let snapshot = session.snapshot.as_ref().unwrap().clone();
+            let mut sliders = [Rect::NOTHING; 2];
+            let mut other_control_clicked = false;
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(area),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    for (index, pane) in panes.into_iter().enumerate() {
+                        sliders[index] = session
+                            .prepare_plane(ui, index, pane, &snapshot, &mut labels, 0)
+                            .slider_rect;
+                    }
+                    let other = Rect::from_center_size(sliders[1].center(), egui::vec2(40., 20.));
+                    other_control_clicked = ui.put(other, egui::Button::new("Other")).clicked();
+                },
+            );
+            output.textures_delta.clear();
+            (sliders, other_control_clicked)
+        };
+        let (sliders, _) = frame(&mut session, vec![]);
+        let start = sliders[0].center();
+        let end = sliders[1].center();
+        let initial = session.target.unwrap();
+        let [_, max] = session.snapshot.as_ref().unwrap().volume.bounds();
+        let (_, other_control_clicked) = frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerMoved(end),
+                Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        let after = session.target.unwrap();
+        assert!(!other_control_clicked, "release activated another control");
+        assert_eq!(after[2], max[2]);
+        assert_eq!(after[1], initial[1]);
+        assert_eq!(after[0], initial[0]);
+    }
+
+    #[test]
+    fn quick_slider_drag_does_not_cross_a_foreground_popup() {
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use std::time::{Duration, Instant};
+
+        let ctx = egui::Context::default();
+        let mut session = MprSession::start(
+            crate::mpr_worker::tests::frames(),
+            WindowLevel::SOFT_TISSUE,
+            ctx.clone(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !session.is_settled() {
+            session.poll();
+            assert!(Instant::now() < deadline, "initial view did not settle");
+            std::thread::yield_now();
+        }
+        let mut labels = crate::labels::LabelUi::default();
+        let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+        let mut popup = None;
+        let mut frame = |session: &mut MprSession, events: Vec<Event>, show_popup: bool| {
+            let snapshot = session.snapshot.as_ref().unwrap().clone();
+            let mut slider = Rect::NOTHING;
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(area),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    slider = session
+                        .prepare_plane(ui, 0, area, &snapshot, &mut labels, 0)
+                        .slider_rect;
+                    if show_popup {
+                        let popup_rect = popup.unwrap_or_else(|| {
+                            Rect::from_center_size(slider.center(), egui::vec2(60., 60.))
+                        });
+                        popup = Some(popup_rect);
+                        egui::Area::new(egui::Id::new("test_popup"))
+                            .order(egui::Order::Foreground)
+                            .fixed_pos(popup_rect.min)
+                            .show(&ctx, |ui| {
+                                ui.allocate_exact_size(popup_rect.size(), egui::Sense::click());
+                            });
+                    }
+                },
+            );
+            output.textures_delta.clear();
+            slider
+        };
+        let slider = frame(&mut session, vec![], true);
+        frame(&mut session, vec![], true);
+        let on_popup = slider.center();
+        let on_slider = Pos2::new(slider.left() + slider.width() * 0.15, slider.center().y);
+        assert_eq!(
+            ctx.layer_id_at(on_popup).unwrap().order,
+            egui::Order::Foreground
+        );
+        assert_ne!(ctx.layer_id_at(on_popup), ctx.layer_id_at(on_slider));
+        let initial = session.target.unwrap();
+        for (press, release) in [(on_slider, on_popup), (on_popup, on_slider)] {
+            frame(
+                &mut session,
+                vec![
+                    Event::PointerMoved(press),
+                    Event::PointerButton {
+                        pos: press,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                    Event::PointerMoved(release),
+                    Event::PointerButton {
+                        pos: release,
+                        button: PointerButton::Primary,
+                        pressed: false,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+                true,
+            );
+            assert_eq!(session.target.unwrap(), initial);
+        }
     }
 
     #[test]
