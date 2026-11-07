@@ -72,6 +72,12 @@ Inspect correction counts and sample counts before comparing timings. Reported
 application admission is neither peak driver memory nor RSS. Desktop linked MPR
 uses completed GPU planes where supported, with full-detail CPU fallback; these
 benchmark numbers do not measure native input or presentation.
+Pass `-- --mpr-33` to run the focused one-changing-plane, 33-sample maximum and
+mean slab cases on both generated sources, with 12 measured samples per case.
+The CPU fingerprint covers all output float bits in sample order and can be
+compared between builds with the same workload and toolchain.
+Use `-- --mpr-33-crossing` to exercise that workload across a generated missing
+source plane.
 Material cases use an explicit four-knot optical mapping and headlight, with
 512-side interactive and 1024/2048-side refined complete compute. They retain
 linear float16 output and exclude final presentation. The 2048 case has only

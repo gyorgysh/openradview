@@ -32,6 +32,7 @@ Versions follow [Semantic Versioning](https://semver.org).
 - Linked MPR and oblique views retain their requested image detail and slab
   sampling while moving. Supported scalar views use GPU resampling, with a CPU
   fallback. Unchanged linked planes reuse their completed images.
+- CPU slab projections can update faster for volumes with missing samples.
 - Fractional segmentation imports retain their original values and whether they
   represent probability or occupancy. Overlays and counts use half the declared
   maximum as the membership threshold.

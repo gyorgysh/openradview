@@ -19,11 +19,16 @@ use std::{
 };
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
-fn grids(volume: &Volume, index: usize, slab: Option<Slab>) -> Result<[ReformatGrid; 3]> {
+fn grids(
+    volume: &Volume,
+    index: usize,
+    slab: Option<Slab>,
+    start_z: f64,
+) -> Result<[ReformatGrid; 3]> {
     let point = volume.voxel_to_world([
         200.25 + (index % 13) as f64 * 0.37,
         240.125 + (index % 11) as f64 * 0.31,
-        58.75 + (index % 7) as f64 * 0.23,
+        start_z + (index % 7) as f64 * 0.23,
     ]);
     [Plane::Axial, Plane::Coronal, Plane::Sagittal]
         .map(|plane| {
@@ -57,9 +62,13 @@ fn fence(device: &wgpu::Device) -> Result<()> {
     Ok(())
 }
 fn main() -> Result<()> {
-    if std::env::args().len() != 1 {
-        return Err("This generated benchmark accepts no arguments".into());
-    }
+    let arguments: Vec<_> = std::env::args().skip(1).collect();
+    let (mpr_33, crossing) = match arguments.as_slice() {
+        [] => (false, false),
+        [argument] if argument == "--mpr-33" => (true, false),
+        [argument] if argument == "--mpr-33-crossing" => (true, true),
+        _ => return Err("Use no arguments, --mpr-33 or --mpr-33-crossing".into()),
+    };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: orv_render::configured_backends()?,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -69,18 +78,23 @@ fn main() -> Result<()> {
     let (device, queue) =
         pollster::block_on(adapter.request_device(&orv_render::device_descriptor(&adapter)))?;
     let mut cases = Vec::new();
-    for kind in ["sparse", "missing"] {
+    for &kind in if crossing {
+        &["missing"][..]
+    } else {
+        &["sparse", "missing"][..]
+    } {
+        let start_z = if crossing { 51. } else { 58.75 };
         let volume = optical::source(kind)?;
         let start = Instant::now();
         let source = GpuVolumeSource::new(&device, &queue, volume.clone(), || false)?;
         let source_ms = start.elapsed().as_secs_f64() * 1000.;
         let mut renderer = GpuReslicer::new(source)?;
-        let first = grids(&volume, 0, None)?;
+        let first = grids(&volume, 0, None, start_z)?;
         let start = Instant::now();
         drop(renderer.render_frames(first.each_ref().map(Some), || false)?);
         fence(&device)?;
         let pipeline_first_frame_ms = start.elapsed().as_secs_f64() * 1000.;
-        for (name, slab, planes, samples) in [
+        let standard = [
             ("thin_three", None, 3, 12),
             ("thin_one_changed", None, 1, 12),
             (
@@ -103,8 +117,35 @@ fn main() -> Result<()> {
                 3,
                 3,
             ),
-        ] {
-            let warm = grids(&volume, 0, slab)?;
+        ];
+        let mpr_cases = [
+            (
+                "maximum_33_one_changed",
+                Some(Slab {
+                    projection: SlabProjection::Maximum,
+                    thickness_mm: 10.,
+                    intervals: 32,
+                }),
+                1,
+                12,
+            ),
+            (
+                "mean_33_one_changed",
+                Some(Slab {
+                    projection: SlabProjection::Mean,
+                    thickness_mm: 10.,
+                    intervals: 32,
+                }),
+                1,
+                12,
+            ),
+        ];
+        for &(name, slab, planes, samples) in if mpr_33 {
+            &mpr_cases[..]
+        } else {
+            &standard[..]
+        } {
+            let warm = grids(&volume, 0, slab, start_z)?;
             let mut cpu_front = cpu(&volume, &warm, planes)?;
             let mut gpu_front = renderer.render_frames(
                 std::array::from_fn(|i| (i < planes).then_some(&warm[i])),
@@ -113,16 +154,17 @@ fn main() -> Result<()> {
             let (mut cpu_times, mut gpu_times) = (Vec::new(), Vec::new());
             let (mut corrections, mut pixels, mut readback, mut uploads) =
                 (0usize, 0usize, 0u64, 0u64);
+            let mut cpu_fingerprint = 0xcbf29ce484222325u64;
             for i in 0..samples {
                 let run_cpu = |front: &mut Vec<Arc<Frame>>| -> Result<f64> {
                     let start = Instant::now();
-                    let grids = grids(&volume, i + 1, slab)?;
+                    let grids = grids(&volume, i + 1, slab, start_z)?;
                     *front = cpu(&volume, &grids, planes)?;
                     Ok(start.elapsed().as_secs_f64() * 1000.)
                 };
                 let mut run_gpu = |front: &mut _| -> Result<f64> {
                     let start = Instant::now();
-                    let grids = grids(&volume, i + 1, slab)?;
+                    let grids = grids(&volume, i + 1, slab, start_z)?;
                     *front = renderer.render_frames(
                         std::array::from_fn(|i| (i < planes).then_some(&grids[i])),
                         || false,
@@ -150,6 +192,8 @@ fn main() -> Result<()> {
                     }
                     pixels += a.pixels.len();
                     for (&a, &b) in a.pixels.iter().zip(b.frame().pixels.iter()) {
+                        cpu_fingerprint =
+                            (cpu_fingerprint ^ u64::from(a.to_bits())).wrapping_mul(0x100000001b3);
                         if a.is_finite() != b.is_finite()
                             || (a.is_finite() && (a - b).abs() > 0.0002 * a.abs())
                         {
@@ -160,9 +204,10 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            cases.push(json!({"source":kind,"case":name,"requested_side":512,"planes":planes,
+            cases.push(json!({"source":kind,"case":name,"requested_side":512,"planes":planes,"generated_start_z":start_z,
                 "cpu":summary(cpu_times),"gpu_complete":summary(gpu_times),"corrected_pixels":corrections,
                 "output_pixels":pixels,"readback_bytes":readback,"correction_uploaded_bytes":uploads,
+                "cpu_fingerprint":format!("{cpu_fingerprint:016x}"),
                 "verified_every_sample":true,"source_upload_ms":source_ms,"pipeline_first_three_frames_ms":pipeline_first_frame_ms,
                 "app_cpu_admission_bytes_with_fronts":MemoryBudget::volumes().used(),
                 "app_gpu_admission_bytes_with_fronts":MemoryBudget::gpu().used()}));

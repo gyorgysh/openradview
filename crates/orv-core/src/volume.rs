@@ -488,6 +488,19 @@ impl Volume {
         let du = self.world_vector_to_voxel(mul(u, spacing[0]));
         let dv = self.world_vector_to_voxel(mul(v, spacing[1]));
         let normal = self.world_vector_to_voxel(cross(u, v));
+        // Grid validation caps slabs at 256 intervals. The displacement is
+        // identical for every pixel and keeps the reference arithmetic order.
+        let mut offsets = [[0.; 3]; 257];
+        if let Some(slab) = slab {
+            for (i, offset) in offsets
+                .iter_mut()
+                .take(usize::from(slab.intervals) + 1)
+                .enumerate()
+            {
+                let distance = slab.thickness_mm * (i as f64 / f64::from(slab.intervals) - 0.5);
+                *offset = mul(normal, distance);
+            }
+        }
         for y in 0..dimensions[1] {
             if cancel() {
                 return Err(GeometryError::Cancelled);
@@ -500,13 +513,15 @@ impl Volume {
                     // At most 257 finite f32 samples: an f64 sum cannot overflow
                     // and stays well inside f32 output precision.
                     let (mut sum, mut count) = (0f64, 0u32);
-                    for i in 0..=slab.intervals {
+                    for (i, offset) in offsets
+                        .iter()
+                        .take(usize::from(slab.intervals) + 1)
+                        .enumerate()
+                    {
                         if i % 16 == 0 && cancel() {
                             return Err(GeometryError::Cancelled);
                         }
-                        let distance =
-                            slab.thickness_mm * (f64::from(i) / f64::from(slab.intervals) - 0.5);
-                        if let Some(value) = self.sample_voxel(add(center, mul(normal, distance))) {
+                        if let Some(value) = self.sample_voxel(add(center, *offset)) {
                             sum += f64::from(value);
                             count += 1;
                             extreme = Some(extreme.map_or(value, |old| match slab.projection {
