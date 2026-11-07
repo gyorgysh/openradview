@@ -53,6 +53,8 @@ for controls and limits.
 
 - Rapid arrow-key presses could move fewer slices than requested in image,
   comparison, linked MPR and oblique views.
+- Moving the pointer to another pane during zoom could unexpectedly zoom, pan
+  or scroll slices in that pane as the gesture ended.
 - An automatic update check selected just before checks were switched off
   could still start after the preference changed.
 - If the first update preference cannot be saved, the viewer shows that checks

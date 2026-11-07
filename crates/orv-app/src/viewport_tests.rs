@@ -138,6 +138,126 @@ fn trackpad_navigation_never_browses_images_in_pan_or_zoom_tools() {
 }
 
 #[test]
+fn pinch_scroll_tail_does_not_browse_a_different_pane() {
+    cross_pane_zoom_tail(Tool::Browse, Tool::Browse, true, Modifiers::NONE);
+}
+
+#[test]
+fn zoom_tool_scroll_tail_does_not_browse_a_different_pane() {
+    cross_pane_zoom_tail(Tool::Zoom, Tool::Browse, false, Modifiers::NONE);
+}
+
+#[test]
+fn zoom_tool_scroll_tail_does_not_zoom_a_different_pane() {
+    cross_pane_zoom_tail(Tool::Zoom, Tool::Zoom, false, Modifiers::NONE);
+}
+
+#[test]
+fn modifier_wheel_tail_does_not_zoom_a_different_pane() {
+    cross_pane_zoom_tail(Tool::Browse, Tool::Browse, false, Modifiers::COMMAND);
+}
+
+#[test]
+fn pinch_scroll_tail_does_not_pan_a_different_pane() {
+    cross_pane_zoom_tail(Tool::Pan, Tool::Pan, true, Modifiers::NONE);
+}
+
+fn cross_pane_zoom_tail(first_tool: Tool, second_tool: Tool, pinch: bool, modifiers: Modifiers) {
+    let ctx = egui::Context::default();
+    let mut views = [
+        ViewState {
+            slice: 24,
+            ..Default::default()
+        },
+        ViewState {
+            slice: 24,
+            ..Default::default()
+        },
+    ];
+    let mut scroll = [0.; 2];
+    for frame in 0..41 {
+        if frame == 20 {
+            if pinch {
+                assert!((views[0].zoom - 1.2).abs() < 0.001);
+            } else {
+                assert!(views[0].zoom < 1.);
+            }
+            assert_eq!(views[0].slice, 24);
+            assert_eq!(views[1].slice, 24, "zoom tail moved another pane");
+            assert_eq!(views[1].zoom, 1., "zoom tail zoomed another pane");
+            assert_eq!(views[1].pan, [0.; 2], "zoom tail panned another pane");
+        }
+        let mut events = vec![Event::PointerMoved(if frame < 2 {
+            Pos2::new(80., 100.)
+        } else if frame == 20 {
+            Pos2::new(490., 450.)
+        } else {
+            Pos2::new(320., 100.)
+        })];
+        if frame == 1 {
+            events.push(Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0., -200.),
+                phase: egui::TouchPhase::Move,
+                modifiers,
+            });
+            if pinch {
+                events.push(Event::Zoom(1.2));
+            }
+        } else if frame == 20 {
+            events.push(Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::ZERO,
+                phase: egui::TouchPhase::End,
+                modifiers: Modifiers::NONE,
+            });
+        } else if frame == 21 {
+            events.push(Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0., -100.),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            });
+        }
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(500.))),
+                time: Some(frame as f64 / 60.),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                ui.horizontal(|ui| {
+                    for index in 0..2 {
+                        let (_, response) = ui.allocate_exact_size(
+                            Vec2::new(220., 400.),
+                            egui::Sense::click_and_drag(),
+                        );
+                        let tool = if index == 0 {
+                            first_tool
+                        } else if frame < 20 {
+                            second_tool
+                        } else {
+                            Tool::Browse
+                        };
+                        interact(
+                            ui,
+                            &response,
+                            &mut views[index],
+                            tool,
+                            48,
+                            &mut scroll[index],
+                        );
+                    }
+                });
+            },
+        );
+        output.textures_delta.clear();
+    }
+    assert!(views[1].slice > 24, "a new scroll did not browse the pane");
+}
+
+#[test]
 fn space_drag_temporarily_pans_from_contrast_and_crosshair_tools() {
     for tool in [Tool::Window, Tool::Crosshair, Tool::Distance, Tool::Zoom] {
         let ctx = egui::Context::default();

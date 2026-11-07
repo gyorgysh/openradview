@@ -163,43 +163,42 @@ pub fn interact(
     scroll: &mut f32,
 ) {
     let rect = response.rect;
+    let suppression_id = egui::Id::new("orv-viewport-zoom-owns-scroll-sequence");
+    if !ui.input(|input| input.is_scrolling()) {
+        ui.ctx()
+            .data_mut(|data| data.remove::<egui::Id>(suppression_id));
+    }
     if response.hovered() {
-        let (wheel, zoom, modifiers, scrolling) = ui.input_mut(|i| {
-            let input = (
-                i.smooth_scroll_delta,
-                i.zoom_delta(),
-                i.modifiers,
-                i.is_scrolling(),
-            );
+        let (wheel, zoom, modifiers) = ui.input_mut(|i| {
+            let input = (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers);
             i.smooth_scroll_delta = egui::Vec2::ZERO;
             input
         });
         let zoom_gesture = (zoom - 1.0).abs() > f32::EPSILON || modifiers.command || modifiers.ctrl;
-        let suppression_id = response.id.with("zoom-owns-scroll-sequence");
-        let suppress_browse = ui.ctx().data_mut(|d| {
-            let mut suppressed = d.get_temp::<bool>(suppression_id).unwrap_or(false);
-            if zoom_gesture {
-                suppressed = true;
-            } else if !scrolling {
-                suppressed = false;
+        let owner = ui.ctx().data_mut(|data| {
+            let mut owner = data.get_temp::<egui::Id>(suppression_id);
+            if owner.is_none()
+                && (zoom_gesture || (tool == Tool::Zoom && wheel != egui::Vec2::ZERO))
+            {
+                owner = Some(response.id);
+                data.insert_temp(suppression_id, response.id);
             }
-            d.insert_temp(suppression_id, suppressed);
-            suppressed
+            owner
         });
-        // Pinch and modifier-wheel may arrive in the same batch. Apply zoom
-        // once, and never turn a zoom gesture into a slice change as well.
-        if (zoom - 1.0).abs() > f32::EPSILON {
-            view.zoom = (view.zoom * zoom).clamp(0.05, 50.0);
-        } else if modifiers.command || modifiers.ctrl || tool == Tool::Zoom {
-            view.zoom = (view.zoom * (wheel.y * 0.004).exp()).clamp(0.05, 50.0);
-        } else if matches!(tool, Tool::Browse | Tool::Crosshair) {
-            // Egui smooths wheel input into later frames. A pinch must retain
-            // ownership until that scroll sequence ends, including its tail.
-            if !suppress_browse {
+        // Egui smooths wheel input into later frames, even if the pointer
+        // moves to another pane before the zoom sequence ends.
+        if owner.is_none_or(|owner| owner == response.id) {
+            // Pinch and modifier-wheel may arrive in the same batch. Apply
+            // zoom once, and never also turn it into a slice change.
+            if (zoom - 1.0).abs() > f32::EPSILON {
+                view.zoom = (view.zoom * zoom).clamp(0.05, 50.0);
+            } else if modifiers.command || modifiers.ctrl || tool == Tool::Zoom {
+                view.zoom = (view.zoom * (wheel.y * 0.004).exp()).clamp(0.05, 50.0);
+            } else if matches!(tool, Tool::Browse | Tool::Crosshair) && owner.is_none() {
                 advance_slice(view, scroll, -wheel.y, slice_count);
+            } else if owner.is_none() && !matches!(tool, Tool::Browse | Tool::Crosshair) {
+                pan(view, rect, wheel);
             }
-        } else {
-            pan(view, rect, wheel);
         }
     }
     if response.dragged() {
