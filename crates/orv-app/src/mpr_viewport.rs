@@ -15,6 +15,8 @@ pub(super) struct PlanePaint {
     response: egui::Response,
     image: Arc<Frame>,
     index: usize,
+    #[cfg(test)]
+    pub(super) slider_rect: Rect,
 }
 impl MprSession {
     pub(super) fn prepare_plane(
@@ -114,15 +116,20 @@ impl MprSession {
         }
         let mut coordinate = self.target.unwrap_or(snapshot.point)[axis];
         let mut changed = false;
+        #[cfg(test)]
+        let mut slider_rect = Rect::NOTHING;
         ui.horizontal(|ui| {
             ui.spacing_mut().slider_width = (ui.available_width() - 110.).max(30.);
-            changed = ui
-                .add(
-                    egui::Slider::new(&mut coordinate, min[axis]..=max[axis])
-                        .show_value(false)
-                        .text("mm"),
-                )
-                .changed();
+            let slider = ui.add(
+                egui::Slider::new(&mut coordinate, min[axis]..=max[axis])
+                    .show_value(false)
+                    .text("mm"),
+            );
+            changed = slider.changed();
+            #[cfg(test)]
+            {
+                slider_rect = slider.rect;
+            }
             changed |= ui
                 .add(
                     egui::DragValue::new(&mut coordinate)
@@ -142,6 +149,8 @@ impl MprSession {
             response,
             image,
             index,
+            #[cfg(test)]
+            slider_rect,
         }
     }
     pub(super) fn finish_plane(
@@ -156,6 +165,8 @@ impl MprSession {
             ref response,
             ref image,
             index,
+            #[cfg(test)]
+                slider_rect: _,
         } = paint;
         let view = &self.views[index];
         self.picture_sizes[index] = Some(crate::rendered::picture_size(

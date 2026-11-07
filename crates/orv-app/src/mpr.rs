@@ -684,6 +684,130 @@ fn workbench_rects(area: Rect) -> [Rect; 4] {
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+
+    #[test]
+    fn held_slider_moves_request_intermediate_full_detail_views() {
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use orv_core::slab::{Slab, SlabProjection};
+        use std::time::{Duration, Instant};
+
+        for slab in [
+            None,
+            Some(Slab {
+                projection: SlabProjection::Maximum,
+                thickness_mm: 4.,
+                intervals: 32,
+            }),
+        ] {
+            let ctx = egui::Context::default();
+            let mut session = MprSession::start(
+                crate::mpr_worker::tests::frames(),
+                WindowLevel::SOFT_TISSUE,
+                ctx.clone(),
+            );
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !session.is_settled() {
+                session.poll();
+                assert!(Instant::now() < deadline, "initial view did not settle");
+                std::thread::yield_now();
+            }
+            let volume = session.snapshot.as_ref().unwrap().volume.clone();
+            if slab.is_some() {
+                session.slab = slab;
+                let point = session.target.take().unwrap();
+                session.request(&volume, point);
+                while !session.is_settled() {
+                    session.poll();
+                    assert!(Instant::now() < deadline, "slab view did not settle");
+                    std::thread::yield_now();
+                }
+            }
+            let mut labels = crate::labels::LabelUi::default();
+            let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+            let mut frame = |session: &mut MprSession, events: Vec<Event>| {
+                session.poll();
+                let snapshot = session.snapshot.as_ref().unwrap().clone();
+                let mut slider_rect = Rect::NOTHING;
+                let mut output = ctx.run_ui(
+                    RawInput {
+                        screen_rect: Some(area),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        slider_rect = session
+                            .prepare_plane(ui, 0, area, &snapshot, &mut labels, 0)
+                            .slider_rect;
+                    },
+                );
+                output.textures_delta.clear();
+                slider_rect
+            };
+            let slider = frame(&mut session, vec![]);
+            let pos = |fraction: f32| {
+                Pos2::new(slider.left() + slider.width() * fraction, slider.center().y)
+            };
+            let start = pos(0.2);
+            frame(
+                &mut session,
+                vec![
+                    Event::PointerMoved(start),
+                    Event::PointerButton {
+                        pos: start,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            let mut requested = Vec::new();
+            for fraction in [0.35, 0.5, 0.65, 0.8] {
+                frame(&mut session, vec![Event::PointerMoved(pos(fraction))]);
+                requested.push(session.target.unwrap()[2]);
+            }
+            assert!(
+                requested.windows(2).all(|points| points[0] < points[1]),
+                "held input must request each intermediate position: {requested:?}"
+            );
+            let end = pos(0.8);
+            frame(
+                &mut session,
+                vec![Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+            let final_point = session.target.unwrap();
+            while !session.is_settled() {
+                session.poll();
+                assert!(Instant::now() < deadline, "final view did not settle");
+                std::thread::yield_now();
+            }
+            let result = session.snapshot.as_ref().unwrap();
+            assert_eq!(result.point, final_point);
+            assert_eq!(result.reformat_side, 512);
+            for (index, plane) in PLANES.into_iter().enumerate() {
+                let expected = if let Some(slab) = slab {
+                    volume
+                        .reformat_slab(
+                            &orv_core::oblique::ObliquePlane::anatomical(plane, final_point)
+                                .unwrap(),
+                            slab,
+                            512,
+                            || false,
+                        )
+                        .unwrap()
+                } else {
+                    volume.reformat(plane, final_point, 512, || false).unwrap()
+                };
+                assert_eq!(result.images[index].slab, slab);
+                assert_eq!(result.images[index].geometry, expected.geometry);
+                assert_eq!(result.images[index].pixels, expected.pixels);
+            }
+        }
+    }
     #[test]
     fn short_workbench_uses_the_full_height_and_all_cells_remain_disjoint() {
         for size in [egui::vec2(608., 180.), egui::vec2(1000., 430.)] {
