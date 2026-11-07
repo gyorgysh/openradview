@@ -70,6 +70,10 @@ impl MprSession {
         device: &eframe::egui_wgpu::wgpu::Device,
         queue: &eframe::egui_wgpu::wgpu::Queue,
     ) {
+        #[cfg(feature = "qa")]
+        if option_env!("ORV_QA_MPR_CPU") == Some("1") {
+            return;
+        }
         self.worker.offer_gpu(device, queue);
     }
     pub(super) fn active_index(&self) -> usize {

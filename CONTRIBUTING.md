@@ -31,6 +31,10 @@ thin/slab, GPU-backed planes and provisional/settled status. It records bounded
 timing and count aggregates, without positions, study data or paths. Coalesced
 requests can lack a sample. These timings stop before drawing and presentation;
 they are not input-to-photon latency or proof of motion quality.
+For a native CPU-resampling check, set `ORV_QA_MPR_CPU=1` when building with
+the `qa` feature. This withholds the GPU reslicer from linked MPR; native
+presentation still uses the configured graphics backend. The local QA report
+records whether this build-time switch was set. Omit it for normal QA builds.
 The manual Linux package job also runs OpenGL rendering under Mesa/Xvfb and a
 QA-only native startup/idle check. This opens no study, disables input controls
 and closes after four seconds. Its temporary aggregate contains timing/count

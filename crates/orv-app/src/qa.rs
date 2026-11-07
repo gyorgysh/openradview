@@ -197,6 +197,7 @@ impl Recorder {
         let output = json!({
             "schema_version":1,"version":env!("CARGO_PKG_VERSION"),
             "build":"developer qa feature; excluded from distribution",
+            "linked_mpr_cpu_forced":option_env!("ORV_QA_MPR_CPU") == Some("1"),
             "scope":"CPU framework dispatch to UI completion; not OS input-to-photon or GPU presentation latency",
             "native_window_smoke":self.native_smoke.then(|| json!({
                 "quiet_ui_passes":self.quiet_ui_passes,"quiet_after_seconds":1,"close_after_seconds":4,
