@@ -55,6 +55,7 @@ for controls and limits.
 - Connected-region and hint previews stop calculating when their source image
   or editing context changes.
 - A label export could be reported as cancelled even after the file was saved.
+- Quick source-image brush drags could leave no label or omit the end of a stroke.
 - Label exports require a `.nii` filename, matching the uncompressed file format.
 - Changing slab settings during linked MPR or oblique navigation could show an
   outdated image or keep an old calculation running.

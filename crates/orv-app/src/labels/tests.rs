@@ -113,6 +113,168 @@ fn primary_click_paints_on_source_grid_and_keeps_undo_checkpoint() {
     );
     assert!(Arc::ptr_eq(state.undo.front().unwrap(), &current));
 }
+
+#[test]
+fn fast_brush_drag_keeps_the_path_when_all_events_arrive_together() {
+    let ctx = egui::Context::default();
+    let current = labels();
+    let image = current.source().frames()[1].clone();
+    let mut state = LabelUi {
+        current: Some(current.clone()),
+        paint: true,
+        radius: 1,
+        ..Default::default()
+    };
+    let start = egui::pos2(100., 200.);
+    let end = egui::pos2(320., 200.);
+    let mut rect = egui::Rect::NOTHING;
+    for events in [
+        vec![egui::Event::PointerMoved(start)],
+        vec![
+            egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerMoved(end),
+            egui::Event::PointerButton {
+                pos: end,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    ] {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(500., 500.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                let (_, response) =
+                    ui.allocate_exact_size(egui::vec2(400., 400.), egui::Sense::click_and_drag());
+                rect = response.rect;
+                state.canvas(ui, &response, &image, &ViewState::default(), 0);
+            },
+        );
+        output.textures_delta.clear();
+    }
+    let mut expected = current.try_clone(|| false).unwrap();
+    let points = [start, end]
+        .map(|pos| crate::annotations::pixel_at(rect, &image, &ViewState::default(), pos).unwrap());
+    expected.paint(1, &points, 1, 1, || false).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while state.busy() && std::time::Instant::now() < deadline {
+        state.poll();
+        std::thread::yield_now();
+    }
+    assert!(!state.busy(), "brush worker did not finish");
+    assert!(state.dirty);
+    assert_eq!(state.undo.len(), 1);
+    assert!(
+        state
+            .current
+            .as_ref()
+            .unwrap()
+            .values()
+            .iter()
+            .eq(expected.values().iter())
+    );
+}
+
+#[test]
+fn held_brush_keeps_release_position_and_ignores_foreign_presses() {
+    let ctx = egui::Context::default();
+    let current = labels();
+    let image = current.source().frames()[1].clone();
+    let mut state = LabelUi {
+        current: Some(current.clone()),
+        paint: true,
+        radius: 1,
+        ..Default::default()
+    };
+    let start = egui::pos2(100., 200.);
+    let mid = egui::pos2(200., 150.);
+    let end = egui::pos2(320., 200.);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut rect = egui::Rect::NOTHING;
+    let mut frame = |state: &mut LabelUi, events| {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(500., 500.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                let (_, response) =
+                    ui.allocate_exact_size(egui::vec2(400., 400.), egui::Sense::click_and_drag());
+                rect = response.rect;
+                state.canvas(ui, &response, &image, &ViewState::default(), 0);
+            },
+        );
+        output.textures_delta.clear();
+    };
+    frame(&mut state, vec![egui::Event::PointerMoved(start)]);
+    let outside = egui::pos2(450., 450.);
+    frame(&mut state, vec![button(outside, true)]);
+    frame(&mut state, vec![egui::Event::PointerMoved(mid)]);
+    frame(&mut state, vec![button(mid, false)]);
+    assert!(!state.busy() && !state.dirty && state.stroke.is_empty());
+    let space = |pressed| egui::Event::Key {
+        key: egui::Key::Space,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(
+        &mut state,
+        vec![
+            space(true),
+            button(start, true),
+            egui::Event::PointerMoved(end),
+            button(end, false),
+            space(false),
+        ],
+    );
+    assert!(!state.busy() && !state.dirty && state.stroke.is_empty());
+    frame(&mut state, vec![button(start, true)]);
+    frame(&mut state, vec![egui::Event::PointerMoved(mid)]);
+    frame(&mut state, vec![button(end, false)]);
+    let mut expected = current.try_clone(|| false).unwrap();
+    let points = [start, mid, end]
+        .map(|pos| crate::annotations::pixel_at(rect, &image, &ViewState::default(), pos).unwrap());
+    expected.paint(1, &points, 1, 1, || false).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while state.busy() && std::time::Instant::now() < deadline {
+        state.poll();
+        std::thread::yield_now();
+    }
+    assert!(!state.busy() && state.dirty);
+    assert_eq!(state.undo.len(), 1);
+    assert!(
+        state
+            .current
+            .as_ref()
+            .unwrap()
+            .values()
+            .iter()
+            .eq(expected.values().iter())
+    );
+}
 #[test]
 fn cancelled_edit_does_not_change_the_approved_source_or_labels() {
     let current = labels();

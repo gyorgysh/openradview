@@ -77,6 +77,7 @@ impl LabelUi {
             return;
         }
         if crate::viewport::navigation_override(ui, response) {
+            self.stroke.clear();
             self.regions.seeded.break_stroke();
             if !ui.input(|i| i.pointer.primary_down()) && self.regions.seeded.drawing() {
                 self.regions.seeded.cancel_stroke();
@@ -252,20 +253,67 @@ impl LabelUi {
                     radius,
                     egui::Stroke::new(1., crate::theme::PAPER),
                 ));
-            if ui.input(|i| i.pointer.primary_down())
-                && self.stroke.len() < 8192
-                && self
-                    .stroke
-                    .last()
-                    .is_none_or(|old| (old[0] - point[0]).hypot(old[1] - point[1]) >= 0.5)
-            {
-                self.stroke.push(point);
+        }
+        // A short drag may be delivered as press, movement and release in one
+        // frame, so the final pointer state alone cannot recover its path.
+        let mut released = false;
+        if !ui.is_enabled() || ui.input(|i| i.key_pressed(egui::Key::Space)) {
+            self.stroke.clear();
+        } else {
+            let events = ui.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            ..
+                        } => Some((*pos, *pressed, !*pressed)),
+                        egui::Event::PointerMoved(pos) => Some((*pos, false, false)),
+                        _ => None,
+                    })
+                    .take(8193)
+                    .collect::<Vec<_>>()
+            });
+            if events.len() > 8192 {
+                self.stroke.clear();
+                self.message = "Brush input was too long; no edit was applied.".into();
+                return;
             }
-            if response.clicked() && self.stroke.is_empty() {
-                self.stroke.push(point);
+            for (pos, press, release) in events {
+                if press
+                    && (!self.stroke.is_empty()
+                        || !response.rect.contains(pos)
+                        || !ui.clip_rect().contains(pos)
+                        || ui.ctx().layer_id_at(pos) != Some(response.layer_id))
+                {
+                    continue;
+                }
+                if !press && self.stroke.is_empty() {
+                    continue;
+                }
+                if let Some(point) = pixel_at(response.rect, image, view, pos)
+                    && self
+                        .stroke
+                        .last()
+                        .is_none_or(|old| (old[0] - point[0]).hypot(old[1] - point[1]) >= 0.5)
+                {
+                    if self.stroke.len() == 8192 {
+                        self.stroke.clear();
+                        self.message = "Brush input was too long; no edit was applied.".into();
+                        return;
+                    }
+                    self.stroke.push(point);
+                }
+                if release {
+                    released = true;
+                    break;
+                }
             }
         }
-        if !self.stroke.is_empty() && !ui.input(|i| i.pointer.primary_down()) {
+        if released && !self.stroke.is_empty() {
             let points = std::mem::take(&mut self.stroke);
             self.start(
                 Operation::Paint(
@@ -277,6 +325,8 @@ impl LabelUi {
                 ),
                 ui.ctx(),
             );
+        } else if !ui.input(|i| i.pointer.primary_down()) {
+            self.stroke.clear();
         }
     }
 }
