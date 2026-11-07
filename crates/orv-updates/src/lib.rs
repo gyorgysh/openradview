@@ -18,6 +18,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+const PREFERENCE_SAVE_FAILED: &str =
+    "Cannot save update preferences. Automatic checks are off for this run.";
+const AUTOMATIC_SAVE_FAILED: &str =
+    "Cannot save update preferences. Automatic checks are off; no background request was sent.";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Status {
     #[default]
@@ -195,10 +200,16 @@ impl Updater {
             state.prefs.enabled = false;
             state.prefs.chosen = false;
             state.status = Status::Failed;
-            state.detail = "Cannot save update preferences. Automatic checks are off for this run.";
+            state.detail = PREFERENCE_SAVE_FAILED;
             return Err(state.detail);
         }
         state.prefs = prefs;
+        if state.status == Status::Failed
+            && (state.detail == PREFERENCE_SAVE_FAILED || state.detail == AUTOMATIC_SAVE_FAILED)
+        {
+            state.status = Status::Idle;
+            state.detail = "";
+        }
         drop(state);
         if let Some(sender) = &self.tasks {
             let _ = sender.try_send(Task::Wake);
@@ -426,7 +437,7 @@ fn worker(
                         state.prefs.enabled = false;
                         state.prefs.chosen = false;
                         state.status = Status::Failed;
-                        state.detail = "Cannot save update preferences. Automatic checks are off; no background request was sent.";
+                        state.detail = AUTOMATIC_SAVE_FAILED;
                         notify();
                         continue;
                     }

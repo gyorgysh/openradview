@@ -526,6 +526,34 @@ fn unsavable_preferences_honor_opt_out_and_never_enable_background_requests() {
     assert!(!updater.enabled());
     let s = lock(&updater.state);
     assert!(!automatic_due(&s.prefs, s.status, 100000, false));
+    drop(s);
+
+    fs::remove_file(&blocked).unwrap();
+    fs::create_dir(&blocked).unwrap();
+    updater.set_enabled(false).unwrap();
+    assert!(updater.preference_chosen());
+    assert!(!updater.enabled());
+    assert_eq!(updater.status(), Status::Idle);
+    assert_eq!(updater.detail(), "");
+    assert!(!preferences::load(&blocked.join("updates.json")).enabled);
+
+    {
+        let mut s = lock(&updater.state);
+        s.status = Status::Failed;
+        s.detail = AUTOMATIC_SAVE_FAILED;
+    }
+    updater.set_enabled(false).unwrap();
+    assert_eq!(updater.status(), Status::Idle);
+    assert_eq!(updater.detail(), "");
+
+    {
+        let mut s = lock(&updater.state);
+        s.status = Status::Failed;
+        s.detail = "An unrelated update check failed.";
+    }
+    updater.set_enabled(false).unwrap();
+    assert_eq!(updater.status(), Status::Failed);
+    assert_eq!(updater.detail(), "An unrelated update check failed.");
 }
 #[test]
 fn quitting_first_cancels_installation_before_any_files_are_moved() {

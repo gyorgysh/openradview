@@ -19,6 +19,8 @@ pub struct OpenRadView {
     #[cfg(feature = "updates")]
     automatic_updates: bool,
     #[cfg(feature = "updates")]
+    update_preference_warning: Option<&'static str>,
+    #[cfg(feature = "updates")]
     quit_after_update: bool,
     #[cfg(feature = "qa")]
     diagnostics: Option<crate::qa::Recorder>,
@@ -48,6 +50,8 @@ impl OpenRadView {
             },
             #[cfg(feature = "updates")]
             automatic_updates: true,
+            #[cfg(feature = "updates")]
+            update_preference_warning: None,
             #[cfg(feature = "updates")]
             quit_after_update: false,
             #[cfg(feature = "qa")]
@@ -111,11 +115,11 @@ impl OpenRadView {
                         if self.updates.available()
                             && !self.updates.package_managed()
                             && !self.updates.preference_chosen()
-                            && let Err(message) = self.updates.set_enabled(self.automatic_updates)
+                            && self.updates.set_enabled(self.automatic_updates).is_err()
                         {
                             // Viewing remains usable with a read-only settings
                             // folder; the updater keeps background checks off.
-                            ui.label(message);
+                            self.update_preference_warning = Some(self.updates.detail());
                         }
                         self.accepted = true;
                         self.started = Instant::now();
@@ -261,6 +265,20 @@ impl eframe::App for OpenRadView {
                 });
                 ui.add_space(12.0);
                 ui.separator();
+                #[cfg(feature = "updates")]
+                if self.accepted
+                    && !self.updates.preference_chosen()
+                    && let Some(message) = self.update_preference_warning
+                {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(message);
+                        ui.label("Review in Privacy → Updates.");
+                        if ui.button("Dismiss").clicked() {
+                            self.update_preference_warning = None;
+                        }
+                    });
+                    ui.separator();
+                }
                 let height = (ui.available_height() - 40.0).max(0.0);
                 if self.help_open
                     || self.privacy_open
