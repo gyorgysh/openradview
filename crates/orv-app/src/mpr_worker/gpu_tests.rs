@@ -105,6 +105,60 @@ fn fence(device: &wgpu::Device) {
         })
         .unwrap();
 }
+
+#[test]
+fn changed_sampling_cancels_gpu_preview_and_the_next_view_still_matches_the_source() {
+    use std::cell::Cell;
+
+    let (device, queue) = device();
+    let mut producer = MprWorker::start(source(false), egui::Context::default());
+    let volume = tests::wait(&producer).unwrap().volume;
+    let handle = producer.worker.take().unwrap();
+    drop(producer);
+    handle.join().unwrap();
+    let worker = MprWorker {
+        shared: Arc::new(Shared::default()),
+        worker: None,
+    };
+    let mut gpu = Gpu::default();
+    gpu.offer((device.clone(), queue.clone()));
+    let mut cache = PlaneCache::default();
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 4.,
+        intervals: 64,
+    };
+    worker.request_slab(volume.center(), 512, None);
+    let warmup = lock(&worker.shared.work).latest.clone().unwrap();
+    let first = render(&volume, &warmup, true, &mut cache, &mut gpu, || false).unwrap();
+    assert!(first.gpu_images.iter().all(Option::is_some));
+    let mut point = volume.center();
+    for value in &mut point {
+        *value += 0.25;
+    }
+    worker.request_slab(point, 512, Some(slab));
+    let request = lock(&worker.shared.work).latest.clone().unwrap();
+    let calls = Cell::new(0);
+    let cancelled = render(&volume, &request, true, &mut cache, &mut gpu, || {
+        calls.set(calls.get() + 1);
+        if calls.get() == 8 {
+            worker.request_slab(point, 512, None);
+        }
+        worker.shared.preview_cancelled(&request)
+    });
+    assert!(calls.get() >= 8);
+    assert!(matches!(cancelled, Err(GeometryError::Cancelled)));
+    let next = lock(&worker.shared.work).latest.clone().unwrap();
+    let final_view = render(&volume, &next, true, &mut cache, &mut gpu, || false).unwrap();
+    assert!(final_view.gpu_images.iter().all(Option::is_some));
+    assert_eq!(final_view.point, point);
+    assert!(final_view.images.iter().all(|image| image.slab.is_none()));
+    verify(&final_view);
+    drop((first, final_view, cache, gpu, volume, worker));
+    fence(&device);
+    assert_eq!(MemoryBudget::gpu().used(), 0);
+}
+
 #[test]
 fn inactive_mpr_releases_gpu_source_and_stays_quiet_until_resumed_at_its_latest_point() {
     let (device, queue) = device();

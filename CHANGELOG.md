@@ -5,44 +5,48 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ## Unreleased
 
+View linked slices alongside a 3D view, inspect one label or supplied segment
+in 3D, and preview new ways to edit labels. Linked MPR and oblique views keep
+their requested detail while you navigate.
+
 ### Added
 
-- **MPR + 3D.** View three linked planes beside a 3D view of the same volume.
-  Show thin source planes in 3D, or cut the 3D view at the linked point. The
-  combined view stays local and is not available for picture export or sharing.
-- **Regions in 3D.** Show one manual label or supplied segment at a time over a
-  scalar material view. Cell faces can be lit and selected to move the linked
-  MPR point. Missing boundaries remain open, and foreground material or source
-  planes can block a selection.
-- **Physical label editing.** Preview a sphere, disk or drawn path in MPR + 3D,
-  then apply or discard it. A separate surface stamp erases one visible cell
-  layer. Applied edits can be undone and redone; supplied masks remain read-only.
-  The 3D view indicates when it is not showing the active physical preview.
-- **3D appearance.** Adjust the brightness and opacity of scalar values and add
-  lighting for depth cues. These controls do not change the source images.
-  Material views stay local; use Volume or MIP for supported picture exports or
-  a separate sharing approval.
-- **Include and exclude hints.** Draw strokes or mark points on one scalar source
-  image, then preview a proposed region before applying it. Remove a whole stroke
-  when needed. Missing samples and other labels act as barriers. This tool uses
-  image values; it does not identify anatomy.
+- **MPR + 3D.** See axial, coronal and sagittal slices beside a 3D view of the
+  same volume. Show the slice planes in 3D or cut the view at the linked point.
+- **Regions in 3D.** Display one manual label or supplied segment at a time.
+  Select a visible cell face to move the linked slices to that location. Source
+  planes or material in front of a region can block a selection, and boundaries
+  next to missing data remain open.
+- **3D appearance.** Adjust how image values map to brightness and opacity, and
+  turn on lighting for depth. These settings do not change the source images.
+- **Label editing in MPR + 3D.** Preview a sphere or disk at the linked point,
+  or draw a path on a slice, then apply or discard the edit. A separate surface
+  stamp removes one visible layer of a manual label. Supplied masks remain
+  read-only. Export a label map when you want to keep it.
+- **Include and exclude hints.** Mark points or draw strokes within a rectangle
+  on a source image to propose a region. Review the preview before applying it.
+  The tool uses image values and does not recognize anatomy.
+
+MPR + 3D and material views stay on your computer and are not available for
+picture export or agent sharing. See the [viewing and label guide](docs/usage.md)
+for controls and limits.
 
 ### Changed
 
-- Linked MPR and oblique views retain their requested image detail and slab
-  sampling while moving. Supported scalar views use GPU resampling, with a CPU
-  fallback. Unchanged linked planes reuse their completed images.
-- CPU slab projections can update faster for volumes with missing samples.
-- Fractional segmentation imports retain their original values and whether they
-  represent probability or occupancy. Overlays and counts use half the declared
-  maximum as the membership threshold.
-- Label editing keeps up to 16 undo and redo steps. Returning to the last exported
-  revision clears the unsaved indicator.
+- Linked MPR and oblique views keep their requested image detail and slab
+  sampling during navigation. Supported scalar views use the GPU, with a CPU
+  fallback; unchanged linked planes reuse their completed images.
+- Some CPU slab projections with missing samples can update faster.
+- Imported fractional masks retain their original values and whether they describe
+  probability or occupancy. Overlays and counts continue to use half the stated
+  maximum as the threshold.
+- Label edits have up to 16 undo and redo steps. Returning to the last exported
+  state clears the unsaved indicator.
 
 ### Fixed
 
-- Changing slab settings during linked MPR or oblique navigation could briefly
-  show an older projection.
+- Changing slab settings during linked MPR or oblique navigation could let an
+  outdated result replace a newer view or keep an obsolete calculation running.
 - An oblique setup error could disappear after another request, leaving the view
   waiting. Errors from older MPR or oblique requests no longer interrupt a newer
   view.

@@ -324,6 +324,60 @@ fn stale_preview_cannot_replace_a_different_projection_or_resolution() {
 }
 
 #[test]
+fn preview_sampling_changes_cancel_work_without_starving_navigation() {
+    use orv_core::slab::{Slab, SlabProjection};
+    use std::cell::Cell;
+
+    let mut producer = MprWorker::start(frames(), egui::Context::default());
+    let volume = wait(&producer).unwrap().volume;
+    let handle = producer.worker.take().unwrap();
+    drop(producer);
+    handle.join().unwrap();
+    let worker = MprWorker {
+        shared: Arc::new(Shared::default()),
+        worker: None,
+    };
+    let slab = Slab {
+        projection: SlabProjection::Maximum,
+        thickness_mm: 4.,
+        intervals: 40,
+    };
+    for change_sampling in [false, true] {
+        worker.request_slab([1., 2., 3.], 512, Some(slab));
+        let request = lock(&worker.shared.work).latest.clone().unwrap();
+        let calls = Cell::new(0);
+        let result = render(
+            &volume,
+            &request,
+            true,
+            &mut PlaneCache::default(),
+            &mut Gpu::default(),
+            || {
+                calls.set(calls.get() + 1);
+                if calls.get() == 12 {
+                    if change_sampling {
+                        worker.request_slab([1., 2., 6.], 512, None);
+                        // Returning to the previous settings cannot revive old work.
+                        worker.request_slab([1., 2., 6.], 512, Some(slab));
+                    } else {
+                        worker.request_slab([1., 2., 6.], 512, Some(slab));
+                    }
+                }
+                worker.shared.preview_cancelled(&request)
+            },
+        );
+        assert!(calls.get() >= 12);
+        if change_sampling {
+            assert!(matches!(result, Err(GeometryError::Cancelled)));
+        } else {
+            let snapshot = result.unwrap();
+            assert_eq!(snapshot.point, [1., 2., 3.]);
+            assert!(snapshot.images.iter().all(|image| image.slab == Some(slab)));
+        }
+    }
+}
+
+#[test]
 fn slab_worker_keeps_every_requested_sample_and_resolution_during_navigation() {
     use orv_core::slab::*;
     let worker = MprWorker::start(frames(), egui::Context::default());

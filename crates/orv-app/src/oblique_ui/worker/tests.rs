@@ -141,6 +141,52 @@ fn superseded_preview_errors_do_not_replace_a_newer_target() {
 }
 
 #[test]
+fn preview_sampling_changes_cancel_work_without_starving_navigation() {
+    use orv_core::slab::{Slab, SlabProjection};
+    use std::cell::Cell;
+
+    let producer = Worker::start(frames(), egui::Context::default());
+    let volume = wait(&producer).unwrap().volume;
+    drop(producer);
+    let worker = Worker {
+        shared: Arc::new(Shared::default()),
+    };
+    let plane = ObliquePlane::from_angles(volume.center(), [20., 10., 0.]).unwrap();
+    let moved = ObliquePlane::from_angles(volume.center(), [25., 10., 0.]).unwrap();
+    let slab = Slab {
+        projection: SlabProjection::Mean,
+        thickness_mm: 4.,
+        intervals: 40,
+    };
+    for change_sampling in [false, true] {
+        worker.request_projection(plane.clone(), 512, Some(slab), true);
+        let request = lock(&worker.shared.work).request.take().unwrap();
+        let calls = Cell::new(0);
+        let result = render(&volume, &request, true, &mut None, &mut false, || {
+            calls.set(calls.get() + 1);
+            if calls.get() == 4 {
+                if change_sampling {
+                    worker.request_projection(moved.clone(), 256, Some(slab), true);
+                    // Returning to the previous settings cannot revive old work.
+                    worker.request_projection(moved.clone(), 512, Some(slab), true);
+                } else {
+                    worker.request_projection(moved.clone(), 512, Some(slab), true);
+                }
+            }
+            worker.shared.preview_cancelled(&request)
+        });
+        assert!(calls.get() >= 4);
+        if change_sampling {
+            assert!(matches!(result, Err(GeometryError::Cancelled)));
+        } else {
+            let snapshot = result.unwrap();
+            assert_eq!(snapshot.plane, plane);
+            assert_eq!(snapshot.image.slab, Some(slab));
+        }
+    }
+}
+
+#[test]
 fn stale_preview_cannot_replace_a_different_projection_or_resolution() {
     use orv_core::slab::{Slab, SlabProjection};
     let producer = Worker::start(frames(), egui::Context::default());

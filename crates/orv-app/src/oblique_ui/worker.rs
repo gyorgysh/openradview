@@ -27,6 +27,7 @@ pub(super) struct Snapshot {
 struct Request {
     plane: ObliquePlane,
     generation: u64,
+    sampling_generation: u64,
     side: u32,
     slab: Option<orv_core::slab::Slab>,
     interactive: bool,
@@ -46,6 +47,13 @@ struct Shared {
     changed: Condvar,
     cancelled: AtomicBool,
     generation: AtomicU64,
+    sampling_generation: AtomicU64,
+}
+impl Shared {
+    fn preview_cancelled(&self, request: &Request) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+            || self.sampling_generation.load(Ordering::Acquire) != request.sampling_generation
+    }
 }
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
@@ -78,6 +86,7 @@ impl Worker {
                 let mut request = Request {
                     plane,
                     generation: 0,
+                    sampling_generation: 0,
                     side: 512,
                     slab: None,
                     interactive: false,
@@ -93,7 +102,7 @@ impl Worker {
                         gpu_context = Some(context);
                     }
                     if request.interactive && request.side > 128 {
-                        let cancel = || worker.cancelled.load(Ordering::Acquire);
+                        let cancel_preparation = || worker.cancelled.load(Ordering::Acquire);
                         if gpu.is_none()
                             && !gpu_refused
                             && !volume.is_color()
@@ -101,7 +110,12 @@ impl Worker {
                         {
                             match orv_render::volume::check_limits(&device.limits())
                                 .and_then(|()| {
-                                    GpuVolumeSource::new(device, queue, volume.clone(), cancel)
+                                    GpuVolumeSource::new(
+                                        device,
+                                        queue,
+                                        volume.clone(),
+                                        cancel_preparation,
+                                    )
                                 })
                                 .and_then(GpuReslicer::new)
                             {
@@ -110,6 +124,7 @@ impl Worker {
                                 Err(_) => gpu_refused = true,
                             }
                         }
+                        let cancel = || worker.preview_cancelled(&request);
                         let result =
                             render(&volume, &request, true, &mut gpu, &mut gpu_refused, cancel);
                         if worker.cancelled.load(Ordering::Acquire) {
@@ -183,11 +198,20 @@ impl Worker {
     ) {
         let mut work = lock(&self.shared.work);
         let generation = self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1;
+        if work
+            .latest_sampling
+            .is_some_and(|previous| previous != (side, slab))
+        {
+            self.shared
+                .sampling_generation
+                .fetch_add(1, Ordering::AcqRel);
+        }
         work.result = work.terminal_error.as_ref().map(|error| Err(error.clone()));
         work.latest_sampling = Some((side, slab));
         work.request = Some(Request {
             plane,
             generation,
+            sampling_generation: self.shared.sampling_generation.load(Ordering::Acquire),
             side,
             slab,
             interactive,

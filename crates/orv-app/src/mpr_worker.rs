@@ -31,6 +31,7 @@ pub struct MprSnapshot {
 struct Request {
     point: [f64; 3],
     generation: u64,
+    sampling_generation: u64,
     reformat_side: u32,
     interactive: bool,
     slab: Option<orv_core::slab::Slab>,
@@ -51,8 +52,17 @@ struct Shared {
     changed: Condvar,
     cancelled: AtomicBool,
     generation: AtomicU64,
+    sampling_generation: AtomicU64,
     canonical: AtomicBool,
     suspended: AtomicBool,
+}
+impl Shared {
+    fn preview_cancelled(&self, request: &Request) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+            || self.suspended.load(Ordering::Relaxed)
+            || self.canonical.load(Ordering::Relaxed) != request.canonical
+            || self.sampling_generation.load(Ordering::Relaxed) != request.sampling_generation
+    }
 }
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
@@ -84,6 +94,7 @@ impl MprWorker {
                     let request = work.request.take().unwrap_or_else(|| Request {
                         point: volume.center(),
                         generation: worker.generation.load(Ordering::Relaxed),
+                        sampling_generation: worker.sampling_generation.load(Ordering::Relaxed),
                         reformat_side: 512,
                         interactive: false,
                         slab: None,
@@ -123,9 +134,7 @@ impl MprWorker {
                         // Cancelling every input generation can starve the display during a drag.
                         // Provisional refers to input settling, not reduced sampling.
                         let result = render(&volume, &request, true, &mut cache, &mut gpu, || {
-                            worker.cancelled.load(Ordering::Relaxed)
-                                || worker.suspended.load(Ordering::Relaxed)
-                                || worker.canonical.load(Ordering::Relaxed) != request.canonical
+                            worker.preview_cancelled(&request)
                         });
                         if worker.cancelled.load(Ordering::Relaxed) {
                             return;
@@ -249,6 +258,15 @@ impl MprWorker {
     ) {
         let mut work = lock(&self.shared.work);
         let generation = self.shared.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        if work
+            .latest
+            .as_ref()
+            .is_some_and(|latest| latest.reformat_side != reformat_side || latest.slab != slab)
+        {
+            self.shared
+                .sampling_generation
+                .fetch_add(1, Ordering::Relaxed);
+        }
         if let Some(error) = &work.terminal_error {
             work.result = Some(Err(error.clone()));
         } else if work.result.as_ref().is_some_and(Result::is_err) {
@@ -257,6 +275,7 @@ impl MprWorker {
         let request = Request {
             point,
             generation,
+            sampling_generation: self.shared.sampling_generation.load(Ordering::Relaxed),
             reformat_side,
             interactive,
             slab,
