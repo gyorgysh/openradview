@@ -38,6 +38,9 @@ without image allocation; CPU resampling uses that same grid. An opaque RAM-only
 owner binds each grid to the exact source volume. Equal geometry does not make
 grids interchangeable. Derived scalar and color reformats retain CPU admission
 through their immutable `Frame`, including clones held by tools or exports.
+Volume construction validates scalar finiteness and binary mask lengths and
+values, so CPU interpolation can check the immutable masks directly for its
+nonzero-weight source samples.
 
 The scalar GPU reslicer has separate compute-only tiled outputs and worker-only
 completed frames. The latter accumulates source coordinates as signed 24.40

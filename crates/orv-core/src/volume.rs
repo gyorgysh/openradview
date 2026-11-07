@@ -346,7 +346,13 @@ impl Volume {
                         continue;
                     }
                     let index = y * self.dimensions[0] + x;
-                    if self.has_missing_scalar && !self.frames[z].has_sample(index) {
+                    // Volume construction validates scalar finiteness and every
+                    // mask's length and binary values before sampling starts.
+                    if self.frames[z]
+                        .validity
+                        .as_ref()
+                        .is_some_and(|mask| mask[index] == 0)
+                    {
                         return None;
                     }
                     value += self.frames[z].pixels[index] as f64 * weight;

@@ -351,3 +351,45 @@ fn source_validity_survives_hashes_mpr_oblique_and_threshold_without_copying_pix
     assert_eq!(overlay[3], 0, "padding must not be threshold-labelled");
     assert!(overlay[7] > 0);
 }
+
+#[test]
+fn complete_and_partial_source_planes_keep_missing_stencils_and_sampling_values() {
+    let mut frames = stack();
+    change(&mut frames, 0, |frame| {
+        frame.validity = Some(vec![1; frame.pixels.len()].into());
+    });
+    change(&mut frames, 1, |frame| {
+        let mut mask = vec![1; frame.pixels.len()];
+        mask[5] = 0;
+        frame.validity = Some(mask.into());
+    });
+    // Plane order must follow the validated geometry, not the input order.
+    frames.reverse();
+    let volume = Volume::new(frames.clone()).unwrap();
+    for x in [0., 0.5, 1., 1.5, 2., 3.] {
+        for y in [0., 0.5, 1., 1.5, 2., 4.] {
+            for z in [0., 0.5, 1., 1.5, 2.] {
+                let actual = volume.sample_voxel([x, y, z]);
+                if x > 0. && x < 2. && y > 0. && y < 2. && z > 0. && z < 2. {
+                    assert!(actual.is_none(), "[{x}, {y}, {z}]");
+                } else {
+                    let expected = x + 10. * y + 100. * z;
+                    assert!((f64::from(actual.unwrap()) - expected).abs() < 1e-4);
+                }
+            }
+        }
+    }
+    for invalid in 0..3 {
+        let mut bad = frames.clone();
+        change(&mut bad, 0, |frame| match invalid {
+            0 => frame.validity = Some(vec![1; frame.pixels.len() - 1].into()),
+            1 => frame.validity = Some(vec![2; frame.pixels.len()].into()),
+            _ => {
+                let mut pixels = frame.pixels.to_vec();
+                pixels[0] = f32::NAN;
+                frame.pixels = pixels.into();
+            }
+        });
+        assert!(Volume::new(bad).is_err());
+    }
+}
