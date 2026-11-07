@@ -45,6 +45,7 @@ for controls and limits.
 
 ### Fixed
 
+- A label export could be reported as cancelled even after the file was saved.
 - Changing slab settings during linked MPR or oblique navigation could show an
   outdated image or keep an old calculation running.
 - An oblique setup error could disappear, leaving the view waiting. Errors from

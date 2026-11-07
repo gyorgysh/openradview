@@ -10,6 +10,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc,
 };
+use std::{io, path::Path};
 
 pub enum Operation {
     Start(Arc<Series>),
@@ -46,9 +47,11 @@ pub enum Output {
 pub struct Task {
     receiver: mpsc::Receiver<Result<Output, String>>,
     cancel: Arc<AtomicBool>,
+    export: bool,
 }
 impl Task {
     pub fn start(op: Operation, ctx: egui::Context) -> Self {
+        let export = matches!(&op, Operation::Export(_));
         let (sender, receiver) = mpsc::sync_channel(1);
         let cancel = Arc::new(AtomicBool::new(false));
         let flag = cancel.clone();
@@ -65,14 +68,18 @@ impl Task {
             let _ = fallback.send(Err("Could not start the label worker. Try again.".into()));
             repaint.request_repaint();
         }
-        Self { receiver, cancel }
+        Self {
+            receiver,
+            cancel,
+            export,
+        }
     }
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
     pub fn poll(&self) -> Option<Result<Output, String>> {
         match self.receiver.try_recv() {
-            Ok(result) => Some(if self.cancel.load(Ordering::Acquire) {
+            Ok(result) => Some(if !self.export && self.cancel.load(Ordering::Acquire) {
                 Ok(Output::Cancelled)
             } else {
                 result
@@ -130,16 +137,9 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
             else {
                 return Ok(Output::Cancelled);
             };
-            let file=std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|_|"Cannot create label file. Choose a new filename; existing files are never overwritten.")?;
-            let result = current
-                .write_nifti(&file, cancelled)
-                .and_then(|()| file.sync_all());
-            drop(file);
-            if result.is_err() {
-                let _ = std::fs::remove_file(&path);
-                return Err("Label export did not finish; the partial file was removed".into());
-            }
-            Output::Saved
+            // Once the file has been written, a late cancellation must not
+            // hide the fact that it exists at the chosen destination.
+            return export_labels(&current, &path, cancelled);
         }
         Operation::Paint(current, z, points, radius, label) => {
             let mut edited = current.try_clone(cancelled)?;
@@ -188,6 +188,43 @@ pub(super) fn run(op: Operation, flag: &AtomicBool) -> Result<Output, String> {
     }
 }
 
+fn export_labels(
+    current: &Labels,
+    path: &Path,
+    cancelled: impl Fn() -> bool,
+) -> Result<Output, String> {
+    if cancelled() {
+        return Ok(Output::Cancelled);
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path).map_err(|_| {
+        "Cannot create label file. Choose a new filename; existing files are never overwritten."
+    })?;
+    let result = current
+        .write_nifti(&file, &cancelled)
+        .and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(error) = result {
+        if let Err(cleanup) = std::fs::remove_file(path)
+            && cleanup.kind() != io::ErrorKind::NotFound
+        {
+            return Err("Label export did not finish. The partial file could not be removed; check the destination.".into());
+        }
+        return if error.kind() == io::ErrorKind::Interrupted && cancelled() {
+            Ok(Output::Cancelled)
+        } else {
+            Err("Label export did not finish; the partial file was removed".into())
+        };
+    }
+    Ok(Output::Saved)
+}
+
 fn label_dimensions(series: &Series, cancelled: &dyn Fn() -> bool) -> Result<[usize; 3], String> {
     let info = orv_core::inspection::series_info(series, cancelled).map_err(|e| e.to_string())?;
     let grid = info.geometry.map_err(|e| e.to_string())?;
@@ -208,8 +245,64 @@ mod tests {
         let task = Task {
             receiver,
             cancel: Arc::new(AtomicBool::new(false)),
+            export: false,
         };
         task.cancel();
         assert!(matches!(task.poll(), Some(Ok(Output::Cancelled))));
+    }
+
+    #[test]
+    fn label_export_reports_committed_results_after_late_cancellation() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender.send(Ok(Output::Saved)).ok().unwrap();
+        let task = Task {
+            receiver,
+            cancel: Arc::new(AtomicBool::new(true)),
+            export: true,
+        };
+        assert!(matches!(task.poll(), Some(Ok(Output::Saved))));
+
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender.send(Err("cleanup failed".into())).unwrap();
+        let task = Task {
+            receiver,
+            cancel: Arc::new(AtomicBool::new(true)),
+            export: true,
+        };
+        assert!(matches!(task.poll(), Some(Err(error)) if error == "cleanup failed"));
+    }
+
+    #[test]
+    fn label_export_is_private_exclusive_and_cleans_up_cancelled_output() {
+        let labels = crate::labels::tests::labels();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("labels.nii");
+        let calls = std::cell::Cell::new(0);
+        let cancelled = || {
+            let n = calls.get();
+            calls.set(n + 1);
+            n >= 2
+        };
+        assert!(matches!(
+            export_labels(&labels, &path, cancelled),
+            Ok(Output::Cancelled)
+        ));
+        assert!(!path.exists());
+        assert!(matches!(
+            export_labels(&labels, &path, || false),
+            Ok(Output::Saved)
+        ));
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(&bytes[4..12], b"n+2\0\r\n\x1a\n");
+        assert!(export_labels(&labels, &path, || false).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o077,
+                0
+            );
+        }
     }
 }
