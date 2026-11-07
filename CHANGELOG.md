@@ -21,11 +21,13 @@ their requested detail while you navigate.
   turn on lighting for depth. These settings do not change the source images.
 - **Label editing in MPR + 3D.** Preview a sphere or disk at the linked point,
   or draw a path on a slice, then apply or discard the edit. A separate surface
-  stamp removes one visible layer of a manual label. Supplied masks remain
-  read-only. Export a label map when you want to keep it.
+  stamp removes one visible layer of a manual label. Sphere, disk and path edits
+  can reach cells hidden in 3D or outside the displayed cut. Supplied masks
+  remain read-only. Export a label map when you want to keep it.
 - **Include and exclude hints.** Mark points or draw strokes within a rectangle
   on a source image to propose a region. Review the preview before applying it.
-  The tool uses image values and does not recognize anatomy.
+  Exclude hints can remove cells from the selected label. The tool uses image
+  values and does not recognize anatomy.
 
 MPR + 3D and material views stay on your computer and are not available for
 picture export or agent sharing. See the [viewing and label guide](docs/usage.md)
