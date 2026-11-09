@@ -1,0 +1,54 @@
+name: Debug native GPU
+on:
+  push:
+    branches: [debug/native-gpu]
+permissions:
+  contents: read
+jobs:
+  gpu:
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-22.04, backend: vulkan}
+          - {os: ubuntu-22.04, backend: gl}
+          - {os: ubuntu-24.04, backend: vulkan}
+          - {os: windows-2025, backend: dx12}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libxkbcommon-dev libwayland-dev libvulkan1 libegl1 mesa-vulkan-drivers libegl-mesa0 libgl1-mesa-dri xvfb xauth vulkan-tools
+          vulkaninfo --summary || true
+      - run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: orv-native-${{ runner.os }}${{ runner.os == 'Linux' && format('-{0}', matrix.os) || '' }}
+          save-if: false
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+        with:
+          tool: cargo-nextest@0.9.149
+      - name: Linux failing GPU tests
+        if: runner.os == 'Linux'
+        run: |
+          if [ "${{ matrix.backend }}" = gl ]; then export WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1; PRE="xvfb-run -a"; fi
+          $PRE cargo nextest run --locked -p orv-render --all-features --no-fail-fast -E 'test(homogeneous_optical_slab_matches_beer_lambert) or test(zero_flag_classifications_keep_the_original_two_group_gpu_fallback) or test(paged_zero_classification_keeps_every_dense_pixel) or test(accelerated_complete_2048_image)'
+      - name: Linux all render GPU tests
+        if: runner.os == 'Linux' && matrix.backend == 'vulkan'
+        run: cargo nextest run --locked -p orv-render --all-features --no-fail-fast
+      - name: Windows GPU tests
+        if: runner.os == 'Windows'
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --target x86_64-pc-windows-msvc
