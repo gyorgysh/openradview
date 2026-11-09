@@ -80,11 +80,11 @@ fn fetch(client: &Client, release: &str, name: &str, version: Option<&str>) -> R
         .map_err(|_| "Cannot download the update from GitHub.")
 }
 
-pub(super) fn manifest(client: &Client) -> Result<Response> {
+pub(crate) fn manifest(client: &Client) -> Result<Response> {
     fetch(client, "latest", &format!("update-{TARGET}.json"), None)
 }
 
-pub(super) fn archive(client: &Client, manifest: &Manifest) -> Result<Response> {
+pub(crate) fn archive(client: &Client, manifest: &Manifest) -> Result<Response> {
     stable_version(&manifest.version)?;
     fetch(
         client,

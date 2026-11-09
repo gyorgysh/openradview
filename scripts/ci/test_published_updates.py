@@ -19,12 +19,13 @@ class PublishedUpdateTests(unittest.TestCase):
                 }), patch('sys.argv', ['published_updates.py', '--target', target]), \
                     patch.object(published_updates.subprocess, 'run', side_effect=run):
                 published_updates.main()
-            self.assertEqual(len(calls), 4)
+            self.assertEqual(len(calls), 5)
             self.assertIn('v1.0.0', calls[0][0])
             self.assertIn('v1.1.0', calls[1][0])
             self.assertEqual(calls[2][0][0], 'cargo')
             self.assertNotIn('--live', calls[2][0])
             self.assertIn('--live-only', calls[3][0])
+            self.assertIn('--live-api-only', calls[4][0])
             for _, options in calls[2:]:
                 self.assertNotIn('GH_TOKEN', options['env'])
                 self.assertNotIn('GITHUB_TOKEN', options['env'])

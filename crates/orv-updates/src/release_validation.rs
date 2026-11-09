@@ -178,3 +178,44 @@ pub fn verify_live_download(
         |_| {},
     )
 }
+
+/// Check the alternate public transport even when the web route is healthy.
+/// This release-validation-only probe writes only a temporary signed archive.
+pub fn verify_live_api_download(
+    installed_envelope: &[u8],
+    update_envelope: &[u8],
+) -> protocol::Result<()> {
+    use std::{io::Read, time::Duration};
+    let key = protocol::public_key()?;
+    let old = protocol::verify_envelope(installed_envelope, &key, protocol::TARGET)?;
+    let update = protocol::verify_envelope(update_envelope, &key, protocol::TARGET)?;
+    let client = crate::network::client(&old.version, Duration::from_secs(15 * 60))?;
+    let response = crate::network::github_api::manifest(&client)?;
+    crate::network::status(&response)?;
+    let mut bytes = Vec::new();
+    response
+        .take(64 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Cannot read the update manifest.")?;
+    let latest = protocol::verify_envelope(&bytes, &key, protocol::TARGET)?;
+    if protocol::stable_version(&latest.version)? < protocol::stable_version(&update.version)? {
+        return Err("The live feed is older than the checked update.");
+    }
+    let mut response = crate::network::github_api::archive(&client, &update)?;
+    crate::network::status(&response)?;
+    if response.content_length().is_some_and(|n| n != update.bytes) {
+        return Err("The update download has an unexpected size.");
+    }
+    let scratch = tempfile::tempdir().map_err(|_| "Cannot create release check folder.")?;
+    let path = scratch.path().join(&update.archive);
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|_| "Cannot create the staged download.")?;
+    crate::network::transfer(&mut response, &mut output, update.bytes, &mut |_| {})?;
+    output
+        .sync_all()
+        .map_err(|_| "Cannot finish saving the staged download.")?;
+    update.verify_file(&path)
+}
