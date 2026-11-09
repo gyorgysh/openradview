@@ -21,10 +21,10 @@ fn ref_value(point:vec3f)->BrickValue {
 fn ref_gradient(point:vec3f)->BrickGradient {
     let centre=ref_value(point);if centre.status!=BRICK_KNOWN {return BrickGradient(vec3f(0.),centre.status);}
     let maximum=vec3f(REF_DIM)-1.;let q=clamp(point,vec3f(0.),maximum);var gradient=vec3f(0.);
-    for(var axis=0u;axis<3u;axis++) {var lo=q;var hi=q;lo[axis]=max(q[axis]-1.,0.);hi[axis]=min(q[axis]+1.,maximum[axis]);
+    for(var axis=0u;axis<3u;axis++) {let m=vec3u(0u,1u,2u)==vec3u(axis);let lo=select(q,vec3f(max(q[axis]-1.,0.)),m);let hi=select(q,vec3f(min(q[axis]+1.,maximum[axis])),m);
         let a=ref_value(lo);let b=ref_value(hi);
         if a.status!=BRICK_KNOWN {return BrickGradient(vec3f(0.),a.status);}if b.status!=BRICK_KNOWN {return BrickGradient(vec3f(0.),b.status);}
-        gradient[axis]=(b.value-a.value)/(hi[axis]-lo[axis]);
+        gradient=select(gradient,vec3f((b.value-a.value)/(hi[axis]-lo[axis])),m);
     }return BrickGradient(gradient,BRICK_KNOWN);
 }
 @compute @workgroup_size(64)

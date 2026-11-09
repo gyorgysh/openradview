@@ -545,6 +545,13 @@ fn accelerated_complete_2048_image_and_tiled_refinement_keep_the_requested_pixel
     scene.material = optical(-1000., 0.03);
     scene.volume.camera.yaw_degrees = 31.;
     scene.volume.camera.pitch_degrees = -17.;
+    // A software adapter can still be executing the setup projection, whose
+    // admission is released only when that work completes.
+    d.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(std::time::Duration::from_secs(30)),
+    })
+    .unwrap();
     scene.surface = project(&gpu, owner, 7, &scene.volume, &scene.navigation, [2048; 2]);
     let flags = classify(&gpu, scene.material.clone());
     let mut renderer =

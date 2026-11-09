@@ -21,6 +21,8 @@ fn sample_fixed(pixel:vec2u,sample_index:u32)->FixedSample {
     var before:vec3i;var after:vec3i;var errors=fixed.errors.xyz;
     var repair=false;var uncertain=false;
     for(var axis=0u;axis<3u;axis++) {
+        // Direct3D's FXC cannot write a vector component chosen by a loop index.
+        let m=vec3u(0u,1u,2u)==vec3u(axis);
         var coordinate=add_fixed(vec2u(fixed.origin_lo[axis],fixed.origin_hi[axis]),times_index(vec2u(fixed.du_lo[axis],fixed.du_hi[axis]),pixel.x));
         coordinate=add_fixed(coordinate,times_index(vec2u(fixed.dv_lo[axis],fixed.dv_hi[axis]),pixel.y));
         coordinate=add_fixed(coordinate,vec2u(fixed.offsets[sample_index].lo[axis],fixed.offsets[sample_index].hi[axis]));
@@ -36,18 +38,19 @@ fn sample_fixed(pixel:vec2u,sample_index:u32)->FixedSample {
                 return FixedSample(0.,false,edge,0.);
             }
             if distance.x+errors[axis]>=tolerance {repair=true;}
-            if distance.x>errors[axis] {errors[axis]=0u;}
+            if distance.x>errors[axis] {errors=select(errors,vec3u(0u),m);}
             node=clamp(node+select(0,1,node<0),0,maximum[axis]);fraction=vec2u(0u);
         }
-        base[axis]=node;
-        high[axis]=fraction_float(fraction);
-        low[axis]=fraction_float(complement_fraction(fraction.x,fraction.y));
-        before[axis]=node;after[axis]=node+select(0,1,any(fraction!=vec2u(0u)));
+        base=select(base,vec3i(node),m);
+        high=select(high,vec3f(fraction_float(fraction)),m);
+        low=select(low,vec3f(fraction_float(complement_fraction(fraction.x,fraction.y))),m);
+        var first=node;var last=node+select(0,1,any(fraction!=vec2u(0u)));
         if errors[axis]!=0u {
-            if fraction.y==0u && fraction.x<=errors[axis] {before[axis]=node-1;after[axis]=node+1;uncertain=true;}
+            if fraction.y==0u && fraction.x<=errors[axis] {first=node-1;last=node+1;uncertain=true;}
             let complement=complement_fraction(fraction.x,fraction.y);
-            if complement.y==0u && complement.x<=errors[axis] {after[axis]=node+2;uncertain=true;}
+            if complement.y==0u && complement.x<=errors[axis] {last=node+2;uncertain=true;}
         }
+        before=select(before,vec3i(first),m);after=select(after,vec3i(last),m);
     }
     var magnitude=0.;
     if uncertain {

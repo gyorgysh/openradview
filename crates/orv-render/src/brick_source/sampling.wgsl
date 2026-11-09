@@ -52,12 +52,13 @@ fn brick_index_gradient(point:vec3f)->BrickGradient {
     let maximum=vec3f(brick.dimensions.xyz)-1.;let q=clamp(point,vec3f(0.),maximum);
     var gradient=vec3f(0.);
     for(var axis=0u;axis<3u;axis++) {
-        var lo=q;var hi=q;
-        lo[axis]=max(q[axis]-1.,0.);hi[axis]=min(q[axis]+1.,maximum[axis]);
+        // Direct3D's FXC cannot write a vector component chosen by a loop index.
+        let m=vec3u(0u,1u,2u)==vec3u(axis);
+        let lo=select(q,vec3f(max(q[axis]-1.,0.)),m);let hi=select(q,vec3f(min(q[axis]+1.,maximum[axis])),m);
         let a=brick_scalar_stencil(lo);let b=brick_scalar_stencil(hi);
         if a.status!=BRICK_KNOWN {return BrickGradient(vec3f(0.),a.status);}
         if b.status!=BRICK_KNOWN {return BrickGradient(vec3f(0.),b.status);}
-        gradient[axis]=(b.value-a.value)/(hi[axis]-lo[axis]);
+        gradient=select(gradient,vec3f((b.value-a.value)/(hi[axis]-lo[axis])),m);
     }
     return BrickGradient(gradient,BRICK_KNOWN);
 }

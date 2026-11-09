@@ -56,17 +56,19 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
     var crossing=vec3f(1.e30);
     for(var axis=0u;axis<3u;axis+=1u) {
         if direction[axis]==0. {continue;}
+        // Direct3D's FXC cannot write a vector component chosen by a loop index.
+        let m=vec3u(0u,1u,2u)==vec3u(axis);
         for(var adjust=0u;adjust<3u;adjust+=1u) {
             let a=face_time(2*cell[axis]-1,origin[axis],direction[axis]);let b=face_time(2*cell[axis]+1,origin[axis],direction[axis]);
-            if near<min(a,b) {cell[axis]-=step[axis];}
-            else if near>=max(a,b) {cell[axis]+=step[axis];}
+            if near<min(a,b) {cell=select(cell,cell-step,m);}
+            else if near>=max(a,b) {cell=select(cell,cell+step,m);}
             else {break;}
         }
         let a=face_time(2*cell[axis]-1,origin[axis],direction[axis]);let b=face_time(2*cell[axis]+1,origin[axis],direction[axis]);
         if near<min(a,b) || near>=max(a,b) {store(pixel,vec3i(0),ERROR,0.);return;}
         // Retain the validated exit. Recomputing it with a signed half-step
         // can round differently at a clipped face on a fast-math backend.
-        crossing[axis]=max(a,b);
+        crossing=select(crossing,vec3f(max(a,b)),m);
     }
     var cursor=near;let limit=u32(dimensions.x+dimensions.y+dimensions.z)+3u;
     for(var visited=0u;visited<limit;visited+=1u) {
@@ -81,8 +83,9 @@ fn main(@builtin(global_invocation_id) gid:vec3u) {
         // A corner has no positive-length side cells. Advance every tied plane.
         for(var axis=0u;axis<3u;axis+=1u) {
             if crossing[axis]<=next {
-                cell[axis]+=step[axis];
-                crossing[axis]=face_time(2*cell[axis]+step[axis],origin[axis],direction[axis]);
+                let m=vec3u(0u,1u,2u)==vec3u(axis);
+                cell=select(cell,cell+step,m);
+                crossing=select(crossing,vec3f(face_time(2*cell[axis]+step[axis],origin[axis],direction[axis])),m);
             }
         }
     }

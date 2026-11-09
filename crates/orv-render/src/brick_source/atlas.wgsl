@@ -56,11 +56,12 @@ fn atlas_gradient_from_known(point:vec3f,page:u32)->AtlasGradient {
     if atlas_pages[page].size_stencil.w!=1u {return AtlasGradient(vec3f(0.),BRICK_STENCIL_UNAVAILABLE,page);}
     let maximum=vec3f(atlas.dimensions.xyz)-1.;let q=clamp(point,vec3f(0.),maximum);var gradient=vec3f(0.);
     for(var axis=0u;axis<3u;axis++){
-        var lo=q;var hi=q;lo[axis]=max(q[axis]-1.,0.);hi[axis]=min(q[axis]+1.,maximum[axis]);
+        let m=vec3u(0u,1u,2u)==vec3u(axis);
+        let lo=select(q,vec3f(max(q[axis]-1.,0.)),m);let hi=select(q,vec3f(min(q[axis]+1.,maximum[axis])),m);
         let a=atlas_stencil(lo,page);let b=atlas_stencil(hi,page);
         if a.status!=BRICK_KNOWN {return AtlasGradient(vec3f(0.),a.status,page);}
         if b.status!=BRICK_KNOWN {return AtlasGradient(vec3f(0.),b.status,page);}
-        gradient[axis]=(b.value-a.value)/(hi[axis]-lo[axis]);
+        gradient=select(gradient,vec3f((b.value-a.value)/(hi[axis]-lo[axis])),m);
     }
     return AtlasGradient(gradient,BRICK_KNOWN,page);
 }

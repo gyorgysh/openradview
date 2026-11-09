@@ -16,8 +16,12 @@ struct Vertex {
     let corners=array<vec2f,4>(vec2f(-.5,-.5),vec2f(.5,-.5),vec2f(.5,.5),vec2f(-.5,.5));
     var minimum=vec2f(1e30);var maximum=vec2f(-1e30);
     for(var i=0u;i<4u;i++) {
-        var q=vec3f(descriptor.xyz)-p.center.xyz;
-        q[axis]+=select(-.5,.5,(side&1u)!=0u);q[u]+=corners[i].x;q[v]+=corners[i].y;
+        // Direct3D's FXC cannot write a vector component chosen at runtime.
+        let lanes=vec3u(0u,1u,2u);
+        let offset=select(vec3f(0.),vec3f(select(-.5,.5,(side&1u)!=0u)),lanes==vec3u(axis))
+            +select(vec3f(0.),vec3f(corners[i].x),lanes==vec3u(u))
+            +select(vec3f(0.),vec3f(corners[i].y),lanes==vec3u(v));
+        let q=vec3f(descriptor.xyz)-p.center.xyz+offset;
         let h=vec4f(q,1.);let xy=vec2f(dot(p.x,h),dot(p.y,h));
         minimum=min(minimum,xy);maximum=max(maximum,xy);
     }
@@ -39,7 +43,7 @@ struct Pixel { @location(0) cell:vec4u, @location(1) depth:f32, @location(2) nor
     if p.ray_direction[axis]==0. {discard;}
     let plane=f32(input.cell_face[axis])-p.center[axis]+select(-.5,.5,(side&1u)!=0u);
     let t=(plane-origin[axis])/p.ray_direction[axis];
-    var q=origin+p.ray_direction.xyz*t;q[axis]=plane;
+    let q=select(origin+p.ray_direction.xyz*t,vec3f(plane),vec3u(0u,1u,2u)==vec3u(axis));
     let local=q+p.center.xyz-vec3f(input.cell_face.xyz);
     if !all(abs(local)<=vec3f(.5)) {discard;}
     let h=vec4f(q,1.);

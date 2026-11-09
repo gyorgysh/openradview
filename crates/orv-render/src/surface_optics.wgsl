@@ -9,18 +9,22 @@ fn integrate_surface_source(origin:vec3f,ray:vec2f)->vec2f {
         let direction=p.direction[a];
         if direction==0. {continue;}
         let point=origin[a]+direction*ray.x;
-        nodes[a]=select(ceil(point)-1.,floor(point)+1.,direction>0.);
+        var node=select(ceil(point)-1.,floor(point)+1.,direction>0.);
+        var time=1e30;
         var resolved=false;
         // Resolve the entry with boundary parameters, without a physical nudge
         // that could erase a thin valid interval or cross a clipping boundary.
         for(var attempt=0u;attempt<3u;attempt++) {
-            times[a]=(nodes[a]-origin[a])/direction;
-            let previous=(nodes[a]-sign(direction)-origin[a])/direction;
-            if previous>ray.x {nodes[a]-=sign(direction);}
-            else if times[a]<=ray.x {nodes[a]+=sign(direction);}
+            time=(node-origin[a])/direction;
+            let previous=(node-sign(direction)-origin[a])/direction;
+            if previous>ray.x {node-=sign(direction);}
+            else if time<=ray.x {node+=sign(direction);}
             else {resolved=true;break;}
         }
         if !resolved {atomicStore(&failed,1u);return vec2f(0.,1.);}
+        // Direct3D's FXC cannot write a vector component chosen by a loop index.
+        let m=vec3u(0u,1u,2u)==vec3u(a);
+        nodes=select(nodes,vec3f(node),m);times=select(times,vec3f(time),m);
     }
     var cursor=ray.x;var radiance=0.;var transmission=1.;
     let dimensions=textureDimensions(source);
@@ -37,7 +41,9 @@ fn integrate_surface_source(origin:vec3f,ray:vec2f)->vec2f {
         var advanced=false;
         for(var a=0u;a<3u;a++) {
             if p.direction[a]!=0. && times[a]<=end {
-                nodes[a]+=sign(p.direction[a]);times[a]=(nodes[a]-origin[a])/p.direction[a];advanced=true;
+                let m=vec3u(0u,1u,2u)==vec3u(a);
+                nodes=select(nodes,nodes+sign(p.direction[a]),m);
+                times=select(times,vec3f((nodes[a]-origin[a])/p.direction[a]),m);advanced=true;
             }
         }
         if !advanced {atomicStore(&failed,1u);return vec2f(0.,1.);}

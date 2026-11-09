@@ -9,12 +9,13 @@ fn illumination(point:vec3f)->f32 {
     let q=clamp(point,vec3f(0.),maximum);
     var index_gradient=vec3f(0.);
     for(var axis=0u;axis<3u;axis+=1u) {
-        var lo=q;var hi=q;
-        lo[axis]=max(q[axis]-1.,0.);hi[axis]=min(q[axis]+1.,maximum[axis]);
+        // Direct3D's FXC cannot write a vector component chosen by a loop index.
+        let m=vec3u(0u,1u,2u)==vec3u(axis);
+        let lo=select(q,vec3f(max(q[axis]-1.,0.)),m);let hi=select(q,vec3f(min(q[axis]+1.,maximum[axis])),m);
         // Missing stencils and constant fields keep unlit material. No invented
         // normal at a padding boundary, and no intensity-unit gradient cutoff.
         if !scalar_valid(lo) || !scalar_valid(hi) {return 1.;}
-        index_gradient[axis]=(scalar(hi)-scalar(lo))/(hi[axis]-lo[axis]);
+        index_gradient=select(index_gradient,vec3f((scalar(hi)-scalar(lo))/(hi[axis]-lo[axis])),m);
     }
     let scale=max(max(abs(index_gradient.x),abs(index_gradient.y)),abs(index_gradient.z));
     if scale==0. {return 1.;}
