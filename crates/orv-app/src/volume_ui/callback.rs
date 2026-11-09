@@ -139,6 +139,16 @@ pub(super) fn resolution(pixels: egui::Vec2, cap: f32) -> [u32; 2] {
         (pixels.y * scale).round().clamp(1., 2048.) as u32,
     ]
 }
+/// Render target size for a pass; material views use larger caps.
+pub(super) fn target_size(pixels: egui::Vec2, material: bool, refined: bool) -> [u32; 2] {
+    let cap = match (material, refined) {
+        (false, false) => 256.,
+        (false, true) => 768.,
+        (true, false) => 512.,
+        (true, true) => 2048.,
+    };
+    resolution(pixels, cap)
+}
 impl egui_wgpu::CallbackTrait for Callback {
     fn prepare(
         &self,
@@ -155,14 +165,8 @@ impl egui_wgpu::CallbackTrait for Callback {
         let key = Key {
             display: self.display.clone(),
             state: self.state.clone(),
-            interactive: resolution(
-                self.pixels,
-                if self.material.is_some() { 512. } else { 256. },
-            ),
-            refined: resolution(
-                self.pixels,
-                if self.material.is_some() { 2048. } else { 768. },
-            ),
+            interactive: target_size(self.pixels, self.material.is_some(), false),
+            refined: target_size(self.pixels, self.material.is_some(), true),
             material: self.material.clone(),
         };
         let result = (|| {

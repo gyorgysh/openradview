@@ -421,29 +421,21 @@ impl VolumeSession {
                     },
                 ));
         }
+        // One guard keeps the displayed state and status line consistent.
+        let guard = gpu.try_lock().ok();
         let mut shown = if painted {
             self.regions.displayed()
         } else {
             None
         };
-        if !painted && let Ok(gpu) = gpu.try_lock() {
+        if !painted && let Some(gpu) = &guard {
             shown = gpu.displayed().filter(|(display, camera, size)| {
                 *display == self.display
                     && *camera == *state
-                    && *size
-                        == callback::resolution(
-                            pixels,
-                            if gpu.refined {
-                                if material.is_some() { 2048. } else { 768. }
-                            } else if material.is_some() {
-                                512.
-                            } else {
-                                256.
-                            },
-                        )
+                    && *size == callback::target_size(pixels, material.is_some(), gpu.refined)
             });
         }
-        if !region_mode && let Ok(gpu) = gpu.try_lock() {
+        if !region_mode && let Some(gpu) = &guard {
             if let Some(error) = gpu.error {
                 ui.label(error);
             } else {

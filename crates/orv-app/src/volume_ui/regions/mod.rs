@@ -456,8 +456,8 @@ impl Regions {
             state: scene.state,
             style: scene.style,
             luminance: self.settings.luminance,
-            interactive: super::callback::resolution(pixels, 512.),
-            refined: super::callback::resolution(pixels, 2048.),
+            interactive: super::callback::target_size(pixels, true, false),
+            refined: super::callback::target_size(pixels, true, true),
         };
         if self.view.is_none()
             && self.error.is_none()
