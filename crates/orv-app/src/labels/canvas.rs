@@ -334,14 +334,18 @@ impl LabelUi {
                     continue;
                 };
                 if press
-                    && (!self.stroke.is_empty()
+                    && (self.brush_scope.is_some()
                         || !response.rect.contains(pos)
                         || !ui.clip_rect().contains(pos)
                         || ui.ctx().layer_id_at(pos) != Some(response.layer_id))
                 {
                     continue;
                 }
-                if !press && self.stroke.is_empty() {
+                // The scope marks a held press, which may begin beside the
+                // displayed image and reach it later in the same drag.
+                if press {
+                    self.brush_scope = Some(scope.clone());
+                } else if self.brush_scope.is_none() {
                     continue;
                 }
                 let point = (response.rect.contains(pos) && ui.clip_rect().contains(pos))
@@ -358,9 +362,6 @@ impl LabelUi {
                         self.clear_brush();
                         self.message = "Brush input was too long; no edit was applied.".into();
                         return;
-                    }
-                    if press {
-                        self.brush_scope = Some(scope.clone());
                     }
                     if self.stroke_outside {
                         self.stroke_breaks.push(self.stroke.len());

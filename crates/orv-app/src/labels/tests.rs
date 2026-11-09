@@ -188,6 +188,69 @@ fn fast_brush_drag_keeps_the_path_when_all_events_arrive_together() {
 }
 
 #[test]
+fn brush_press_beside_the_image_paints_once_the_drag_reaches_it() {
+    let ctx = egui::Context::default();
+    let current = labels();
+    let image = current.source().frames()[1].clone();
+    let mut state = LabelUi {
+        current: Some(current.clone()),
+        paint: true,
+        radius: 1,
+        ..Default::default()
+    };
+    let view = ViewState {
+        zoom: 0.5,
+        ..Default::default()
+    };
+    let draw = |state: &mut LabelUi, events| {
+        let mut rect = egui::Rect::NOTHING;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(500., 500.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                let (_, response) =
+                    ui.allocate_exact_size(egui::vec2(400., 400.), egui::Sense::click_and_drag());
+                rect = response.rect;
+                state.canvas(ui, &response, &image, &view, 0);
+            },
+        );
+        output.textures_delta.clear();
+        rect
+    };
+    let rect = draw(&mut state, vec![]);
+    let beside = rect.min + egui::vec2(5., 5.);
+    assert!(crate::annotations::pixel_at(rect, &image, &view, beside).is_none());
+    let inside = crate::annotations::screen_at(rect, &image, &view, [3., 3.]).unwrap();
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    draw(&mut state, vec![egui::Event::PointerMoved(beside)]);
+    draw(&mut state, vec![button(beside, true)]);
+    draw(&mut state, vec![egui::Event::PointerMoved(inside)]);
+    draw(&mut state, vec![button(inside, false)]);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while state.busy() {
+        state.poll();
+        assert!(
+            std::time::Instant::now() < deadline,
+            "brush worker did not finish"
+        );
+        std::thread::yield_now();
+    }
+    assert_eq!(state.current.as_ref().unwrap().value([3, 3, 1]), Some(1));
+    assert_eq!(state.undo.len(), 1);
+}
+
+#[test]
 fn brush_release_keeps_a_short_final_segment() {
     for batched in [false, true] {
         let ctx = egui::Context::default();
