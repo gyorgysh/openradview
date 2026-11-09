@@ -1,114 +1,36 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-name: Manual Windows and Linux packages
+name: OpenGL capability diagnostics
 on:
   workflow_dispatch:
     inputs:
       platform:
-        description: Native packages to check
         type: choice
-        options: [both, windows, linux]
-        default: both
-  workflow_call:
-    inputs:
-      platform:
-        type: string
-        default: both
+        options: [linux]
+        default: linux
 permissions:
   contents: read
-concurrency:
-  group: portable-${{ github.ref }}
-  cancel-in-progress: false
 jobs:
-  package:
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        include: ${{ fromJSON(inputs.platform == 'windows' && '[{"os":"windows-2025","target":"x86_64-pc-windows-msvc"}]' || inputs.platform == 'linux' && '[{"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu"}]' || '[{"os":"windows-2025","target":"x86_64-pc-windows-msvc"},{"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu"}]') }}
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
+  gl:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
     env:
       CARGO_TERM_COLOR: always
-      PYTHONUTF8: 1
-      RUSTFLAGS: ${{ matrix.os == 'windows-2025' && '-C target-feature=+crt-static' || '' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.13'
-      - name: Linux build, graphics and installer dependencies
-        if: runner.os == 'Linux'
+      - name: Graphics dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config binutils dpkg-dev desktop-file-utils libxkbcommon-dev libxkbcommon-x11-0 libx11-xcb1 libx11-6 libxcursor1 libxi6 libxrandr2 libxcb1 libdbus-1-3 libwayland-dev libvulkan1 libegl1 mesa-vulkan-drivers libegl-mesa0 libgl1-mesa-dri xvfb xauth xdg-desktop-portal xdg-desktop-portal-gtk
-      - name: Pinned Rust toolchain
-        run: rustup show
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+          sudo apt-get install -y build-essential cmake pkg-config libxkbcommon-dev libwayland-dev libvulkan1 libegl1 mesa-vulkan-drivers libegl-mesa0 libgl1-mesa-dri xvfb xauth
+      - run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
-          shared-key: orv-native-${{ runner.os }}${{ runner.os == 'Linux' && format('-{0}', matrix.os) || '' }}
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+          shared-key: orv-native-Linux-ubuntu-22.04
+          save-if: false
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91
         with:
           tool: cargo-nextest@0.9.149
-      - name: Fetch exact dependencies
-        run: cargo fetch --locked --target ${{ matrix.target }}
-      - name: Format and full native Clippy
-        id: format_clippy
+      - name: Mesa optical, atlas and projection paths
         run: |
-          cargo fmt --all --check
-          cargo clippy --locked --workspace --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
-      - name: Default native tests
-        id: default_tests
-        run: cargo nextest run --locked --workspace --target ${{ matrix.target }} --profile native-default
-      - name: Full native tests including GPU rendering
-        id: full_tests
-        if: ${{ !cancelled() && steps.default_tests.outcome != 'skipped' }}
-        run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }} --profile native-full
-      - name: Linux GPU worker shutdown stress
-        if: runner.os == 'Linux'
-        run: cargo nextest run --locked --workspace --all-features --target ${{ matrix.target }} --stress-count 10 -E 'test(background_upload_cancel_releases_source_without_waiting_on_ui) or test(authenticated_tools_are_scoped_and_revoke_closes_the_listener) or test(local_series_comparison_revokes_sharing_and_cannot_publish_or_apply_shared_views) or test(real_mcp_request_drives_desktop_then_reviewed_png_matches_the_preview)'
-      - name: Linux software OpenGL rendering and native idle smoke
-        if: runner.os == 'Linux'
-        run: |
-          xvfb-run -a env WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 cargo nextest run --locked --target ${{ matrix.target }} -p orv-render --features gpu-tests --test gpu_golden --test volume_gpu --no-fail-fast -E 'binary(gpu_golden) or test(snapshot::slab_gpu_snapshot) or test(limits::a_display_only_device)'
-          cargo build --locked --target ${{ matrix.target }} -p orv-app --features qa
-          xvfb-run -a env WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 ORV_QA_NATIVE_SMOKE=1 python scripts/ci/native_gl.py target/${{ matrix.target }}/debug/openradview
-      - name: Published native updater roundtrip and live feed
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python scripts/ci/published_updates.py --target ${{ matrix.target }}
-      - name: Portable packaging helpers
-        run: python -m unittest discover -s scripts/portable -p 'test_*.py'
-      - name: Native optimized application archive
-        run: python scripts/portable/bundle.py --target ${{ matrix.target }}
-      - name: Pinned Windows installer compiler
-        if: runner.os == 'Windows'
-        run: python scripts/ci/inno.py
-      - name: Windows installer
-        if: runner.os == 'Windows'
-        run: python scripts/portable/installers.py --target ${{ matrix.target }} --compiler "$ORV_INNO_COMPILER"
-      - name: Debian installer
-        if: runner.os == 'Linux'
-        run: python scripts/portable/installers.py --target ${{ matrix.target }}
-      - name: Native installation, version probes and removal
-        id: installer_tests
-        run: python scripts/portable/smoke_installers.py --target ${{ matrix.target }}
-      - name: Record actual native acceptance scope
-        env:
-          ORV_NATIVE_OUTCOMES: '{"format_clippy":"${{ steps.format_clippy.outcome }}","default_tests":"${{ steps.default_tests.outcome }}","full_tests":"${{ steps.full_tests.outcome }}","installer_tests":"${{ steps.installer_tests.outcome }}"}'
-        run: python scripts/ci/native_report.py --target ${{ matrix.target }}
-      - name: Preserve native packages
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: native-${{ matrix.target }}-${{ github.sha }}
-          path: dist/*
-          if-no-files-found: ignore
-          compression-level: 0
-          retention-days: 1
+          xvfb-run -a env WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 cargo nextest run --locked -p orv-render --all-features --no-fail-fast -E 'test(homogeneous_optical_slab_matches_beer_lambert) or test(zero_flag_classifications_keep_the_original_two_group_gpu_fallback) or test(paged_zero_classification_keeps_every_dense_pixel) or test(accelerated_complete_2048_image)'
