@@ -6,7 +6,9 @@ selects Metal; Windows selects DX12/Vulkan and Linux allows Vulkan/OpenGL. Core 
 rendering code remain independent of the UI. Native instances share the same
 validation flags. Windows keeps shader optimization enabled in debug builds:
 FXC cannot lower some bounded, dynamically indexed loops with optimization off.
-Backend validation remains enabled in debug builds.
+Backend validation remains enabled in debug builds. Shaders select vector lanes
+with masks instead of runtime component writes, which FXC otherwise tries to
+unroll across Naga's bounded-loop guards.
 
 | Crate | Responsibility |
 | --- | --- |
