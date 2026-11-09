@@ -5,29 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org).
 
 ## Unreleased
 
-View linked slices alongside a 3D view, inspect a label or supplied segment in
-3D, and edit labels with new physical and image-based tools. Linked MPR and
-oblique views keep their requested detail while you navigate.
-
 ### Added
 
-- **MPR + 3D.** See axial, coronal and sagittal slices beside a 3D view of the
-  same volume. Show the slice planes in 3D or cut the view at the linked point.
-- **Regions in 3D.** Display one manual label or supplied segment at a time.
-  Select a visible face of its surface to move the linked slices to that cell. Source
-  planes or material in front of a region can block a selection, and boundaries
-  next to missing data remain open.
-- **3D appearance.** Adjust how image values map to brightness and opacity, and
-  turn on lighting for depth. These settings do not change the source images.
-- **Label editing in MPR + 3D.** Preview a sphere or disk at the linked point,
-  or draw a path on a slice, then apply or discard the edit. A separate surface
-  stamp removes one visible layer of a manual label. Sphere, disk and path edits
-  can reach cells hidden in 3D or outside the displayed cut. Supplied masks
-  remain read-only. Export a label map when you want to keep it.
-- **Include and exclude hints.** Mark at least one point or stroke of each kind
-  within a rectangle on a source image to propose a region. Review the preview
-  before applying it. Exclude hints can remove cells from the selected label.
-  The tool uses image values without an AI model. It can cross weak boundaries
+- **MPR + 3D.** View linked axial, coronal and sagittal slices beside a 3D view.
+  Show the slice planes in 3D or cut the view at the linked point.
+- **Regions in 3D.** Show one manual label or supplied segment at a time. Select
+  a visible surface to move the linked slices. Adjust 3D brightness, opacity
+  and lighting without changing the source images.
+- **Label editing.** Preview and apply a sphere, disk or drawn path in MPR + 3D,
+  or remove one visible surface layer. Supplied masks remain read-only. Edits
+  can reach outside the displayed cut.
+- **Include and exclude hints.** Mark an include and an exclude point or
+  stroke inside a rectangle to propose a region, then review it before applying.
+  The tool uses image values without an AI model; it can cross weak boundaries
   and does not recognize anatomy.
 
 MPR + 3D and material views stay on your computer and are not available for
@@ -36,56 +26,26 @@ for controls and limits.
 
 ### Changed
 
-- Linked MPR and oblique views keep the selected detail and slab sampling as you
-  navigate. Oblique views can show completed previews while you continue moving
-  the plane. When slab settings change, a status line describes the image still
-  shown while the new view loads. Supported scalar views use the GPU, with a CPU
-  fallback; some slab views can update faster on the CPU.
-- Label and supplied-mask overlays stay visible on unchanged linked planes while
-  another plane updates.
-- Imported fractional masks keep their original values and whether they describe
-  probability or occupancy. Overlays and counts still use half the stated maximum
-  as the threshold.
-- Label edits now support redo and up to 16 undo steps, increased from two.
+- Linked MPR and oblique views keep the selected detail and slab sampling while
+  you navigate. Overlays remain visible on unchanged linked planes.
+- Label editing supports redo and up to 16 undo steps, increased from two.
   Returning to the last exported state clears the unsaved indicator.
+- Imported fractional masks retain their original values and whether they
+  describe probability or occupancy. Display and counts still use half the
+  stated maximum as the threshold.
 
 ### Fixed
 
-- A rendering error message could remain over an image after rendering recovered.
-- Quitting while the viewer was temporarily hidden could discard unsaved labels
-  without showing the confirmation. The confirmation now also works when the
-  window is hidden.
-- Rapid arrow-key presses could move fewer slices than requested in image,
-  comparison, linked MPR and oblique views.
-- Moving the pointer to another pane during zoom could unexpectedly zoom, pan
-  or scroll slices in that pane as the gesture ended.
-- After zooming, a later mouse-wheel scroll could be ignored.
-- At the first or last slice, reversing a scroll could feel unresponsive after
-  scrolling past the end.
-- An automatic update check selected just before checks were switched off
-  could still start after the preference changed.
-- If the first update preference cannot be saved, the viewer shows that checks
-  are off for the current run and lets you retry saving the off choice.
-- Changing the source image or editing settings cancels outdated connected-region
-  and hint previews.
-- A label export could be reported as cancelled even after the file was saved.
-- Quick source-image brush drags could leave no label or omit the end of a stroke.
-  An unfinished stroke is discarded if the image, its position, size or
-  orientation, or the brush settings change.
-- Source-image brush strokes no longer connect across portions drawn outside
-  the displayed image.
-- Label exports require a `.nii` filename, matching the uncompressed file format.
-- Changing slab settings during linked MPR or oblique navigation could show an
-  outdated preview or keep an old calculation running, including when switching
-  back to an earlier setting.
-- A quick linked MPR slice slider drag could leave the slice unchanged.
-- An oblique setup error could disappear, leaving the view waiting. Errors from
-  older MPR or oblique requests no longer interrupt the current view.
-- Short 3D camera drags could lose the last movement on release.
-- Exact quarter-turn camera angles could incorrectly hide valid samples next to
-  missing data.
-- Source-image label tools recognize acquired planes whose stored positions differ
-  slightly from the fitted volume grid.
+- Quitting with unsaved labels now shows a confirmation even if the viewer is
+  hidden.
+- Rapid arrow-key presses no longer skip slice steps, and quick brush strokes
+  keep their endpoints. Zoom gestures stay in the pane where they started.
+- Fixed an update check that could start after automatic checks were switched off.
+  If the first preference cannot be saved, the viewer shows that checks are off
+  for the current run and offers a retry.
+- A label export could be reported as cancelled after the file was saved. Label
+  exports now require the `.nii` extension, matching the uncompressed format.
+- A rendering error could remain over an image after rendering recovered.
 
 ## 1.3.0 - 2026-11-03
 
