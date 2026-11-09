@@ -103,10 +103,11 @@ enabled, but the marker prevents in-app replacement. Manual checks remain availa
 install later `.deb` versions with your package manager. The app does not add
 an apt repository. The portable TAR.GZ keeps the writable-folder update path.
 
-**Manual Windows and Linux packages** runs the native default/full test suites,
+**Manual Windows and Linux packages** uses the shared native default/shipping/full test suites,
 GPU tests, archive and installer builds, then a real unattended install/version
 probe/uninstall check on each host. It runs only when dispatched, serializes the
-two hosts, saves reusable caches on main and retains packages for one day.
+two hosts, saves successful build caches on main and release tags, and retains
+packages for one day and test reports for seven days.
 These checks establish their recorded scope; interactive UI and production update
 acceptance are separate from command-line probes. No checklist is filled by
 assuming that compilation proves runtime behavior.

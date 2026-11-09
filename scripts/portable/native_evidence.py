@@ -83,7 +83,7 @@ def verify_run(record, github):
     run = github(f'actions/runs/{run_id}')
     if (run.get('head_sha') != revision or run.get('run_attempt') != 1
             or run.get('event') not in ('push', 'workflow_dispatch')
-            or run.get('path') not in ('.github/workflows/portable.yml', '.github/workflows/release.yml')
+            or run.get('path') not in ('.github/workflows/ci.yml', '.github/workflows/portable.yml', '.github/workflows/release.yml')
             or run.get('head_repository', {}).get('full_name', '').lower() != 'gyorgysh/openradview'):
         raise ValueError('Native evidence does not identify the expected source workflow')
     jobs = github(f'actions/runs/{run_id}/jobs?per_page=100')

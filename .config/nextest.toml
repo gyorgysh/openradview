@@ -14,3 +14,11 @@ fail-fast = false
 [profile.native-full.junit]
 path = "junit.xml"
 report-skipped = "all"
+
+[profile.native-shipping]
+retries = 0
+fail-fast = false
+
+[profile.native-shipping.junit]
+path = "junit.xml"
+report-skipped = "all"

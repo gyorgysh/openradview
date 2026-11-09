@@ -3,10 +3,26 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import native_report
 
 
 class NativeReports(unittest.TestCase):
+    def test_every_feature_configuration_must_have_complete_coverage(self):
+        with patch.object(native_report, 'tests', side_effect=[100, 101, 125]) as read:
+            self.assertEqual(native_report.test_counts(),
+                             {'native-default': 100, 'native-shipping': 101, 'native-full': 125})
+            self.assertEqual([call.kwargs['gpu'] for call in read.call_args_list], [False, False, True])
+            self.assertEqual([call.args[0].parent.name for call in read.call_args_list],
+                             ['native-default', 'native-shipping', 'native-full'])
+        for counts in ([100, 99, 125], [100, 101, 100]):
+            with self.subTest(counts=counts), patch.object(native_report, 'tests', side_effect=counts):
+                with self.assertRaises(ValueError):
+                    native_report.test_counts()
+        with patch.object(native_report, 'tests', side_effect=ValueError('missing shipping report')):
+            with self.assertRaises(ValueError):
+                native_report.test_counts()
+
     def test_actual_cases_and_both_gpu_binaries_are_required(self):
         body = ('<testsuites><testsuite name="orv-updates">'
                 '<testcase name="tests::native_process::running_executable_survives_failed_then_successful_swap_and_backup_cleanup"/>'

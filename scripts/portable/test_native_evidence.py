@@ -31,6 +31,13 @@ class NativeEvidenceTests(unittest.TestCase):
         def github(path):
             return {'total_count': 4, 'jobs': [job]} if '/jobs?' in path else run
         evidence.verify_run(record, github)
+        for workflow in ('ci', 'portable', 'release'):
+            run['path'] = f'.github/workflows/{workflow}.yml'
+            evidence.verify_run(record, github)
+        for workflow in ('untrusted', '../release'):
+            run['path'] = f'.github/workflows/{workflow}.yml'
+            with self.assertRaises(ValueError): evidence.verify_run(record, github)
+        run['path'] = '.github/workflows/release.yml'
         for result in ('failure', 'skipped', None):
             job['conclusion'] = result
             with self.assertRaises(ValueError): evidence.verify_run(record, github)

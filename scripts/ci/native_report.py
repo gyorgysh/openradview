@@ -35,23 +35,34 @@ def tests(path, *, gpu):
     return len(cases)
 
 
+def test_counts():
+    counts = {profile: tests(ROOT / 'target/nextest' / profile / 'junit.xml', gpu=profile == 'native-full')
+              for profile in ('native-default', 'native-shipping', 'native-full')}
+    if not counts['native-full'] >= counts['native-shipping'] >= counts['native-default']:
+        raise ValueError('Shipping/full native tests unexpectedly omitted default coverage')
+    return counts
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--target', choices=[installers.WINDOWS, installers.LINUX], required=True)
+    parser.add_argument('--target', choices=[installers.WINDOWS, installers.LINUX, 'aarch64-apple-darwin'], required=True)
+    parser.add_argument('--tests-only', action='store_true', help='validate all three native suites before packaging or signing')
     args = parser.parse_args()
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GITHUB_REPOSITORY') != 'gyorgysh/openradview':
         raise ValueError('Expected the native OpenRadView CI context')
+    counts = test_counts()
+    if args.tests_only:
+        print(json.dumps(counts, sort_keys=True))
+        return
+    if args.target == 'aarch64-apple-darwin':
+        raise ValueError('macOS publication uses separate signing and notarization evidence')
     outcomes = json.loads(os.environ.get('ORV_NATIVE_OUTCOMES', '{}'))
-    required = {'format_clippy', 'default_tests', 'full_tests', 'installer_tests'}
+    required = {'format_clippy', 'default_tests', 'shipping_tests', 'full_tests', 'installer_tests'}
     if set(outcomes) != required or set(outcomes.values()) != {'success'}:
         raise ValueError('Every native CI check must have succeeded')
     revision = bundle.run(['git', 'rev-parse', 'HEAD'])
     if revision != os.environ.get('GITHUB_SHA') or bundle.run(['git', 'status', '--porcelain', '--untracked-files=normal']):
         raise ValueError('Native CI source identity changed')
-    counts = {profile: tests(ROOT / 'target/nextest' / profile / 'junit.xml', gpu=profile == 'native-full')
-              for profile in ('native-default', 'native-full')}
-    if counts['native-full'] < counts['native-default']:
-        raise ValueError('Full native tests unexpectedly omitted default coverage')
     version = json.loads(bundle.run(['cargo', 'metadata', '--offline', '--locked', '--no-deps', '--format-version', '1']))
     version = next(p['version'] for p in version['packages'] if p['name'] == 'orv-app')
     archive, _ = bundle.update_protocol.names(version, args.target)
@@ -71,7 +82,8 @@ def main():
         raise ValueError('Invalid native workflow identity')
     report = {'schema_version': 2, 'kind': 'ci-native-preview', 'target': args.target,
               'version': version, 'source_revision': revision, 'archive_sha256': smoke['archive_sha256'],
-              'installer_sha256': smoke['installer_sha256'], 'test_counts': counts,
+              'installer_sha256': smoke['installer_sha256'],
+              'test_counts': {key: counts[key] for key in ('native-default', 'native-full')},
               'checks': {'format_clippy': True, 'default_tests': True, 'full_tests': True,
                          'native_gpu': True, 'loaded_executable_swap': True, 'installer_roundtrip': True},
               'run_id': int(run_id), 'evidence': f'https://github.com/gyorgysh/openradview/actions/runs/{run_id}',

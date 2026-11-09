@@ -1,7 +1,13 @@
 # GitHub release process
 
-An annotated `vX.Y.Z` tag builds the native Windows x64 and Linux x64 packages.
-After those checks pass, the `release` environment waits for the owner's approval.
+An annotated `vX.Y.Z` tag runs the same native release checks as a manual
+preflight: macOS Apple Silicon, Windows x64 and Linux x64, in that order.
+Each host checks formatting, all-target Clippy and nextest in default, shipping
+(`mcp,updates`) and all-feature configurations, then builds the workspace and
+optimized shipping binaries. Test reports must contain actual cases, both GPU
+binaries in the full suite, and no failures, retries or skips. Windows/Linux
+also build and exercise their archives, installers and updater.
+After every native job passes, the `release` environment waits for the owner's approval.
 The protected macOS job builds, signs and notarizes the Apple Silicon app and DMG,
 signs all three update manifests, verifies the complete payload and creates a
 normal immutable GitHub release. Website deployment is separate.
@@ -9,7 +15,21 @@ normal immutable GitHub release. Website deployment is separate.
 Manual test builds store their outputs in Actions artifacts; they create no
 GitHub releases. No ordinary branch or PR build runs automatically. Native jobs
 are serialized, use pinned tools and reusable caches, and retain test packages
-for one day. Tag builds restore main's caches without creating per-tag caches.
+for one day and test reports for seven days. Only successful jobs on main or
+release tags save caches. Keys separate runner image, architecture, toolchain,
+build environment and dependency inputs. The protected macOS job uses the same
+runner and cache configuration as its preflight, restoring the completed debug
+and optimized builds. A missing cache causes a rebuild; it cannot bypass checks.
+
+For a manual preflight (no signing, notarization, tag or release creation):
+
+```sh
+gh workflow run ci.yml --ref main -f platform=all
+```
+
+Select `macos`, `windows`, `linux` or `portable` for a narrower investigation.
+`portable.yml` is a compatibility entry point into the same checks, rather than
+a separate copy of the test/build steps. Release tags always select all three hosts.
 
 ## Approval and credentials
 
@@ -64,9 +84,13 @@ release, replace the `Unreleased` heading with the version and date (for example
 `## 1.4.0 - YYYY-MM-DD`) so the release tools can select that section. Review the
 notes against the release contents before creating the tag. The annotated tag
 must match Cargo.toml, clean source and a commit reachable from main. Existing
-versions, tags and assets are never overwritten by the workflow.
+releases and assets are never overwritten by the workflow. A failed build does
+not publish a release or make its tag immutable. The owner may explicitly
+replace an unpublished candidate tag after checking that no release exists,
+no signing/notary operation is pending and no run still uses it. Use an exact
+object lease for that exceptional replacement; never move a published tag.
 
-Native Windows/Linux checks run default and full test suites, including actual
+Native Windows/Linux checks run default, shipping and full test suites, including actual
 GPU rendering and the running-executable update swap/rollback tests. They build
 installers and perform real install, payload/version checks and uninstall. Their
 artifact-bound CI reports state the limits: these checks do not establish

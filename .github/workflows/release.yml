@@ -36,9 +36,9 @@ jobs:
         run: python3 scripts/ci/release-policy.py --source
   native:
     needs: source
-    uses: ./.github/workflows/portable.yml
+    uses: ./.github/workflows/ci.yml
     with:
-      platform: both
+      platform: all
   publish:
     needs: native
     environment: release
@@ -49,6 +49,7 @@ jobs:
       actions: read
     env:
       CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
       ORV_RELEASE_APPROVAL_READY: ${{ vars.ORV_RELEASE_APPROVAL_READY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -66,25 +67,17 @@ jobs:
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
-          shared-key: orv-native-${{ runner.os }}
-          # Tag caches cannot seed future tags. Restore manual-check caches only.
+          shared-key: orv-native-${{ runner.os }}-macos-26
+          cache-workspace-crates: true
+          # Restore the successful macOS preflight cache with matching build inputs.
           save-if: false
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
-        with:
-          tool: cargo-nextest@0.9.149
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
-      - name: Local-equivalent non-GPU checks and release compilation
+      - name: Restore optimized shipping binaries and updater verifier
         run: |
-          cargo fmt --all --check
-          cargo clippy --locked --workspace --all-targets --features orv-app/mcp,orv-app/updates -- -D warnings
-          cargo nextest run --locked --workspace --features orv-app/mcp,orv-app/updates
           cargo build --locked --release -p orv-app -p orv-mcp --bins --features orv-app/mcp,orv-app/updates
           cargo build --locked -p orv-updates --features release-validation --example verify_release_update
-          python3 -m unittest discover -s scripts/macos -p 'test_*.py'
-          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
-          node --test scripts/ci/sign-manifest.test.mjs
       - name: Hash-pinned installer tooling
         run: |
           python3 -m venv target/dmgbuild-venv
@@ -92,7 +85,7 @@ jobs:
       - name: Download this source's checked native packages
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download "$GITHUB_RUN_ID" --pattern "native-*-$GITHUB_SHA" --dir dist/native-inputs
+        run: gh run download "$GITHUB_RUN_ID" --pattern "native-x86_64-*-$GITHUB_SHA" --dir dist/native-inputs
       - name: Sign, notarize and publish the approved release
         id: release_candidate
         env:
