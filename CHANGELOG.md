@@ -38,6 +38,8 @@ for controls and limits.
 
 - Constant scalar fields keep even lighting in 3D on native graphics backends.
 - Windows development builds can compile the shaders used by linked MPR and 3D.
+- Corrected OpenGL resource limits and floating-point format detection for 3D
+  region views.
 - Quitting with unsaved labels now shows a confirmation even if the viewer is
   hidden.
 - Rapid arrow-key presses no longer skip slice steps, and quick brush strokes

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [workspace]
 members = ["crates/orv-core", "crates/orv-render", "crates/orv-app", "crates/orv-mcp", "crates/orv-agents", "crates/orv-updates"]
-exclude = ["vendor/charls-sys", "vendor/openjpeg-sys", "vendor/jpeg2k", "vendor/winit"]
+exclude = ["vendor/charls-sys", "vendor/openjpeg-sys", "vendor/jpeg2k", "vendor/winit", "vendor/wgpu-hal"]
 default-members = ["crates/orv-app"]
 resolver = "3"
 
@@ -71,3 +71,4 @@ charls-sys = { path = "vendor/charls-sys" }
 openjpeg-sys = { path = "vendor/openjpeg-sys" }
 jpeg2k = { path = "vendor/jpeg2k" }
 winit = { path = "vendor/winit" }
+wgpu-hal = { path = "vendor/wgpu-hal" }

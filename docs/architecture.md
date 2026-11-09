@@ -2162,9 +2162,14 @@ change to itself and a file. Backups with a detected mismatch are preserved.
 Explicit restart revokes grants and protects
 unsaved labels. [Release process](github-release.md)
 
-Native codec and patched windowing sources, licenses and file inventories are committed under
+Native codec, patched windowing and graphics sources, licenses and file inventories are committed under
 `vendor/`. Packagers verify them and include the receipts and third-party notices
-with binaries. No codec/model download occurs in the installed app.
+with binaries. The pinned wgpu-hal patch recognizes desktop OpenGL 3.3 core
+floating-point framebuffer support without requiring a promoted extension name;
+GLES/WebGL still require the corresponding extensions. Compute-capable GL device
+requests include the storage-buffer counts and binding sizes used by status and
+paged source data, under the same shared admission policy.
+No codec/model download occurs in the installed app.
 
 ## Local actions and keyboard settings
 
