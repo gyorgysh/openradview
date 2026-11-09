@@ -14,8 +14,10 @@ MCP and update integrations; normal desktop bundles include them.
 ```sh
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo clippy --locked --workspace --all-targets --features orv-app/mcp,orv-app/updates -- -D warnings
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo nextest run --locked --workspace
+cargo nextest run --locked --workspace --features orv-app/mcp,orv-app/updates
 cargo nextest run --locked --workspace --all-features
 cargo build --locked --workspace
 ```

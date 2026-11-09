@@ -19,7 +19,7 @@ fn explicit_read_only_face_pick_survives_leaving_the_erase_section_mode() {
     assert!(regions.section_pick());
 }
 
-#[cfg(feature = "mcp")]
+#[cfg(all(feature = "mcp", feature = "gpu-tests"))]
 impl super::super::VolumeSession {
     pub(crate) fn enable_test_region(&mut self) {
         self.regions.settings.enabled = true;

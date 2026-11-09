@@ -513,7 +513,7 @@ impl MprSession {
     pub(crate) fn is_workbench(&self) -> bool {
         self.layout == Layout::Workbench
     }
-    #[cfg(all(test, feature = "mcp"))]
+    #[cfg(all(test, feature = "mcp", feature = "gpu-tests"))]
     pub(crate) fn enable_test_workbench(&mut self) {
         self.layout = Layout::Workbench;
     }

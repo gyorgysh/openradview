@@ -62,6 +62,7 @@ jobs:
         id: format_clippy
         run: |
           cargo fmt --all --check
+          cargo clippy --locked --workspace --all-targets --features orv-app/mcp,orv-app/updates --target ${{ matrix.target }} -- -D warnings
           cargo clippy --locked --workspace --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
       - name: Default native tests
         id: default_tests
