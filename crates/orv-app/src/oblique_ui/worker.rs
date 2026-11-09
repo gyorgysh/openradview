@@ -60,6 +60,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 pub(super) struct Worker {
     shared: Arc<Shared>,
+    #[cfg(test)]
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Worker {
     pub fn start(frames: impl Into<crate::frame_source::FrameSource>, ctx: egui::Context) -> Self {
@@ -189,7 +191,11 @@ impl Worker {
                 &repaint,
             );
         }
-        Self { shared }
+        Self {
+            shared,
+            #[cfg(test)]
+            worker: spawn.ok(),
+        }
     }
     #[cfg(test)]
     pub fn request(&self, plane: ObliquePlane, side: u32) {

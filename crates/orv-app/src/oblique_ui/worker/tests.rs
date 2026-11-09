@@ -3,6 +3,20 @@ use super::*;
 use orv_core::{WindowLevel, study::Geometry};
 use std::time::{Duration, Instant};
 
+fn finish_gpu_worker(mut worker: Worker, device: &wgpu::Device) {
+    // Weak source expiry can precede the worker's final driver calls. Joining
+    // prevents process-exit cleanup from racing a detached GPU thread in tests.
+    let handle = worker.worker.take().unwrap();
+    drop(worker);
+    handle.join().unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(30)),
+        })
+        .unwrap();
+}
+
 fn frames() -> Vec<Arc<Frame>> {
     (0..8)
         .map(|z| {
@@ -113,6 +127,7 @@ fn initialization_error_survives_later_view_requests() {
 #[test]
 fn superseded_preview_errors_do_not_replace_a_newer_target() {
     let worker = Worker {
+        worker: None,
         shared: Arc::new(Shared::default()),
     };
     let ctx = egui::Context::default();
@@ -157,6 +172,7 @@ fn sampling_round_trip_rejects_a_late_preview() {
     let mut snapshot = wait(&producer).unwrap();
     drop(producer);
     let worker = Worker {
+        worker: None,
         shared: Arc::new(Shared::default()),
     };
     let ctx = egui::Context::default();
@@ -209,6 +225,7 @@ fn position_change_preserves_a_queued_compatible_preview() {
     let mut snapshot = wait(&producer).unwrap();
     drop(producer);
     let worker = Worker {
+        worker: None,
         shared: Arc::new(Shared::default()),
     };
     let ctx = egui::Context::default();
@@ -263,6 +280,7 @@ fn preview_sampling_changes_cancel_work_without_starving_navigation() {
     let volume = wait(&producer).unwrap().volume;
     drop(producer);
     let worker = Worker {
+        worker: None,
         shared: Arc::new(Shared::default()),
     };
     let plane = ObliquePlane::from_angles(volume.center(), [20., 10., 0.]).unwrap();
@@ -307,6 +325,7 @@ fn stale_preview_cannot_replace_a_different_projection_or_resolution() {
     let mut snapshot = wait(&producer).unwrap();
     drop(producer);
     let worker = Worker {
+        worker: None,
         shared: Arc::new(Shared::default()),
     };
     snapshot.preview = true;
@@ -463,7 +482,7 @@ fn gpu_interactive_oblique_keeps_full_detail_and_settles_to_canonical_cpu() {
                 .all(|(a, b)| a.to_bits() == b.to_bits())
         );
     }
-    drop(worker);
+    finish_gpu_worker(worker, &device);
     let until = Instant::now() + Duration::from_secs(5);
     let weak = gpu_source.unwrap();
     while weak.upgrade().is_some() {
@@ -497,6 +516,7 @@ fn gpu_interactive_oblique_keeps_full_detail_and_settles_to_canonical_cpu() {
             .zip(reference.pixels.iter())
             .all(|(a, b)| a.to_bits() == b.to_bits())
     );
+    finish_gpu_worker(worker, &device);
 }
 
 #[test]
@@ -643,7 +663,7 @@ fn sustained_oblique_input_publishes_full_detail_gpu_previews() {
     }
     drop(first);
     drop(gpu_source);
-    drop(worker);
+    finish_gpu_worker(worker, &device);
     let deadline = Instant::now() + Duration::from_secs(5);
     while weak_volume.upgrade().is_some() {
         assert!(
