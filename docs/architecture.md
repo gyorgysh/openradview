@@ -2165,11 +2165,13 @@ used by controls and Help. Remapping permits unmodified A–Z or no binding;
 duplicate assignments are rejected. Focused controls, open menus and auxiliary
 workspace dialogs retain their input. Temporary Space navigation also respects
 canvas ownership, so activating a menu button cannot cancel a coordinate edit.
-Zoom gestures retain their originating canvas while egui's smoothed wheel input
+Image and 3D panes share zoom-gesture ownership while egui's smoothed wheel input
 is active. Its remaining delta cannot zoom, pan or browse another pane, and the
 ownership clears when the scroll sequence ends, even with the pointer outside.
-For wheels without an end event, a new input after an idle gap starts a new
-sequence; an explicitly active touch keeps ownership until it ends or cancels.
+For wheels or native magnification events without phase information, a new input
+after a 150 ms idle gap starts a new sequence. Consecutive magnification events
+retain the same owner. An explicitly active wheel touch keeps ownership until
+it ends or cancels. Expiry is checked on input without scheduling idle repaints.
 
 A sleeping worker loads and atomically replaces a bounded `controls.json` in the
 per-user application settings folder. Its versioned schema stores only the tool

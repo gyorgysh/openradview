@@ -94,7 +94,8 @@ impl Input {
             self.drag = None;
         }
         let mut active = false;
-        if response.hovered() {
+        let owner = crate::viewport::zoom_scroll_owner(ui, response, true);
+        if response.hovered() && owner.is_none_or(|owner| owner == response.id) {
             ui.input(|input| {
                 let zoom = input.zoom_delta();
                 let factor = if (zoom - 1.).abs() > f32::EPSILON {

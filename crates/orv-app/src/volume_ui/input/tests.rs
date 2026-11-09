@@ -3,6 +3,124 @@ use super::*;
 use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 use orv_core::{study::demo_study, volume::Volume};
 
+#[test]
+fn zoom_scroll_tails_stay_between_the_linked_plane_and_3d_pane() {
+    for from_volume in [false, true] {
+        for wheel_tail in [false, true] {
+            let ctx = egui::Context::default();
+            let source = Volume::new(demo_study().series[0].frames.clone()).unwrap();
+            let mut volume = VolumeView::fit(&source);
+            let mut volume_input = Input::default();
+            let mut volume_display = ViewState::default();
+            let mut plane = ViewState {
+                slice: 24,
+                ..Default::default()
+            };
+            let mut scroll = 0.;
+            let mut frame = |time, pointer, extra: Vec<Event>| {
+                let mut events = vec![Event::PointerMoved(pointer)];
+                events.extend(extra);
+                let mut output = ctx.run_ui(
+                    RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(500.))),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            let (_, response) = ui.allocate_exact_size(
+                                Vec2::new(220., 400.),
+                                egui::Sense::click_and_drag(),
+                            );
+                            crate::viewport::interact(
+                                ui,
+                                &response,
+                                &mut plane,
+                                crate::viewport::Tool::Browse,
+                                48,
+                                &mut scroll,
+                            );
+                            let (_, response) = ui.allocate_exact_size(
+                                Vec2::new(220., 400.),
+                                egui::Sense::click_and_drag(),
+                            );
+                            volume_input.interact(ui, &response, &mut volume, &mut volume_display);
+                        });
+                    },
+                );
+                output.textures_delta.clear();
+                (plane.clone(), volume_display.clone())
+            };
+            let wheel = |phase, y| Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0., y),
+                phase,
+                modifiers: Modifiers::NONE,
+            };
+            let plane_pos = Pos2::new(80., 100.);
+            let volume_pos = Pos2::new(320., 100.);
+            let (origin, destination) = if from_volume {
+                (volume_pos, plane_pos)
+            } else {
+                (plane_pos, volume_pos)
+            };
+            frame(0., origin, vec![]);
+            let mut start = vec![];
+            if wheel_tail {
+                start.extend([
+                    wheel(egui::TouchPhase::Start, 0.),
+                    wheel(egui::TouchPhase::Move, -5.),
+                ]);
+            }
+            start.push(Event::Zoom(1.2));
+            let before = frame(0.01, origin, start);
+            let after = frame(
+                0.02,
+                destination,
+                if wheel_tail {
+                    vec![wheel(egui::TouchPhase::Move, -40.)]
+                } else {
+                    vec![Event::Zoom(1.1)]
+                },
+            );
+            let (foreign_before, foreign_after) = if from_volume {
+                (before.0, after.0)
+            } else {
+                (before.1, after.1)
+            };
+            assert_eq!(
+                foreign_after, foreign_before,
+                "from 3D: {from_volume}, wheel tail: {wheel_tail}"
+            );
+            frame(
+                0.03,
+                destination,
+                if wheel_tail {
+                    vec![wheel(egui::TouchPhase::End, 0.)]
+                } else {
+                    vec![]
+                },
+            );
+            let restarted = frame(
+                1.,
+                destination,
+                if wheel_tail {
+                    vec![wheel(egui::TouchPhase::Start, 0.), Event::Zoom(1.1)]
+                } else {
+                    vec![Event::Zoom(1.1)]
+                },
+            );
+            let foreign_restarted = if from_volume {
+                restarted.0
+            } else {
+                restarted.1
+            };
+            assert!(foreign_restarted.zoom > foreign_before.zoom);
+        }
+    }
+}
+
 fn drag(button: PointerButton) -> (VolumeView, ViewState) {
     drag_with_space(button, false)
 }

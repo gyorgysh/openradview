@@ -165,24 +165,13 @@ pub fn interact(
     scroll: &mut f32,
 ) {
     let rect = response.rect;
-    let suppression_id =
-        egui::Id::new("orv-viewport-zoom-owns-scroll-sequence").with(ui.ctx().viewport_id());
-    let mut ownership = zoom_scroll_ownership(ui, suppression_id);
+    let owner = zoom_scroll_owner(ui, response, tool == Tool::Zoom);
     if response.hovered() {
         let (wheel, zoom, modifiers) = ui.input_mut(|i| {
             let input = (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers);
             i.smooth_scroll_delta = egui::Vec2::ZERO;
             input
         });
-        let zoom_gesture = (zoom - 1.0).abs() > f32::EPSILON || modifiers.command || modifiers.ctrl;
-        if ownership.owner.is_none()
-            && (zoom_gesture || (tool == Tool::Zoom && wheel != egui::Vec2::ZERO))
-        {
-            ownership.owner = Some(response.id);
-            ui.ctx()
-                .data_mut(|data| data.insert_temp(suppression_id, ownership));
-        }
-        let owner = ownership.owner;
         // Egui smooths wheel input into later frames, even if the pointer
         // moves to another pane before the zoom sequence ends.
         if owner.is_none_or(|owner| owner == response.id) {
@@ -217,10 +206,34 @@ pub fn interact(
     }
 }
 
+/// Share gesture ownership between image and 3D panes in the same viewport.
+pub(crate) fn zoom_scroll_owner(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    scroll_zooms: bool,
+) -> Option<egui::Id> {
+    let id = egui::Id::new("orv-viewport-zoom-owns-scroll-sequence").with(ui.ctx().viewport_id());
+    let mut ownership = zoom_scroll_ownership(ui, id);
+    if response.hovered()
+        && ownership.owner.is_none()
+        && ui.input(|input| {
+            (input.zoom_delta() - 1.).abs() > f32::EPSILON
+                || input.modifiers.command
+                || input.modifiers.ctrl
+                || (scroll_zooms && input.smooth_scroll_delta != egui::Vec2::ZERO)
+        })
+    {
+        ownership.owner = Some(response.id);
+        ui.ctx().data_mut(|data| data.insert_temp(id, ownership));
+    }
+    ownership.owner
+}
+
 #[derive(Clone, Copy, Default)]
 struct ZoomScrollOwnership {
     owner: Option<egui::Id>,
     last_wheel: Option<f64>,
+    last_zoom: Option<f64>,
     touching: bool,
     observed_pass: Option<u64>,
 }
@@ -239,6 +252,7 @@ fn zoom_scroll_ownership(ui: &egui::Ui, id: egui::Id) -> ZoomScrollOwnership {
                         match phase {
                             egui::TouchPhase::Start => {
                                 state.owner = None;
+                                state.last_zoom = None;
                                 state.touching = true;
                             }
                             egui::TouchPhase::Move => {
@@ -255,10 +269,23 @@ fn zoom_scroll_ownership(ui: &egui::Ui, id: egui::Id) -> ZoomScrollOwnership {
                             }
                             egui::TouchPhase::End | egui::TouchPhase::Cancel => {
                                 state.owner = None;
+                                state.last_zoom = None;
                                 state.touching = false;
                             }
                         }
                         state.last_wheel = Some(input.time);
+                    }
+                    egui::Event::Zoom(_) => {
+                        // The pinned native adapter omits pinch phases. Keep
+                        // consecutive magnification events together using the
+                        // same idle gap as phase-less wheel input.
+                        if !state.touching
+                            && !input.is_scrolling()
+                            && state.last_zoom.is_none_or(|last| input.time - last > 0.150)
+                        {
+                            state.owner = None;
+                        }
+                        state.last_zoom = Some(input.time);
                     }
                     egui::Event::WindowFocused(false) => {
                         state = ZoomScrollOwnership::default();
@@ -266,7 +293,10 @@ fn zoom_scroll_ownership(ui: &egui::Ui, id: egui::Id) -> ZoomScrollOwnership {
                     _ => {}
                 }
             }
-            if !input.is_scrolling() {
+            let zooming = state
+                .last_zoom
+                .is_some_and(|last| input.time - last <= 0.150);
+            if !input.is_scrolling() && !zooming {
                 state.owner = None;
                 state.touching = false;
             }
