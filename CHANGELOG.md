@@ -44,6 +44,8 @@ for controls and limits.
   hidden.
 - Rapid arrow-key presses no longer skip slice steps, and quick brush strokes
   keep their endpoints. Zoom gestures stay in the pane where they started.
+- Update checks and downloads can use GitHub's public asset API when its web
+  download route returns a server error. Signature and archive checks still apply.
 - Fixed an update check that could start after automatic checks were switched off.
   If the first preference cannot be saved, the viewer shows that checks are off
   for the current run and offers a retry.

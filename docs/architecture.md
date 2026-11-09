@@ -2149,6 +2149,11 @@ check as starting under the same lock. An already starting check may finish afte
 the user turns checks off. Downloads/installations and restart are
 separate user actions. Ed25519 signatures bind exact manifest bytes; target,
 version, name, size and hashes are checked before bounded extraction.
+If GitHub's web download route returns a server error, the updater can use the
+public release-asset API. Metadata has a byte/count bound, requires a stable tag
+and selects an exact asset name. URLs are constructed from the fixed repository
+and numeric asset ID; metadata-supplied URLs are ignored. The envelope signature
+and archive hash remain authoritative, and no GitHub credentials are used.
 
 Managed installations are staged beside the app, audited and swapped with a
 complete rollback copy. Package-manager locations, added or missing files and
