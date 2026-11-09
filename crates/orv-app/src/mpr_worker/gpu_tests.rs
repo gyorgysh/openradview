@@ -44,10 +44,17 @@ pub(crate) fn source(subnormal: bool) -> Vec<Arc<Frame>> {
         })
         .collect()
 }
+// Shader compilation and software GPU completion can exceed the CPU-only
+// helper's wait. This is a completion bound, not an interaction latency check.
+const GPU_WAIT: Duration = Duration::from_secs(30);
+fn wait(worker: &MprWorker) -> Result<MprSnapshot, String> {
+    tests::wait_for(worker, GPU_WAIT)
+}
 fn settled(worker: &MprWorker, gpu: bool) -> MprSnapshot {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + GPU_WAIT;
     loop {
-        let snapshot = tests::wait(worker).unwrap();
+        let snapshot =
+            tests::wait_for(worker, deadline.saturating_duration_since(Instant::now())).unwrap();
         if !snapshot.preview
             && snapshot
                 .gpu_images
@@ -114,7 +121,7 @@ fn changed_sampling_cancels_gpu_preview_and_the_next_view_still_matches_the_sour
 
     let (device, queue) = device();
     let mut producer = MprWorker::start(source(false), egui::Context::default());
-    let volume = tests::wait(&producer).unwrap().volume;
+    let volume = wait(&producer).unwrap().volume;
     let handle = producer.worker.take().unwrap();
     drop(producer);
     handle.join().unwrap();
@@ -208,7 +215,7 @@ fn inactive_mpr_releases_gpu_source_and_stays_quiet_until_resumed_at_its_latest_
 fn gpu_navigation_reuses_unchanged_planes_and_source_across_canonical_mode_and_releases_on_close() {
     let (device, queue) = device();
     let mut worker = MprWorker::start(source(false), egui::Context::default());
-    drop(tests::wait(&worker).unwrap());
+    drop(wait(&worker).unwrap());
     worker.offer_gpu(&device, &queue);
     let first = settled(&worker, true);
     verify(&first);
@@ -217,7 +224,7 @@ fn gpu_navigation_reuses_unchanged_planes_and_source_across_canonical_mode_and_r
     let mut point = first.point;
     point[2] += 1.1;
     worker.request_interactive(point, 512);
-    let moving = tests::wait(&worker).unwrap();
+    let moving = wait(&worker).unwrap();
     assert!(moving.preview);
     verify(&moving);
     assert_eq!(moving.reformat_side, 512);
@@ -300,7 +307,7 @@ fn sustained_requests_publish_complete_gpu_previews_before_input_stops() {
         ),
     ] {
         let mut worker = MprWorker::start(source(false), egui::Context::default());
-        drop(tests::wait(&worker).unwrap());
+        drop(wait(&worker).unwrap());
         worker.offer_gpu(&device, &queue);
         let initial = settled(&worker, true);
         if slab.is_some() {
@@ -404,7 +411,7 @@ fn translated_sheared_slab_reuse_matches_fresh_source_planes_on_gpu() {
         })
         .collect::<Vec<_>>();
     let mut worker = MprWorker::start(frames, egui::Context::default());
-    drop(tests::wait(&worker).unwrap());
+    drop(wait(&worker).unwrap());
     worker.offer_gpu(&device, &queue);
     let first = settled(&worker, true);
     let slab = Slab {
@@ -447,7 +454,7 @@ fn gpu_slab_navigation_keeps_full_sampling_and_subnormal_fallback_keeps_exact_va
     let (device, queue) = device();
     for subnormal in [false, true] {
         let mut worker = MprWorker::start(source(subnormal), egui::Context::default());
-        drop(tests::wait(&worker).unwrap());
+        drop(wait(&worker).unwrap());
         worker.offer_gpu(&device, &queue);
         let first = settled(&worker, !subnormal);
         verify(&first);
@@ -461,7 +468,7 @@ fn gpu_slab_navigation_keeps_full_sampling_and_subnormal_fallback_keeps_exact_va
             let mut point = first.point;
             point[2] += 0.75;
             worker.request_slab(point, 512, Some(slab));
-            let moving = tests::wait(&worker).unwrap();
+            let moving = wait(&worker).unwrap();
             assert!(moving.preview);
             assert_eq!(moving.reformat_side, 512);
             assert!(moving.images[0].width > 128);
