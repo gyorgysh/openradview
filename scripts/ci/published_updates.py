@@ -67,6 +67,7 @@ def main():
         subprocess.run([*command, *paths],
                        cwd=ROOT, env=environment, check=True, timeout=1200)
         verify_live([*command, '--live-only', paths[1], paths[3]], environment)
+        verify_live([*command, '--live-api-only', paths[1], paths[3]], environment)
 
 
 if __name__ == '__main__':

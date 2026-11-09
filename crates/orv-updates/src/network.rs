@@ -7,7 +7,7 @@ use std::{
     path::Path,
     time::Duration,
 };
-mod github_api;
+pub(crate) mod github_api;
 
 fn allowed(url: &reqwest::Url) -> bool {
     url.scheme() == "https"
@@ -24,7 +24,7 @@ fn allowed(url: &reqwest::Url) -> bool {
             )
         )
 }
-fn client(version: &str, timeout: Duration) -> Result<Client> {
+pub(crate) fn client(version: &str, timeout: Duration) -> Result<Client> {
     Client::builder()
         .https_only(true)
         .no_proxy()
@@ -41,7 +41,7 @@ fn client(version: &str, timeout: Duration) -> Result<Client> {
         .build()
         .map_err(|_| "Cannot initialize the update connection.")
 }
-fn status(response: &reqwest::blocking::Response) -> Result<()> {
+pub(crate) fn status(response: &reqwest::blocking::Response) -> Result<()> {
     match response.status().as_u16() {
         200 => Ok(()),
         403 | 429 => Err("GitHub is limiting update requests. Try again later."),
