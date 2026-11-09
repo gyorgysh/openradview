@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 pub(super) fn source() -> Arc<GpuVolumeSource> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

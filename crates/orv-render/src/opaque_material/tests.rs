@@ -19,6 +19,7 @@ use std::{
 const BACKGROUND: f64 = 0.0030352698;
 fn device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
@@ -505,6 +506,7 @@ fn invalid_or_cancelled_scenes_never_publish_or_modify_a_completed_image() {
 #[test]
 fn constrained_real_device_refuses_checked_masks_and_still_renders_materials() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

@@ -115,6 +115,7 @@ fn main() -> Result<()> {
     let volume = source(padding)?;
     let generation_ms = total.elapsed().as_secs_f64() * 1000.;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

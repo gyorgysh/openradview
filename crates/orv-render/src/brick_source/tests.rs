@@ -8,6 +8,7 @@ use std::{cell::Cell, sync::mpsc, time::Duration};
 use wgpu::util::DeviceExt;
 pub(crate) fn device(side: Option<u32>) -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

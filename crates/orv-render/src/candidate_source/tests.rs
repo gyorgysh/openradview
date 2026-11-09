@@ -35,6 +35,7 @@ use std::{
 
 fn device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

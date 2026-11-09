@@ -17,8 +17,8 @@ fn stencil_scalar(stencil:ScalarStencil)->f32 {
     let v5=textureLoad(source,vec3i(b.x,a.y,b.z),0).r;
     let v6=textureLoad(source,vec3i(a.x,b.y,b.z),0).r;
     let v7=textureLoad(source,b,0).r;
-    let value=mix(mix(mix(v0,v1,t.x),mix(v2,v3,t.x),t.y),
-                  mix(mix(v4,v5,t.x),mix(v6,v7,t.x),t.y),t.z);
+    let value=scalar_mix(scalar_mix(scalar_mix(v0,v1,t.x),scalar_mix(v2,v3,t.x),t.y),
+                  scalar_mix(scalar_mix(v4,v5,t.x),scalar_mix(v6,v7,t.x),t.y),t.z);
     return value;
 }
 fn stencil_valid(stencil:ScalarStencil)->bool {

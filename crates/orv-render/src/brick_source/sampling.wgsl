@@ -34,11 +34,11 @@ fn brick_scalar_stencil(point:vec3f)->BrickValue {
             if w.x*w.y*w.z>0. && textureLoad(brick_validity,select(a,b,hi),0).r==0u {return BrickValue(0.,BRICK_MISSING);}
         }}}
     }
-    let c00=mix(textureLoad(brick_values,a,0).r,textureLoad(brick_values,vec3i(b.x,a.y,a.z),0).r,t.x);
-    let c10=mix(textureLoad(brick_values,vec3i(a.x,b.y,a.z),0).r,textureLoad(brick_values,vec3i(b.x,b.y,a.z),0).r,t.x);
-    let c01=mix(textureLoad(brick_values,vec3i(a.x,a.y,b.z),0).r,textureLoad(brick_values,vec3i(b.x,a.y,b.z),0).r,t.x);
-    let c11=mix(textureLoad(brick_values,vec3i(a.x,b.y,b.z),0).r,textureLoad(brick_values,b,0).r,t.x);
-    return BrickValue(mix(mix(c00,c10,t.y),mix(c01,c11,t.y),t.z),BRICK_KNOWN);
+    let c00=scalar_mix(textureLoad(brick_values,a,0).r,textureLoad(brick_values,vec3i(b.x,a.y,a.z),0).r,t.x);
+    let c10=scalar_mix(textureLoad(brick_values,vec3i(a.x,b.y,a.z),0).r,textureLoad(brick_values,vec3i(b.x,b.y,a.z),0).r,t.x);
+    let c01=scalar_mix(textureLoad(brick_values,vec3i(a.x,a.y,b.z),0).r,textureLoad(brick_values,vec3i(b.x,a.y,b.z),0).r,t.x);
+    let c11=scalar_mix(textureLoad(brick_values,vec3i(a.x,b.y,b.z),0).r,textureLoad(brick_values,b,0).r,t.x);
+    return BrickValue(scalar_mix(scalar_mix(c00,c10,t.y),scalar_mix(c01,c11,t.y),t.z),BRICK_KNOWN);
 }
 fn brick_scalar(point:vec3f)->BrickValue {
     let status=brick_ownership(point);

@@ -28,7 +28,7 @@ mod voi;
 pub mod volume;
 pub mod volume_source;
 mod volume_uniform;
-pub use backend::{configured_backends, device_descriptor};
+pub use backend::{configured_backends, device_descriptor, instance_flags};
 
 /// Never select a web backend. macOS uses Metal exclusively.
 pub fn native_backends() -> wgpu::Backends {
@@ -44,6 +44,8 @@ pub fn native_backends() -> wgpu::Backends {
 pub use volume::allocation::GpuReservation;
 
 pub(crate) const VOLUME_SAMPLING_SHADER: &str = concat!(
+    include_str!("scalar_interpolation.wgsl"),
+    "\n",
     include_str!("volume_interval.wgsl"),
     "\n",
     include_str!("volume_sampling.wgsl")

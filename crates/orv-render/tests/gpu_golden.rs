@@ -8,6 +8,7 @@ fn local_slice_target_can_be_composed_without_relabeling_an_ordinary_snapshot() 
     use orv_core::scene::SceneState;
     use orv_render::snapshot::SnapshotRenderer;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
@@ -340,6 +341,7 @@ fn production_snapshot_png_matches_pixels_manifest_and_cancellation() {
 #[test]
 fn offscreen_scalar_golden_including_inversion() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
@@ -1007,6 +1009,7 @@ fn float_pixels_keep_extreme_finite_values_fractional_windows_and_missing_sample
 fn interactive_windows_spanning_extreme_finite_values_keep_their_scale_on_the_gpu() {
     use orv_core::VoiFunction;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

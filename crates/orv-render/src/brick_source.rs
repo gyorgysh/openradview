@@ -17,11 +17,15 @@ pub(crate) mod tests;
 
 pub const MAX_RESIDENT_BRICK_BYTES: u64 = 256 * 1024 * 1024;
 pub const BRICK_SAMPLING_SHADER: &str = concat!(
+    include_str!("scalar_interpolation.wgsl"),
+    "\n",
     include_str!("brick_source/status.wgsl"),
     "\n",
     include_str!("brick_source/sampling.wgsl")
 );
 pub const ATLAS_SAMPLING_SHADER: &str = concat!(
+    include_str!("scalar_interpolation.wgsl"),
+    "\n",
     include_str!("brick_source/status.wgsl"),
     "\n",
     include_str!("brick_source/atlas.wgsl")

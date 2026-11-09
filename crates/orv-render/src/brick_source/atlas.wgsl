@@ -35,11 +35,11 @@ fn atlas_stencil(point:vec3f,page:u32)->AtlasValue {
             if w.x*w.y*w.z>0. && textureLoad(atlas_validity,select(a,b,hi),0).r==0u {return AtlasValue(0.,BRICK_MISSING,page);}
         }}}
     }
-    let c00=mix(textureLoad(atlas_values,a,0).r,textureLoad(atlas_values,vec3i(b.x,a.y,a.z),0).r,t.x);
-    let c10=mix(textureLoad(atlas_values,vec3i(a.x,b.y,a.z),0).r,textureLoad(atlas_values,vec3i(b.x,b.y,a.z),0).r,t.x);
-    let c01=mix(textureLoad(atlas_values,vec3i(a.x,a.y,b.z),0).r,textureLoad(atlas_values,vec3i(b.x,a.y,b.z),0).r,t.x);
-    let c11=mix(textureLoad(atlas_values,vec3i(a.x,b.y,b.z),0).r,textureLoad(atlas_values,b,0).r,t.x);
-    return AtlasValue(mix(mix(c00,c10,t.y),mix(c01,c11,t.y),t.z),BRICK_KNOWN,page);
+    let c00=scalar_mix(textureLoad(atlas_values,a,0).r,textureLoad(atlas_values,vec3i(b.x,a.y,a.z),0).r,t.x);
+    let c10=scalar_mix(textureLoad(atlas_values,vec3i(a.x,b.y,a.z),0).r,textureLoad(atlas_values,vec3i(b.x,b.y,a.z),0).r,t.x);
+    let c01=scalar_mix(textureLoad(atlas_values,vec3i(a.x,a.y,b.z),0).r,textureLoad(atlas_values,vec3i(b.x,a.y,b.z),0).r,t.x);
+    let c11=scalar_mix(textureLoad(atlas_values,vec3i(a.x,b.y,b.z),0).r,textureLoad(atlas_values,b,0).r,t.x);
+    return AtlasValue(scalar_mix(scalar_mix(c00,c10,t.y),scalar_mix(c01,c11,t.y),t.z),BRICK_KNOWN,page);
 }
 fn atlas_scalar(point:vec3f)->AtlasValue {
     let maximum=vec3f(atlas.dimensions.xyz)-1.;

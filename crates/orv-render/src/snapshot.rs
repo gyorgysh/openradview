@@ -105,6 +105,7 @@ pub struct SnapshotRenderer {
 impl SnapshotRenderer {
     pub async fn new() -> Result<Self, &'static str> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            flags: crate::instance_flags(),
             backends: crate::configured_backends()?,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });

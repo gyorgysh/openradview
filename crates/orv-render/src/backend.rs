@@ -2,6 +2,17 @@
 //! Native backend selection shared by the window and offscreen renderer.
 use wgpu::{Backend, Backends, DownlevelFlags, Limits};
 
+/// Preserve native validation while allowing FXC to lower bounded dynamic loops.
+pub fn instance_flags() -> wgpu::InstanceFlags {
+    let mut flags = wgpu::InstanceFlags::default();
+    // wgpu's DEBUG flag also selects D3DCOMPILE_SKIP_OPTIMIZATION. FXC cannot
+    // compile some bounded, dynamically indexed WGSL loops in that mode.
+    if cfg!(target_os = "windows") {
+        flags.remove(wgpu::InstanceFlags::DEBUG);
+    }
+    flags
+}
+
 pub fn configured_backends() -> Result<Backends, &'static str> {
     let requested = std::env::var("WGPU_BACKEND");
     match requested {

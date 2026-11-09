@@ -9,6 +9,7 @@ use orv_core::{
 use std::{sync::mpsc, time::Duration};
 fn device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
@@ -499,6 +500,7 @@ fn exact_parallel_faces_empty_masks_and_invalid_projection_inputs_are_explicit()
 #[test]
 fn constrained_real_device_keeps_legacy_rendering_and_refuses_mask_projection() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

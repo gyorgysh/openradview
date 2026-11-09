@@ -3,7 +3,10 @@
 OpenRadView is a Rust 2024 Cargo workspace. Dependency versions and the toolchain
 are pinned. Rendering is native wgpu; egui/eframe owns the desktop shell. macOS
 selects Metal; Windows selects DX12/Vulkan and Linux allows Vulkan/OpenGL. Core and
-rendering code remain independent of the UI.
+rendering code remain independent of the UI. Native instances share the same
+validation flags. Windows keeps shader optimization enabled in debug builds:
+FXC cannot lower some bounded, dynamically indexed loops with optimization off.
+Backend validation remains enabled in debug builds.
 
 | Crate | Responsibility |
 | --- | --- |
@@ -22,6 +25,9 @@ They are not implicitly added to existing saved scenes or snapshot parameters.
 The CPU gradient reference transforms index derivatives by the affine inverse
 transpose, including regular shear. Its boundary stencil stays within the source;
 missing samples give no gradient, and constant fields give no surface normal.
+GPU scalar interpolation preserves equal endpoints exactly, preventing rounded
+constant samples from introducing a lighting normal. Dense, classified and paged
+sources use the same interpolation rule.
 Normalizing by component scale avoids an intensity-unit cutoff. These definitions
 allow derived rendering to be checked independently of a GPU shader.
 

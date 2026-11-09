@@ -9,6 +9,7 @@ use orv_mcp::{broker::RequestBroker, consent::BearerToken, http::ServerStatus};
 fn local_gpu_frames_can_be_captured_but_inbound_review_waits_for_canonical_frames() {
     let ctx = egui::Context::default();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

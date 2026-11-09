@@ -9,6 +9,7 @@ fn recovered_slice_requests_one_repaint_to_clear_the_old_error() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
@@ -94,6 +95,7 @@ fn recovered_slice_requests_one_repaint_to_clear_the_old_error() {
 #[test]
 fn four_gpu_viewports_keep_independent_images_settings_and_release_closed_slots() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

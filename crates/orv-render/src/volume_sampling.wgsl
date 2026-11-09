@@ -5,11 +5,11 @@ fn scalar(point:vec3f)->f32 {
     let maximum=vec3i(textureDimensions(source))-1;
     let q=clamp(point,vec3f(0.),vec3f(maximum));
     let a=vec3i(floor(q)); let b=min(a+1,maximum); let t=fract(q);
-    let c00=mix(textureLoad(source,a,0).r,textureLoad(source,vec3i(b.x,a.y,a.z),0).r,t.x);
-    let c10=mix(textureLoad(source,vec3i(a.x,b.y,a.z),0).r,textureLoad(source,vec3i(b.x,b.y,a.z),0).r,t.x);
-    let c01=mix(textureLoad(source,vec3i(a.x,a.y,b.z),0).r,textureLoad(source,vec3i(b.x,a.y,b.z),0).r,t.x);
-    let c11=mix(textureLoad(source,vec3i(a.x,b.y,b.z),0).r,textureLoad(source,b,0).r,t.x);
-    return mix(mix(c00,c10,t.y),mix(c01,c11,t.y),t.z);
+    let c00=scalar_mix(textureLoad(source,a,0).r,textureLoad(source,vec3i(b.x,a.y,a.z),0).r,t.x);
+    let c10=scalar_mix(textureLoad(source,vec3i(a.x,b.y,a.z),0).r,textureLoad(source,vec3i(b.x,b.y,a.z),0).r,t.x);
+    let c01=scalar_mix(textureLoad(source,vec3i(a.x,a.y,b.z),0).r,textureLoad(source,vec3i(b.x,a.y,b.z),0).r,t.x);
+    let c11=scalar_mix(textureLoad(source,vec3i(a.x,b.y,b.z),0).r,textureLoad(source,b,0).r,t.x);
+    return scalar_mix(scalar_mix(c00,c10,t.y),scalar_mix(c01,c11,t.y),t.z);
 }
 // Each byte retains the source validity at bit zero and its positive stencil
 // in bits x+2*y+4*z. Duplicate edge nodes are packed with clamped coordinates.

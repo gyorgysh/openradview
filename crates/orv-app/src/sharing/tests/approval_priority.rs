@@ -63,6 +63,7 @@ fn inbound_approval_waits_for_local_dialogs_then_escape_denies_without_a_grant()
             "export" => {
                 use eframe::egui_wgpu::wgpu;
                 let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                    flags: orv_render::instance_flags(),
                     backends: orv_render::configured_backends().expect("Native backend selection"),
                     ..wgpu::InstanceDescriptor::new_without_display_handle()
                 });

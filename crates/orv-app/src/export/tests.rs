@@ -87,6 +87,7 @@ fn reformat_verification_accepts_reordered_source_and_rejects_stale_pixels() {
 fn local_export_uses_real_gpu_display_parameters_and_preserves_provenance() {
     use eframe::egui_wgpu::wgpu;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

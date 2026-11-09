@@ -11,7 +11,7 @@ fn material(value:f32)->vec2f {
         let b=p.points[i];
         if value<=b.x {
             let t=clamp((value-a.x)/(b.x-a.x),0.,1.);
-            return mix(a.yz,b.yz,t);
+            return select(mix(a.yz,b.yz,t),a.yz,a.yz==b.yz);
         }
         a=b;
     }

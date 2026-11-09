@@ -390,6 +390,7 @@ fn classification_refuses_foreign_owners_knots_and_cancelled_or_unadmitted_prepa
 #[test]
 fn zero_flag_classifications_keep_the_original_two_group_gpu_fallback() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

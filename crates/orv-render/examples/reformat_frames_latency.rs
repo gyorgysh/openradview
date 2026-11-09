@@ -70,6 +70,7 @@ fn main() -> Result<()> {
         _ => return Err("Use no arguments, --mpr-33 or --mpr-33-crossing".into()),
     };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends()?,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

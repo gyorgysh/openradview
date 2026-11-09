@@ -5,6 +5,7 @@ use std::{sync::mpsc, time::Duration};
 #[test]
 fn gl_compatible_display_matches_hardware_srgb_interpolation_and_framebuffer_encoding() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

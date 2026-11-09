@@ -119,6 +119,7 @@ fn main() -> Result<()> {
     let quick = std::env::args().skip(1).any(|v| v == "--quick");
     let classify = std::env::args().skip(1).any(|v| v == "--classified");
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends()?,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

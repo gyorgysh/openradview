@@ -21,6 +21,7 @@ use std::{
 
 fn device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
@@ -485,6 +486,7 @@ fn failed_replacements_and_cancellation_leave_prior_uploads_and_images_unchanged
 #[test]
 fn constrained_real_device_refuses_supplied_addresses_and_keeps_manual_projection() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

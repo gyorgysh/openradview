@@ -78,6 +78,7 @@ fn volume(constant: Option<f32>, monochrome1: bool) -> Arc<Volume> {
 }
 fn device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

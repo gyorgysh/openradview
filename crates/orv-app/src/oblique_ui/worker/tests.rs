@@ -381,6 +381,7 @@ fn interactive_slabs_refine_after_quiet_and_drop_busy_private_sources() {
 fn gpu_interactive_oblique_keeps_full_detail_and_settles_to_canonical_cpu() {
     use orv_core::slab::{Slab, SlabProjection};
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
@@ -503,6 +504,7 @@ fn sustained_oblique_input_publishes_full_detail_gpu_previews() {
     use orv_core::slab::{Slab, SlabProjection};
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

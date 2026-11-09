@@ -119,6 +119,7 @@ fn run(
     let mut gpu = serde_json::Value::Null;
     if !cpu_only {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            flags: orv_render::instance_flags(),
             backends: orv_render::configured_backends()?,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });

@@ -49,6 +49,7 @@ fn oversized_source_is_rejected_before_creating_a_gpu_texture() {
 #[test]
 fn a_display_only_device_rejects_volume_before_creating_a_compute_pipeline() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

@@ -12,11 +12,11 @@ fn ref_value(point:vec3f)->BrickValue {
         let hi=vec3<bool>(x==1u,y==1u,z==1u);let w=select(vec3f(1.)-t,t,hi);
         if w.x*w.y*w.z>0. && reference_validity[ref_index(select(a,b,hi))]==0u {return BrickValue(0.,BRICK_MISSING);}
     }}}
-    let c00=mix(reference_values[ref_index(a)],reference_values[ref_index(vec3u(b.x,a.y,a.z))],t.x);
-    let c10=mix(reference_values[ref_index(vec3u(a.x,b.y,a.z))],reference_values[ref_index(vec3u(b.x,b.y,a.z))],t.x);
-    let c01=mix(reference_values[ref_index(vec3u(a.x,a.y,b.z))],reference_values[ref_index(vec3u(b.x,a.y,b.z))],t.x);
-    let c11=mix(reference_values[ref_index(vec3u(a.x,b.y,b.z))],reference_values[ref_index(b)],t.x);
-    return BrickValue(mix(mix(c00,c10,t.y),mix(c01,c11,t.y),t.z),BRICK_KNOWN);
+    let c00=scalar_mix(reference_values[ref_index(a)],reference_values[ref_index(vec3u(b.x,a.y,a.z))],t.x);
+    let c10=scalar_mix(reference_values[ref_index(vec3u(a.x,b.y,a.z))],reference_values[ref_index(vec3u(b.x,b.y,a.z))],t.x);
+    let c01=scalar_mix(reference_values[ref_index(vec3u(a.x,a.y,b.z))],reference_values[ref_index(vec3u(b.x,a.y,b.z))],t.x);
+    let c11=scalar_mix(reference_values[ref_index(vec3u(a.x,b.y,b.z))],reference_values[ref_index(b)],t.x);
+    return BrickValue(scalar_mix(scalar_mix(c00,c10,t.y),scalar_mix(c01,c11,t.y),t.z),BRICK_KNOWN);
 }
 fn ref_gradient(point:vec3f)->BrickGradient {
     let centre=ref_value(point);if centre.status!=BRICK_KNOWN {return BrickGradient(vec3f(0.),centre.status);}

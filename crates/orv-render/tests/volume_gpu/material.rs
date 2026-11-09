@@ -226,7 +226,7 @@ fn homogeneous_optical_slab_matches_beer_lambert_at_both_step_sizes() {
                     let pixel = values[(y * size[0] + x) as usize];
                     assert!(
                         (pixel[0] - expected).abs() < 0.0006,
-                        "{quality:?}: {pixel:?} != {expected}"
+                        "{quality:?}, {lighting:?}: {pixel:?} != {expected}"
                     );
                     assert_eq!(pixel[0], pixel[1]);
                     assert_eq!(pixel[1], pixel[2]);

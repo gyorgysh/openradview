@@ -219,6 +219,8 @@ fn accelerated_visibility_keeps_the_display_threshold_after_transparent_foregrou
     });
     let gpu = GpuVolumeSource::new(&d, &q, cpu.clone(), || false).unwrap();
     let owner = MaskOwner::Manual(labels(cpu, |_, y, _| if y == 32 { 7 } else { 0 }));
+    // The final camera needs a fresh projection. Avoid retaining a redundant
+    // 2048-side setup projection against the software adapter's 256 MiB budget.
     let mut scene = scene(&gpu, owner.clone(), 7, [1; 2]);
     scene.navigation.pan = [0.; 2];
     scene.material = optical(-1000., 1.);
@@ -537,7 +539,9 @@ fn accelerated_complete_2048_image_and_tiled_refinement_keep_the_requested_pixel
     });
     let gpu = GpuVolumeSource::new(&d, &q, cpu.clone(), || false).unwrap();
     let owner = MaskOwner::Manual(labels(cpu, |_, y, _| if y == 12 { 7 } else { 0 }));
-    let mut scene = scene(&gpu, owner.clone(), 7, [2048; 2]);
+    // The final camera needs a fresh projection. Avoid retaining a redundant
+    // 2048-side setup projection against the software adapter's 256 MiB budget.
+    let mut scene = scene(&gpu, owner.clone(), 7, [1; 2]);
     scene.material = optical(-1000., 0.03);
     scene.volume.camera.yaw_degrees = 31.;
     scene.volume.camera.pitch_degrees = -17.;

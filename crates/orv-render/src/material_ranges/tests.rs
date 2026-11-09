@@ -15,6 +15,7 @@ use std::{cell::Cell, sync::mpsc, time::Duration};
 
 fn device(change: impl FnOnce(&mut wgpu::Limits)) -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: crate::instance_flags(),
         backends: crate::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
