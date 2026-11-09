@@ -179,7 +179,12 @@ impl GpuSurfaceProjector {
             multiview_mask: None,
             cache: None,
         });
-        let invalid = pollster::block_on(validation.pop()).is_some();
+        let validation_error = pollster::block_on(validation.pop());
+        #[cfg(test)]
+        if let Some(error) = &validation_error {
+            eprintln!("{error}");
+        }
+        let invalid = validation_error.is_some();
         let exhausted = pollster::block_on(memory.pop()).is_some();
         if invalid || exhausted {
             return Err("The graphics device could not prepare cell-boundary projection");
