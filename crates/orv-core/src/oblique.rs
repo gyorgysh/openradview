@@ -101,8 +101,29 @@ impl Volume {
         request: (u32, Option<crate::slab::Slab>),
         cancel: impl Fn() -> bool,
     ) -> Result<Arc<Frame>, GeometryError> {
+        let grid = self.oblique_grid(plane, request.0, request.1)?;
+        self.resample_grid(&grid, cancel)
+    }
+    pub fn oblique_grid(
+        &self,
+        plane: &ObliquePlane,
+        max_side: u32,
+        slab: Option<crate::slab::Slab>,
+    ) -> Result<crate::volume::ReformatGrid, GeometryError> {
         plane.validate()?;
         let (u, v) = (plane.column_direction, plane.row_direction);
+        // Exact anatomical axes use world bounds directly. Projecting corners
+        // relative to an in-plane pivot can otherwise round the same plane to
+        // different grids, defeating reuse of unchanged linked MPR planes.
+        let anatomical = match (u, v) {
+            ([1., 0., 0.], [0., 1., 0.]) => Some(crate::Plane::Axial),
+            ([1., 0., 0.], [0., 0., -1.]) => Some(crate::Plane::Coronal),
+            ([0., 1., 0.], [0., 0., -1.]) => Some(crate::Plane::Sagittal),
+            _ => None,
+        };
+        if let Some(anatomical) = anatomical {
+            return self.anatomical_grid(anatomical, plane.center_mm, max_side, slab);
+        }
         let mut minimum = [f64::INFINITY; 2];
         let mut maximum = [f64::NEG_INFINITY; 2];
         // Project the actual affine corners, preserving regular shear.
@@ -114,13 +135,12 @@ impl Volume {
             }
         }
         let position = add(plane.center_mm, add(mul(u, minimum[0]), mul(v, minimum[1])));
-        self.resample(
+        self.sampling_grid(
             position,
             u,
             v,
             std::array::from_fn(|i| maximum[i] - minimum[i]),
-            request,
-            cancel,
+            (max_side, slab),
         )
     }
 }

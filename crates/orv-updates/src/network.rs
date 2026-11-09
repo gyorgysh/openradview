@@ -7,6 +7,7 @@ use std::{
     path::Path,
     time::Duration,
 };
+pub(crate) mod github_api;
 
 fn allowed(url: &reqwest::Url) -> bool {
     url.scheme() == "https"
@@ -23,7 +24,7 @@ fn allowed(url: &reqwest::Url) -> bool {
             )
         )
 }
-fn client(version: &str, timeout: Duration) -> Result<Client> {
+pub(crate) fn client(version: &str, timeout: Duration) -> Result<Client> {
     Client::builder()
         .https_only(true)
         .no_proxy()
@@ -40,7 +41,7 @@ fn client(version: &str, timeout: Duration) -> Result<Client> {
         .build()
         .map_err(|_| "Cannot initialize the update connection.")
 }
-fn status(response: &reqwest::blocking::Response) -> Result<()> {
+pub(crate) fn status(response: &reqwest::blocking::Response) -> Result<()> {
     match response.status().as_u16() {
         200 => Ok(()),
         403 | 429 => Err("GitHub is limiting update requests. Try again later."),
@@ -49,13 +50,22 @@ fn status(response: &reqwest::blocking::Response) -> Result<()> {
     }
 }
 pub(crate) fn manifest(version: &str) -> Result<Vec<u8>> {
-    let response = client(version, Duration::from_secs(30))?
+    let client = client(version, Duration::from_secs(30))?;
+    let mut response = client
         .get(format!(
             "https://github.com/{REPOSITORY}/releases/latest/download/update-{TARGET}.json"
         ))
         .header("Accept", "application/json")
         .send()
         .map_err(|_| "Cannot reach GitHub for updates.")?;
+    if response.status().is_server_error() {
+        #[cfg(feature = "release-validation")]
+        eprintln!(
+            "GitHub web manifest route returned {}; using the public asset API",
+            response.status()
+        );
+        response = github_api::manifest(&client)?;
+    }
     status(&response)?;
     if response.content_length().is_some_and(|n| n > 64 * 1024) {
         return Err("The update manifest is too large.");
@@ -76,11 +86,20 @@ pub(crate) fn download(
     path: &Path,
     mut progress: impl FnMut(u64),
 ) -> Result<()> {
-    let mut response = client(version, Duration::from_secs(15 * 60))?
+    let client = client(version, Duration::from_secs(15 * 60))?;
+    let mut response = client
         .get(manifest.url())
         .header("Accept", "application/octet-stream")
         .send()
         .map_err(|_| "Cannot download the update from GitHub.")?;
+    if response.status().is_server_error() {
+        #[cfg(feature = "release-validation")]
+        eprintln!(
+            "GitHub web archive route returned {}; using the public asset API",
+            response.status()
+        );
+        response = github_api::archive(&client, manifest)?;
+    }
     status(&response)?;
     if response
         .content_length()

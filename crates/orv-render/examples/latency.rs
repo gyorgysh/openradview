@@ -1,12 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Explicit local synthetic benchmark. Fences GPU work; no patient input, file I/O or network.
 use orv_core::{
-    ViewState, WindowLevel,
+    Plane, ViewState, WindowLevel,
+    oblique::ObliquePlane,
+    slab::{Slab, SlabProjection},
     study::{Frame, Geometry},
     volume::Volume,
-    volume_view::{Quality, VolumeView},
+    volume_material::{MaterialPoint, VolumeMaterial},
+    volume_view::{Projection, Quality, VolumeView},
 };
-use orv_render::{slice::SliceRenderer, volume::VolumeRenderer};
+use orv_render::{
+    material_volume::{Lighting, MaterialVolumeRenderer},
+    reslice::GpuReslicer,
+    slice::SliceRenderer,
+    volume::VolumeRenderer,
+    volume_source::GpuVolumeSource,
+};
 use serde_json::{Value, json};
 use std::{
     error::Error,
@@ -36,6 +45,7 @@ fn source(padding: bool) -> Result<Arc<Volume>> {
                 })
                 .collect::<Vec<_>>();
             Arc::new(Frame {
+                memory: None,
                 presentation: None,
                 calibration: None,
                 projection: None,
@@ -105,6 +115,7 @@ fn main() -> Result<()> {
     let volume = source(padding)?;
     let generation_ms = total.elapsed().as_secs_f64() * 1000.;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
@@ -163,67 +174,240 @@ fn main() -> Result<()> {
         },
         120,
     )?;
+    let before_volume = orv_core::resources::MemoryBudget::gpu().used();
     let upload = Instant::now();
-    let mut engine = VolumeRenderer::new(&device, &queue, volume.clone(), format, || false)?;
+    let source = GpuVolumeSource::new(&device, &queue, volume.clone(), || false)?;
+    let mut engine = VolumeRenderer::from_source(source.clone(), format, || false)?;
     let upload_ms = upload.elapsed().as_secs_f64() * 1000.;
-    let mut state = VolumeView::fit(&volume);
-    state.quality = Quality::Interactive;
-    let interactive = measure(
-        |index| {
-            state.camera.yaw_degrees = 25. + index as f64 * 0.1;
-            let mut encoder = device.create_command_encoder(&Default::default());
-            engine.render(&device, &mut encoder, &display, &state, [256, 256])?;
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("synthetic volume paint"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &target,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                engine.paint(&mut pass);
-            }
-            submit(&device, &queue, encoder)
+    // Freeze display/camera state so each projection is measured on the same rays.
+    display.window = WindowLevel::BONE;
+    let mut cases = Vec::new();
+    for projection in [Projection::Maximum, Projection::Composite] {
+        let mut state = VolumeView::fit(&volume);
+        state.projection = projection;
+        state.camera.yaw_degrees = 25.;
+        state.camera.pitch_degrees = 15.;
+        state.quality = Quality::Interactive;
+        let interactive = measure(
+            |index| {
+                state.camera.yaw_degrees = 25. + index as f64 * 0.1;
+                let mut encoder = device.create_command_encoder(&Default::default());
+                engine.render(&device, &mut encoder, &display, &state, [256, 256])?;
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("synthetic volume paint"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &target,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        ..Default::default()
+                    });
+                    engine.paint(&mut pass);
+                }
+                submit(&device, &queue, encoder)
+            },
+            120,
+        )?;
+        state.camera.yaw_degrees = 25.;
+        state.quality = Quality::Refined;
+        let tile = measure(
+            |index| {
+                let y = (index % 96) as u32 * 8;
+                let mut encoder = device.create_command_encoder(&Default::default());
+                engine.render_region(
+                    &device,
+                    &mut encoder,
+                    &display,
+                    &state,
+                    [768, 768],
+                    [[0, y], [768, 8]],
+                )?;
+                submit(&device, &queue, encoder)
+            },
+            120,
+        )?;
+        let complete = measure(
+            |_| {
+                let mut encoder = device.create_command_encoder(&Default::default());
+                engine.render(&device, &mut encoder, &display, &state, [768, 768])?;
+                submit(&device, &queue, encoder)
+            },
+            12,
+        )?;
+        let submitted_tiles = measure(
+            |_| {
+                for y in (0..768).step_by(8) {
+                    let mut encoder = device.create_command_encoder(&Default::default());
+                    engine.render_region(
+                        &device,
+                        &mut encoder,
+                        &display,
+                        &state,
+                        [768, 768],
+                        [[0, y], [768, 8]],
+                    )?;
+                    submit(&device, &queue, encoder)?;
+                }
+                Ok(())
+            },
+            12,
+        )?;
+        cases.push(json!({
+            "projection": projection,
+            "view": display,
+            "refined_state": state,
+            "interactive_size":[256,256],"refined_size":[768,768],
+            "interactive_and_paint":interactive,
+            "refined_8row_compute":tile,
+            "refined_complete_compute":complete,
+            "refined_complete_96_fenced_tiles":submitted_tiles,
+            "tile_scope":"96 sequential submissions with completion fences; no native event/frame pacing"
+        }));
+    }
+    let mut reslicer = GpuReslicer::new(source.clone())?;
+    let mut reslice_cases = Vec::new();
+    for (name, slab, count) in [
+        ("thin", None, 120),
+        (
+            "maximum_65_samples",
+            Some(Slab {
+                projection: SlabProjection::Maximum,
+                thickness_mm: 20.,
+                intervals: 64,
+            }),
+            30,
+        ),
+        (
+            "mean_257_samples",
+            Some(Slab {
+                projection: SlabProjection::Mean,
+                thickness_mm: 60.,
+                intervals: 256,
+            }),
+            12,
+        ),
+    ] {
+        let planes = [Plane::Axial, Plane::Coronal, Plane::Sagittal];
+        let grids = planes.map(|plane| {
+            let plane = ObliquePlane::anatomical(plane, volume.center())?;
+            volume.oblique_grid(&plane, 512, slab)
+        });
+        let dimensions = grids
+            .into_iter()
+            .map(|grid| grid.map(|g| g.dimensions()))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let timing = measure(
+            |index| {
+                let mut center = volume.center();
+                // Move all planes; each submission computes the complete requested
+                // grids. Reusing unchanged panes is deliberately outside this case.
+                for coordinate in &mut center {
+                    *coordinate += ((index % 20) as f64 - 10.) * 0.1;
+                }
+                let mut encoder = device.create_command_encoder(&Default::default());
+                for (slot, plane) in planes.into_iter().enumerate() {
+                    let plane = ObliquePlane::anatomical(plane, center)?;
+                    let grid = volume.oblique_grid(&plane, 512, slab)?;
+                    reslicer.render(&mut encoder, &grid, slot)?;
+                }
+                submit(&device, &queue, encoder)
+            },
+            count,
+        )?;
+        reslice_cases.push(json!({"kind":name,"requested_side":512,"grid_dimensions":dimensions,"slab":slab,"three_complete_planes":timing}));
+    }
+    let material = VolumeMaterial::new(&[
+        MaterialPoint {
+            value: -1000.,
+            luminance: 0.,
+            extinction_per_mm: 0.,
         },
-        120,
-    )?;
-    state.quality = Quality::Refined;
-    let tile = measure(
-        |index| {
-            let y = (index % 96) as u32 * 8;
-            let mut encoder = device.create_command_encoder(&Default::default());
-            engine.render_region(
-                &device,
-                &mut encoder,
-                &display,
-                &state,
-                [768, 768],
-                [[0, y], [768, 8]],
-            )?;
-            submit(&device, &queue, encoder)
+        MaterialPoint {
+            value: 150.,
+            luminance: 0.2,
+            extinction_per_mm: 0.,
         },
-        120,
+        MaterialPoint {
+            value: 300.,
+            luminance: 0.8,
+            extinction_per_mm: 0.02,
+        },
+        MaterialPoint {
+            value: 1000.,
+            luminance: 1.,
+            extinction_per_mm: 0.08,
+        },
+    ])?;
+    let mut material_renderer = MaterialVolumeRenderer::new(source.clone(), format)?;
+    let mut material_cases = Vec::new();
+    for (side, quality, count) in [
+        (512, Quality::Interactive, 60),
+        (1024, Quality::Refined, 12),
+        (2048, Quality::Refined, 4),
+    ] {
+        let mut state = VolumeView::fit(&volume);
+        state.projection = Projection::Composite;
+        state.camera.yaw_degrees = 25.;
+        state.camera.pitch_degrees = 15.;
+        state.quality = quality;
+        let timing = measure(
+            |_| {
+                let mut encoder = device.create_command_encoder(&Default::default());
+                material_renderer.render_target(
+                    &mut encoder,
+                    &display,
+                    &state,
+                    &material,
+                    Lighting::HEADLIGHT,
+                    orv_render::volume::VolumeTarget {
+                        slot: 0,
+                        size: [side, side],
+                        region: [[0, 0], [side, side]],
+                    },
+                )?;
+                submit(&device, &queue, encoder)
+            },
+            count,
+        )?;
+        material_cases.push(json!({"side":side,"state":state,"headlight_complete_compute":timing}));
+    }
+    let adapter_limits = adapter.limits();
+    let device_limits = device.limits();
+    let reserved = orv_core::resources::MemoryBudget::gpu().used();
+    drop(engine);
+    drop(material_renderer);
+    drop(reslicer);
+    drop(source);
+    submit(
+        &device,
+        &queue,
+        device.create_command_encoder(&Default::default()),
     )?;
+    let after_drop = orv_core::resources::MemoryBudget::gpu().used();
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "schema_version":1,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),
+            "schema_version":4,"version":env!("CARGO_PKG_VERSION"),"optimized":!cfg!(debug_assertions),
             "adapter":info.name,"backend":format!("{:?}",info.backend),
+            "adapter_limits":{"texture_2d":adapter_limits.max_texture_dimension_2d,"texture_3d":adapter_limits.max_texture_dimension_3d},
+            "requested_device_limits":{"texture_2d":device_limits.max_texture_dimension_2d,"texture_3d":device_limits.max_texture_dimension_3d},
             "source_dimensions":[512,512,128],"retained_scalar_bytes":512*512*128*4,
-            "retained_mask_bytes":if padding {512*512*128} else {0},
-            "output_size":[1600,1000],"warmup_per_case":4,
+            "retained_validity_bytes":if padding {512*512*128} else {0},
+            "paint_target_size":[1600,1000],"warmup_per_case":4,
             "scope":"CPU encode/upload/submit through GPU completion fence; excludes OS input, display/vsync, file decode and PNG readback",
+            "memory_scope":"Shared GPU admission reservations, not measured allocation, free VRAM or RSS; external paint target is additional",
+            "gpu_reserved_before_volume_bytes":before_volume,
+            "gpu_reserved_after_refinement_bytes":reserved,"gpu_reserved_after_renderer_drop_bytes":after_drop,
+            "paint_target_bytes":1600*1000*4,
             "synthetic_generation_ms":generation_ms,"volume_upload_and_pipeline_ms":upload_ms,
-            "scalar_scroll":scalar,"volume_interactive_256_and_paint":interactive,"refined_768_8row_compute":tile
+            "scalar_scroll":scalar,"cases":cases,"reslice_cases":reslice_cases,"material_cases":material_cases,
+            "material_scope":"Fixed explicit four-knot optical material, headlight, full linear RGBA16F compute only; excludes final display and native input",
+            "reslice_scope":"Three moving full-detail scalar grids on the shared uploaded source; no readback, contrast mapping, native presentation or input timing"
         }))?
     );
     Ok(())

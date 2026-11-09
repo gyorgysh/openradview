@@ -37,6 +37,11 @@ fn sample_scalar(uv: vec2f) -> vec4f {
 }
 fn weighted(xy:vec2i,weight:f32)->vec4f {
     if weight<=0. { return vec4f(0.,0.,0.,1.); }
+    if p.output.z>0.5 {
+        let value=textureLoad(image,xy,0);
+        if value.g<0.5 {return vec4f(0.);}
+        return vec4f(value.rgb*weight,1.);
+    }
     // An integer mask avoids relying on NaN behavior under WGSL finite-math optimizations.
     if textureLoad(valid,xy,0).r==0u { return vec4f(0.); }
     return vec4f(textureLoad(image,xy,0).rgb*weight,1.);

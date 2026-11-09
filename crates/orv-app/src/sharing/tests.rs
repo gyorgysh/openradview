@@ -5,6 +5,8 @@ use orv_core::{Plane, study::demo_study};
 use std::time::{Duration, Instant};
 mod approval_priority;
 use crate::dicom_acquisition_phantom as cine_phantom;
+#[cfg(feature = "gpu-tests")]
+mod gpu_mpr;
 mod reconstruction;
 
 #[test]
@@ -429,5 +431,91 @@ fn failed_preview_worker_reports_errors_for_later_requests_instead_of_waiting_fo
     worker.request(spec, [32, 32]);
     assert!(worker.take().is_some_and(|result| result.is_err()));
     drop(worker);
+    super::preview::finish_test_workers();
+}
+
+#[test]
+fn local_material_revokes_approval_and_refuses_queued_source_views_or_substitute_exports() {
+    assert_local_scene_refuses_disclosure(false);
+}
+
+#[test]
+fn local_region_revokes_approval_even_while_its_first_image_is_pending() {
+    assert_local_scene_refuses_disclosure(true);
+}
+
+fn assert_local_scene_refuses_disclosure(region: bool) {
+    use crate::workspace::ViewMode;
+    let ctx = egui::Context::default();
+    let mut workspace = workspace();
+    open(&mut workspace, &ctx);
+    approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
+    let session = workspace.sharing.live.as_ref().unwrap().session.clone();
+    let scene = session.current().unwrap();
+    session.request_view(scene.clone()).unwrap();
+    workspace.set_mode(ViewMode::Volume, &ctx);
+    let volume = workspace.volume.as_mut().unwrap();
+    if region {
+        volume.enable_test_region();
+    } else {
+        volume.material_enabled = true;
+    }
+    assert!(volume.picture().is_none());
+    assert!(volume.shared_view().is_none());
+    workspace.sharing_after_ui(&ctx);
+    assert!(session.is_revoked());
+    assert!(!workspace.sharing.is_active());
+    assert!(workspace.sharing.draft.is_none());
+    workspace.sharing_before_ui(&ctx, false);
+    workspace.apply_shared_scene(&scene, &ctx);
+    assert_eq!(workspace.mode, ViewMode::Volume);
+    assert!(workspace.volume.as_ref().unwrap().local_scene());
+    assert!(session.request_view(scene).is_err());
+    workspace.volume.as_mut().unwrap().material_enabled = false;
+    assert!(!workspace.sharing.is_active());
+    workspace.close();
+    wait_for_server(&monitor);
+    super::preview::finish_test_workers();
+}
+
+#[test]
+fn combined_workbench_revokes_single_pane_approval_and_refuses_substitute_capture() {
+    use crate::{mpr::MprSession, workspace::ViewMode};
+    let ctx = egui::Context::default();
+    let mut workspace = workspace();
+    workspace.mode = ViewMode::Mpr;
+    workspace.mpr = Some(MprSession::start(
+        Arc::new(workspace.study.as_ref().unwrap().series[0].clone()),
+        workspace.view.window,
+        ctx.clone(),
+    ));
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        let mpr = workspace.mpr.as_mut().unwrap();
+        mpr.poll();
+        if mpr.is_settled() {
+            break;
+        }
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    open(&mut workspace, &ctx);
+    approve(&mut workspace, &ctx);
+    let monitor = monitor_server(&workspace);
+    let session = workspace.sharing.live.as_ref().unwrap().session.clone();
+    let scene = session.current().unwrap();
+    session.request_view(scene.clone()).unwrap();
+    workspace.mpr.as_mut().unwrap().enable_test_workbench();
+    assert!(!workspace.picture_ready());
+    assert!(workspace.canonical_rendered_view().is_none());
+    workspace.sharing_after_ui(&ctx);
+    assert!(session.is_revoked());
+    workspace.sharing_before_ui(&ctx, false);
+    workspace.apply_shared_scene(&scene, &ctx);
+    assert!(workspace.mpr.as_ref().unwrap().is_workbench());
+    assert!(!workspace.sharing.is_active() && workspace.sharing.draft.is_none());
+    workspace.close();
+    wait_for_server(&monitor);
     super::preview::finish_test_workers();
 }

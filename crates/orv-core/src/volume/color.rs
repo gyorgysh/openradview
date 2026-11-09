@@ -65,10 +65,28 @@ impl Volume {
         dimensions: [u32; 2],
         cancel: impl Fn() -> bool,
     ) -> Result<Arc<Frame>, GeometryError> {
-        let mut rgba = Vec::with_capacity(dimensions[0] as usize * dimensions[1] as usize * 4);
-        let mut codes = self
-            .color_info()
-            .map(|_| Vec::with_capacity(dimensions[0] as usize * dimensions[1] as usize * 3));
+        let count = dimensions[0] as usize * dimensions[1] as usize;
+        let memory = Arc::new(
+            crate::resources::MemoryBudget::volumes()
+                .reserve(
+                    (count * if self.color_info().is_some() { 20 } else { 8 }
+                        + std::mem::size_of::<Frame>()
+                        + geometry.frame_of_reference.as_ref().map_or(0, String::len)
+                        + 256) as u64,
+                )
+                .ok_or(GeometryError::Memory)?,
+        );
+        let mut rgba = Vec::new();
+        rgba.try_reserve_exact(count * 4)
+            .map_err(|_| GeometryError::Memory)?;
+        let mut codes = if self.color_info().is_some() {
+            let mut data = Vec::new();
+            data.try_reserve_exact(count * 3)
+                .map_err(|_| GeometryError::Memory)?;
+            Some(data)
+        } else {
+            None
+        };
         let (u, v) = geometry.directions();
         let origin = self.world_to_voxel(geometry.position);
         let du = self.world_vector_to_voxel(mul(u, geometry.spacing[1]));
@@ -104,6 +122,7 @@ impl Volume {
             })
         });
         Ok(Arc::new(Frame {
+            memory: Some(memory),
             presentation: None,
             calibration: None,
             projection: None,
@@ -161,6 +180,7 @@ mod tests {
             (0..2)
                 .map(|z| {
                     Arc::new(Frame {
+                        memory: None,
                         presentation: None,
                         calibration: None,
                         projection: None,

@@ -87,11 +87,14 @@ struct Key<M: OverlayMap> {
     side: usize,
 }
 impl<M: OverlayMap> Key<M> {
-    fn same(&self, other: &Self) -> bool {
+    fn compatible(&self, other: &Self) -> bool {
         self.map.ptr_eq(&other.map)
-            && self.view == other.view
+            && std::mem::discriminant(&self.view) == std::mem::discriminant(&other.view)
             && self.display == other.display
             && self.side == other.side
+    }
+    fn same(&self, other: &Self) -> bool {
+        self.compatible(other)
             && self.images.len() == other.images.len()
             && self
                 .images
@@ -123,8 +126,8 @@ struct Cached {
 }
 pub(super) struct Overlays<M: OverlayMap = Labels> {
     worker: Option<Worker<Input<M>, Vec<Prepared>>>,
-    request: Option<(Key<M>, u64)>,
-    textures: Vec<Cached>,
+    request: Option<(Key<M>, u64, Vec<usize>)>,
+    textures: Vec<Option<Cached>>,
     pub error: Option<String>,
 }
 impl<M: OverlayMap> Default for Overlays<M> {
@@ -172,14 +175,49 @@ impl<M: OverlayMap> Overlays<M> {
             display: display.clone(),
             side,
         };
-        if self.request.as_ref().is_none_or(|(old, _)| !old.same(&key)) {
-            self.clear();
+        if self
+            .request
+            .as_ref()
+            .is_none_or(|(old, _, _)| !old.same(&key))
+        {
+            let previous = self.request.take();
+            if let Some(worker) = &self.worker {
+                worker.clear();
+            }
+            let mut old_textures = std::mem::take(&mut self.textures);
+            self.textures = key
+                .images
+                .iter()
+                .enumerate()
+                .map(|(index, image)| {
+                    previous.as_ref().and_then(|(old, _, _)| {
+                        (old.compatible(&key)
+                            && old
+                                .images
+                                .get(index)
+                                .is_some_and(|prior| prior.ptr_eq(image)))
+                        .then(|| old_textures.get_mut(index).and_then(Option::take))
+                        .flatten()
+                    })
+                })
+                .collect();
+            self.error = None;
+            let missing: Vec<_> = self
+                .textures
+                .iter()
+                .enumerate()
+                .filter_map(|(index, texture)| texture.is_none().then_some(index))
+                .collect();
+            if missing.is_empty() {
+                self.request = Some((key, 0, missing));
+                return;
+            }
             if self.worker.is_none() {
                 match Worker::start(ctx.clone(), "orv-mask-overlays", render::<M>) {
                     Ok(worker) => self.worker = Some(worker),
                     Err(error) => {
                         self.error = Some(error);
-                        self.request = Some((key, 0));
+                        self.request = Some((key, 0, missing));
                         return;
                     }
                 }
@@ -188,11 +226,11 @@ impl<M: OverlayMap> Overlays<M> {
                 let generation = worker.submit(Input {
                     labels,
                     source: source.clone(),
-                    images: images.to_vec(),
+                    images: missing.iter().map(|&index| images[index].clone()).collect(),
                     display: display.clone(),
                     side,
                 });
-                self.request = Some((key, generation));
+                self.request = Some((key, generation, missing));
             }
         }
         let Some((generation, result)) = self.worker.as_ref().and_then(Worker::take) else {
@@ -201,12 +239,19 @@ impl<M: OverlayMap> Overlays<M> {
         if !self
             .request
             .as_ref()
-            .is_some_and(|(_, expected)| *expected == generation)
+            .is_some_and(|(_, expected, _)| *expected == generation)
         {
             return;
         }
         match result {
             Ok(images) => {
+                let Some((_, _, indices)) = self.request.as_ref() else {
+                    return;
+                };
+                if images.len() != indices.len() {
+                    self.error = Some("Mask worker returned an incomplete set of planes".into());
+                    return;
+                }
                 if images.iter().any(|layer| {
                     layer
                         .image
@@ -218,9 +263,8 @@ impl<M: OverlayMap> Overlays<M> {
                         Some("The mask plane exceeds this device's texture size limit".into());
                     return;
                 }
-                self.textures = images
-                    .into_iter()
-                    .map(|Prepared { image, cpu, gpu }| Cached {
+                for (&index, Prepared { image, cpu, gpu }) in indices.iter().zip(images) {
+                    self.textures[index] = Some(Cached {
                         texture: ctx.load_texture(
                             "local-mask-plane",
                             image,
@@ -228,8 +272,8 @@ impl<M: OverlayMap> Overlays<M> {
                         ),
                         _cpu: cpu,
                         _gpu: gpu,
-                    })
-                    .collect();
+                    });
+                }
             }
             Err(error) => self.error = Some(error),
         }
@@ -241,14 +285,14 @@ impl<M: OverlayMap> Overlays<M> {
         labels: &Arc<M>,
         display: &M::Display,
     ) -> Option<egui::TextureId> {
-        let (key, _) = self.request.as_ref()?;
+        let (key, _, _) = self.request.as_ref()?;
         if !key.map.ptr_eq(&Arc::downgrade(labels))
             || key.display != *display
             || !key.images.get(index)?.ptr_eq(&Arc::downgrade(image))
         {
             return None;
         }
-        Some(self.textures.get(index)?.texture.id())
+        Some(self.textures.get(index)?.as_ref()?.texture.id())
     }
 }
 fn render<M: OverlayMap>(
@@ -475,6 +519,220 @@ mod tests {
         let mut labels = original.try_clone(|| false).unwrap();
         labels.threshold(None, [20., 20.], 1, || false).unwrap();
         Arc::new(labels)
+    }
+
+    fn check_unchanged_plane_reuse<M: OverlayMap>(
+        map: Arc<M>,
+        display: M::Display,
+        changed_display: M::Display,
+    ) {
+        let source = map.source_arc();
+        let mut images = source.frames().to_vec();
+        assert_eq!(images.len(), 3);
+        let ctx = egui::Context::default();
+        let mut overlays = Overlays::<M>::default();
+        let view = |generation, preview| OverlayView::Mpr {
+            generation,
+            preview,
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        overlays.prepare(map.clone(), &source, &images, view(1, true), &display, &ctx);
+        let pending_generation = overlays.request.as_ref().unwrap().1;
+        overlays.prepare(
+            map.clone(),
+            &source,
+            &images,
+            view(2, false),
+            &display,
+            &ctx,
+        );
+        assert_eq!(overlays.request.as_ref().unwrap().1, pending_generation);
+        loop {
+            overlays.prepare(map.clone(), &source, &images, view(1, true), &display, &ctx);
+            if (0..3).all(|index| {
+                overlays
+                    .texture(index, &images[index], &map, &display)
+                    .is_some()
+            }) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "initial overlays did not finish");
+            std::thread::yield_now();
+        }
+        let before = std::array::from_fn::<_, 3, _>(|index| {
+            overlays
+                .texture(index, &images[index], &map, &display)
+                .unwrap()
+        });
+        let generation = overlays.request.as_ref().unwrap().1;
+        overlays.prepare(
+            map.clone(),
+            &source,
+            &images,
+            view(2, false),
+            &display,
+            &ctx,
+        );
+        assert_eq!(overlays.request.as_ref().unwrap().1, generation);
+        for index in 0..3 {
+            assert_eq!(
+                overlays.texture(index, &images[index], &map, &display),
+                Some(before[index])
+            );
+        }
+
+        let old = images[0].clone();
+        images[0] = Arc::new((*images[0]).clone());
+        overlays.prepare(map.clone(), &source, &images, view(3, true), &display, &ctx);
+        assert_eq!(overlays.request.as_ref().unwrap().2, vec![0]);
+        assert!(overlays.texture(0, &old, &map, &display).is_none());
+        for index in [1, 2] {
+            assert_eq!(
+                overlays.texture(index, &images[index], &map, &display),
+                Some(before[index])
+            );
+        }
+        let replaced = images[0].clone();
+        images[0] = Arc::new((*images[0]).clone());
+        overlays.prepare(map.clone(), &source, &images, view(4, true), &display, &ctx);
+        assert_eq!(overlays.request.as_ref().unwrap().2, vec![0]);
+        assert!(overlays.texture(0, &replaced, &map, &display).is_none());
+        loop {
+            overlays.prepare(map.clone(), &source, &images, view(4, true), &display, &ctx);
+            if overlays.texture(0, &images[0], &map, &display).is_some() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "changed overlay did not finish");
+            std::thread::yield_now();
+        }
+        for index in [1, 2] {
+            assert_eq!(
+                overlays.texture(index, &images[index], &map, &display),
+                Some(before[index])
+            );
+        }
+        overlays.prepare(
+            map.clone(),
+            &source,
+            &images,
+            view(5, false),
+            &changed_display,
+            &ctx,
+        );
+        assert_eq!(overlays.request.as_ref().unwrap().2, vec![0, 1, 2]);
+        for (index, image) in images.iter().enumerate() {
+            assert!(overlays.texture(index, image, &map, &display).is_none());
+        }
+        overlays.clear();
+        assert!(overlays.textures.is_empty());
+    }
+
+    #[test]
+    fn manual_and_supplied_overlays_keep_unchanged_linked_planes() {
+        let display = Display::default();
+        let mut changed = display.clone();
+        changed.visible_ids[1] = false;
+        check_unchanged_plane_reuse(filled(), display, changed);
+        let display = <Segments as OverlayMap>::Display::default();
+        let mut changed = display.clone();
+        changed.visible = 1;
+        check_unchanged_plane_reuse(supplied(), display, changed);
+    }
+
+    #[test]
+    fn in_flight_overlay_cannot_replace_a_newer_linked_plane() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct PausedMap {
+            labels: Arc<Labels>,
+            pause_next: AtomicBool,
+            entered: AtomicBool,
+            release: AtomicBool,
+        }
+        impl OverlayMap for PausedMap {
+            type Display = Display;
+            type Plane = LabelPlane;
+
+            fn source_arc(&self) -> Arc<Volume> {
+                self.labels.source_arc()
+            }
+            fn plane(
+                &self,
+                image: &Frame,
+                cancel: &dyn Fn() -> bool,
+            ) -> Result<LabelPlane, &'static str> {
+                if self.pause_next.swap(false, Ordering::AcqRel) {
+                    self.entered.store(true, Ordering::Release);
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while !self.release.load(Ordering::Acquire) && Instant::now() < deadline {
+                        std::thread::yield_now();
+                    }
+                }
+                self.labels.sample_plane(image, cancel)
+            }
+            fn color(plane: &LabelPlane, index: usize, display: &Display) -> egui::Color32 {
+                <Labels as OverlayMap>::color(plane, index, display)
+            }
+        }
+
+        let map = Arc::new(PausedMap {
+            labels: filled(),
+            pause_next: AtomicBool::new(false),
+            entered: AtomicBool::new(false),
+            release: AtomicBool::new(false),
+        });
+        let source = map.source_arc();
+        let mut images = source.frames().to_vec();
+        let display = Display::default();
+        let ctx = egui::Context::default();
+        let mut overlays = Overlays::<PausedMap>::default();
+        let view = |generation| OverlayView::Mpr {
+            generation,
+            preview: true,
+        };
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            overlays.prepare(map.clone(), &source, &images, view(1), &display, &ctx);
+            if (0..3).all(|i| overlays.texture(i, &images[i], &map, &display).is_some()) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "initial overlays did not finish");
+            std::thread::yield_now();
+        }
+        let unchanged = [1, 2].map(|i| overlays.texture(i, &images[i], &map, &display).unwrap());
+        map.pause_next.store(true, Ordering::Release);
+        images[0] = Arc::new((*images[0]).clone());
+        overlays.prepare(map.clone(), &source, &images, view(2), &display, &ctx);
+        while !map.entered.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "overlay worker did not start");
+            std::thread::yield_now();
+        }
+        let old = images[0].clone();
+        images[0] = Arc::new((*images[0]).clone());
+        overlays.prepare(map.clone(), &source, &images, view(3), &display, &ctx);
+        assert!(overlays.texture(0, &old, &map, &display).is_none());
+        for (i, texture) in [1, 2].into_iter().zip(unchanged) {
+            assert_eq!(
+                overlays.texture(i, &images[i], &map, &display),
+                Some(texture)
+            );
+        }
+        map.release.store(true, Ordering::Release);
+        loop {
+            overlays.prepare(map.clone(), &source, &images, view(3), &display, &ctx);
+            if overlays.texture(0, &images[0], &map, &display).is_some() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "new overlay did not finish");
+            std::thread::yield_now();
+        }
+        assert!(overlays.texture(0, &old, &map, &display).is_none());
+        for (i, texture) in [1, 2].into_iter().zip(unchanged) {
+            assert_eq!(
+                overlays.texture(i, &images[i], &map, &display),
+                Some(texture)
+            );
+        }
     }
     fn input(labels: &Arc<Labels>, display: Display) -> Input {
         Input {

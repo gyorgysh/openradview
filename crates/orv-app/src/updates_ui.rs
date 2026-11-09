@@ -24,6 +24,18 @@ impl OpenRadView {
                     {
                         ui.label(message);
                     }
+                    if !self.updates.preference_chosen() && status == Status::Failed {
+                        if ui
+                            .add_enabled(
+                                self.updates.available(),
+                                egui::Button::new("Save checks off"),
+                            )
+                            .clicked()
+                        {
+                            let _ = self.updates.set_enabled(false);
+                        }
+                        ui.weak("Try saving the off choice again without checking for updates.");
+                    }
                 }
                 let can_check = self.updates.available()
                     && !status.busy()

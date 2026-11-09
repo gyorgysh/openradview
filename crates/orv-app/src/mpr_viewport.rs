@@ -15,6 +15,14 @@ pub(super) struct PlanePaint {
     response: egui::Response,
     image: Arc<Frame>,
     index: usize,
+    #[cfg(test)]
+    pub(super) slider_rect: Rect,
+}
+#[cfg(test)]
+impl PlanePaint {
+    pub(super) fn image_rect(&self) -> Rect {
+        self.response.rect
+    }
 }
 impl MprSession {
     pub(super) fn prepare_plane(
@@ -23,6 +31,8 @@ impl MprSession {
         index: usize,
         rect: Rect,
         snapshot: &MprSnapshot,
+        labels: &mut crate::labels::LabelUi,
+        selected: usize,
     ) -> PlanePaint {
         let mut ui = parent.new_child(
             egui::UiBuilder::new()
@@ -43,7 +53,10 @@ impl MprSession {
         theme::eyebrow(&mut ui, &heading);
         let size = Vec2::new(ui.available_width(), (ui.available_height() - 32.).max(30.));
         let (_, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
-        if response.hovered()
+        if labels
+            .physical_drawing_plane()
+            .is_none_or(|plane| plane == index)
+            && response.hovered()
             && ui.input(|input| {
                 input.pointer.delta() != egui::Vec2::ZERO || input.pointer.any_pressed()
             })
@@ -62,12 +75,7 @@ impl MprSession {
         self.views[index].slice = initial;
         self.views[index].window = self.window;
         if self.active == index {
-            if crate::actions::pressed(&ui, crate::actions::Action::Next) {
-                self.views[index].slice = initial.saturating_add(1).min(count - 1);
-            }
-            if crate::actions::pressed(&ui, crate::actions::Action::Previous) {
-                self.views[index].slice = initial.saturating_sub(1);
-            }
+            self.views[index].slice = crate::actions::navigate(&ui, initial, count - 1);
         }
         viewport::interact(
             &mut ui,
@@ -84,7 +92,15 @@ impl MprSession {
             self.request(&snapshot.volume, next);
         }
         let image = snapshot.images[index].clone();
-        if self.tool == Tool::Crosshair
+        // The release can finish a physical path in this same input pass.
+        // Keep that gesture out of crosshair navigation even after it finishes.
+        let physical_drawing = labels.physical_drawing();
+        if physical_drawing {
+            labels.sync_physical(&self.physical_context(snapshot, selected));
+            labels.physical_pointer(&ui, &response, &image, &self.views[index], index);
+        }
+        if !physical_drawing
+            && self.tool == Tool::Crosshair
             && !viewport::navigation_override(&ui, &response)
             && (response.clicked_by(egui::PointerButton::Primary)
                 || response.dragged_by(egui::PointerButton::Primary))
@@ -104,15 +120,25 @@ impl MprSession {
         }
         let mut coordinate = self.target.unwrap_or(snapshot.point)[axis];
         let mut changed = false;
+        #[cfg(test)]
+        let mut slider_rect = Rect::NOTHING;
         ui.horizontal(|ui| {
             ui.spacing_mut().slider_width = (ui.available_width() - 110.).max(30.);
-            changed = ui
-                .add(
-                    egui::Slider::new(&mut coordinate, min[axis]..=max[axis])
-                        .show_value(false)
-                        .text("mm"),
-                )
-                .changed();
+            let track_width = ui.spacing().slider_width;
+            let slider = ui.add(
+                egui::Slider::new(&mut coordinate, min[axis]..=max[axis])
+                    .show_value(false)
+                    .text("mm"),
+            );
+            changed = slider.changed();
+            if !changed && let Some(fraction) = quick_slider_release(ui, &slider, track_width) {
+                coordinate = min[axis] + (max[axis] - min[axis]) * f64::from(fraction);
+                changed = true;
+            }
+            #[cfg(test)]
+            {
+                slider_rect = slider.rect;
+            }
             changed |= ui
                 .add(
                     egui::DragValue::new(&mut coordinate)
@@ -132,6 +158,8 @@ impl MprSession {
             response,
             image,
             index,
+            #[cfg(test)]
+            slider_rect,
         }
     }
     pub(super) fn finish_plane(
@@ -146,13 +174,20 @@ impl MprSession {
             ref response,
             ref image,
             index,
+            #[cfg(test)]
+                slider_rect: _,
         } = paint;
         let view = &self.views[index];
         self.picture_sizes[index] = Some(crate::rendered::picture_size(
             response.rect.size() * ui.ctx().pixels_per_point(),
         ));
-        viewport::draw(ui, frame, response.rect, image.clone(), view, index + 1, "");
+        let display = snapshot.gpu_images[index].as_ref().map_or_else(
+            || viewport::SliceImage::Cpu(image.clone()),
+            |gpu| viewport::SliceImage::Gpu(gpu.clone()),
+        );
+        viewport::draw(ui, frame, response.rect, display, view, index + 1, "");
         labels.draw_plane(ui, response, image, view, index);
+        labels.physical_pointer_guide(ui, response, image, view);
         let painter = ui.painter_at(response.rect);
         if self.active_index() == index {
             painter.rect_stroke(
@@ -183,11 +218,72 @@ impl MprSession {
             );
         }
         crate::image_overlay::draw(ui, response, image, view);
-        if self.is_settled() {
+        if self.is_settled() && !labels.physical_drawing() {
             self.annotations[index].show(ui, response, image, view, self.tool);
             self.annotations[index].status_overlay(ui, response.rect, self.tool);
         } else {
             self.annotations[index].cancel_interaction(ui.ctx());
         }
     }
+}
+
+// A complete drag can arrive between two UI passes. In that case the slider
+// may never acquire the pointer. The press must begin on its visible rail.
+fn quick_slider_release(ui: &egui::Ui, slider: &egui::Response, track_width: f32) -> Option<f32> {
+    use egui::{Event, PointerButton};
+
+    if !ui.is_enabled() || slider.interact_pointer_pos().is_some() {
+        return None;
+    }
+    let track = Rect::from_min_size(
+        slider.rect.min,
+        Vec2::new(track_width, slider.rect.height()),
+    );
+    let (start, end, definitely_dragged) = ui.input(|input| {
+        if input.key_pressed(egui::Key::Escape) {
+            return None;
+        }
+        let mut start = None;
+        let mut end = None;
+        let mut moved = false;
+        for event in &input.events {
+            match event {
+                Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers,
+                } if *modifiers == egui::Modifiers::NONE && start.is_none() => start = Some(*pos),
+                Event::PointerMoved(_) if start.is_some() && end.is_none() => moved = true,
+                Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers,
+                } if *modifiers == egui::Modifiers::NONE && start.is_some() && end.is_none() => {
+                    end = Some(*pos)
+                }
+                Event::PointerButton { .. } | Event::PointerGone | Event::WindowFocused(false) => {
+                    return None;
+                }
+                _ => {}
+            }
+        }
+        moved.then_some((start?, end?, !input.pointer.could_any_button_be_click()))
+    })?;
+    if !track.contains(start)
+        || (!track.contains(end) && !definitely_dragged)
+        || !ui.clip_rect().contains(start)
+        || ui.ctx().layer_id_at(start) != Some(slider.layer_id)
+        || ui.ctx().layer_id_at(end) != Some(slider.layer_id)
+    {
+        return None;
+    }
+    let radius = track.height() * 0.4;
+    let radius = match ui.visuals().handle_shape {
+        egui::style::HandleShape::Circle => radius,
+        egui::style::HandleShape::Rect { aspect_ratio } => radius * aspect_ratio,
+    };
+    let width = track.width() - 2. * radius;
+    (width > 0.).then(|| ((end.x - track.left() - radius) / width).clamp(0., 1.))
 }

@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+const BRICK_KNOWN:u32=1u;
+const BRICK_MISSING:u32=2u;
+const BRICK_NOT_OWNED:u32=3u;
+const BRICK_OUTSIDE_SOURCE:u32=4u;
+const BRICK_STENCIL_UNAVAILABLE:u32=5u;
+const BRICK_NONRESIDENT:u32=6u;

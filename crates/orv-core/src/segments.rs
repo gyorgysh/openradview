@@ -5,7 +5,9 @@ use crate::{
     volume::Volume,
 };
 use std::sync::Arc;
+mod fractional;
 mod sampling;
+pub use fractional::{FractionalEncoding, FractionalKind, SegmentEncoding};
 pub use sampling::SegmentPlane;
 
 pub const MAX_SEGMENTS: usize = 64;
@@ -21,11 +23,41 @@ pub struct SegmentInfo {
 }
 struct Mask {
     info: SegmentInfo,
-    bits: Vec<u8>,
+    samples: Samples,
     covered: Vec<u8>,
+}
+enum Samples {
+    Bits(Vec<u8>),
+    Fractional {
+        values: Vec<u8>,
+        plane_offsets: Vec<u32>,
+    },
+}
+impl Samples {
+    fn positive(&self, index: usize, plane: usize, encoding: SegmentEncoding) -> bool {
+        match self {
+            Self::Bits(bits) => bit(bits, index),
+            Self::Fractional { .. } => self.raw(index, plane).is_some_and(|v| encoding.positive(v)),
+        }
+    }
+    fn raw(&self, index: usize, plane: usize) -> Option<u8> {
+        match self {
+            Self::Bits(bits) => Some(u8::from(bit(bits, index))),
+            Self::Fractional {
+                values,
+                plane_offsets,
+            } => {
+                let offset = *plane_offsets.get(index / plane)?;
+                (offset != u32::MAX).then(|| values[offset as usize + index % plane])
+            }
+        }
+    }
 }
 pub struct Segments {
     source: Arc<Volume>,
+    encoding: SegmentEncoding,
+    object: crate::mask_identity::MaskObjectId,
+    revision: crate::mask_identity::MaskRevision,
     masks: Vec<Mask>,
     overlap_cells: usize,
     _reservation: Reservation,
@@ -212,7 +244,7 @@ impl Segments {
                     valid_source_cells: 0,
                     supplied_planes: 0,
                 },
-                bits: zeros(bytes)?,
+                samples: Samples::Bits(zeros(bytes)?),
                 covered: zeros(coverage)?,
             });
         }
@@ -230,6 +262,9 @@ impl Segments {
             }
             set(&mut mask.covered, z);
             mask.info.supplied_planes += 1;
+            let Samples::Bits(bits) = &mut mask.samples else {
+                return Err("Expected a binary mask builder");
+            };
             let image = &source.frames()[z];
             for pixel in 0..plane {
                 if pixel.is_multiple_of(1024) && cancelled() {
@@ -239,7 +274,7 @@ impl Segments {
                     continue;
                 }
                 let index = z * plane + pixel;
-                set(&mut mask.bits, index);
+                set(bits, index);
                 mask.info.positive_cells += 1;
                 mask.info.valid_source_cells += usize::from(image.has_sample(pixel));
                 if bit(&union, index) && !bit(&overlaps, index) {
@@ -255,8 +290,12 @@ impl Segments {
         if cancelled() {
             return Err("Cancelled");
         }
+        let (object, revision) = crate::mask_identity::MaskObjectId::new(budget)?;
         Ok(Self {
             source,
+            encoding: SegmentEncoding::Binary,
+            object,
+            revision,
             masks,
             overlap_cells,
             _reservation: reservation,
@@ -264,6 +303,9 @@ impl Segments {
     }
     pub fn source_arc(&self) -> Arc<Volume> {
         self.source.clone()
+    }
+    pub fn encoding(&self) -> SegmentEncoding {
+        self.encoding
     }
     pub fn infos(&self) -> impl ExactSizeIterator<Item = SegmentInfo> + '_ {
         self.masks.iter().map(|m| m.info)
@@ -282,15 +324,97 @@ impl Segments {
                 .is_some_and(|m| bit(&m.covered, z))
     }
     /// None means outside the grid, an unknown segment, or an omitted plane.
-    /// Some retains the supplied bit even if the corresponding source sample is missing.
+    /// Some retains categorical membership even on a missing source sample.
+    /// Fractional membership uses half the retained maximum; raw values are separate.
     pub fn value(&self, number: u16, voxel: [usize; 3]) -> Option<bool> {
-        let [w, h, d] = self.source.dimensions();
+        self.mask(number)?.value(voxel)
+    }
+    pub fn mask(&self, number: u16) -> Option<SegmentMask<'_>> {
+        self.masks
+            .iter()
+            .position(|mask| mask.info.number == number)
+            .map(|index| SegmentMask { owner: self, index })
+    }
+    pub fn object_id(&self) -> &crate::mask_identity::MaskObjectId {
+        &self.object
+    }
+    pub fn revision(&self) -> &crate::mask_identity::MaskRevision {
+        &self.revision
+    }
+}
+/// One immutable supplied segment, retaining sparse coverage independently of bits.
+#[derive(Clone, Copy)]
+pub struct SegmentMask<'a> {
+    owner: &'a Segments,
+    index: usize,
+}
+impl<'a> SegmentMask<'a> {
+    pub fn source(&self) -> &'a Volume {
+        &self.owner.source
+    }
+    pub fn number(&self) -> u16 {
+        self.owner.masks[self.index].info.number
+    }
+    pub fn object_id(&self) -> &'a crate::mask_identity::MaskObjectId {
+        &self.owner.object
+    }
+    pub fn revision(&self) -> &'a crate::mask_identity::MaskRevision {
+        &self.owner.revision
+    }
+    pub fn value(&self, voxel: [usize; 3]) -> Option<bool> {
+        self.raw_value(voxel)
+            .map(|v| self.owner.encoding.positive(v))
+    }
+    pub fn encoding(&self) -> SegmentEncoding {
+        self.owner.encoding
+    }
+    /// Original supplied value, independent of source validity. Binary/label-map
+    /// memberships are 0/1; fractional values use the retained encoding maximum.
+    /// None is outside the source or an omitted plane, never a fabricated zero.
+    pub fn raw_value(&self, voxel: [usize; 3]) -> Option<u8> {
+        let [w, h, d] = self.owner.source.dimensions();
         let [x, y, z] = voxel;
         if x >= w || y >= h || z >= d {
             return None;
         }
-        let mask = self.masks.iter().find(|m| m.info.number == number)?;
-        bit(&mask.covered, z).then(|| bit(&mask.bits, (z * h + y) * w + x))
+        let mask = &self.owner.masks[self.index];
+        if !bit(&mask.covered, z) {
+            return None;
+        }
+        mask.samples.raw((z * h + y) * w + x, w * h)
+    }
+    /// Worker upload staging. Copies one source row without materializing a
+    /// volume. Unknown planes fill zero but return false; callers retain coverage.
+    pub fn copy_raw_row(
+        &self,
+        z: usize,
+        y: usize,
+        output: &mut [u8],
+    ) -> Result<bool, &'static str> {
+        let [w, h, d] = self.owner.source.dimensions();
+        if z >= d || y >= h || output.len() != w {
+            return Err("Supplied mask row exceeds the source");
+        }
+        let mask = &self.owner.masks[self.index];
+        if !bit(&mask.covered, z) {
+            output.fill(0);
+            return Ok(false);
+        }
+        match &mask.samples {
+            Samples::Bits(bits) => {
+                for (x, value) in output.iter_mut().enumerate() {
+                    *value = u8::from(bit(bits, (z * h + y) * w + x));
+                }
+            }
+            Samples::Fractional {
+                values,
+                plane_offsets,
+            } => {
+                let offset = plane_offsets[z] as usize + y * w;
+                output.copy_from_slice(&values[offset..offset + w]);
+            }
+        }
+        Ok(true)
     }
 }
 #[cfg(test)]

@@ -50,26 +50,35 @@ pub fn number(ui: &mut egui::Ui, label: &str, value: egui::DragValue<'_>) -> egu
         |ui| {
             ui.spacing_mut().item_spacing.x = 6.;
             let label = ui.label(label);
-            let focused = ui.memory(|memory| memory.focused());
-            let commit = ui.input(|input| {
-                input.key_pressed(egui::Key::Enter) && input.modifiers == egui::Modifiers::NONE
-            });
-            let response = ui
-                .add_sized([FIELD_WIDTH, HEIGHT], value)
-                .labelled_by(label.id);
-            // DragValue's single-line editor surrenders focus on Enter. Keep the
-            // committed field as the Tab origin rather than restarting at root.
-            if commit
-                && focused == Some(response.id)
-                && response.lost_focus()
-                && ui.memory(|memory| memory.focused()).is_none()
-            {
-                response.request_focus();
-            }
-            response
+            number_field(ui, label.id, value)
         },
     )
     .inner
+}
+
+/// A table cell uses the same commit/focus behavior as an inline numeric group.
+pub fn number_field(
+    ui: &mut egui::Ui,
+    label: egui::Id,
+    value: egui::DragValue<'_>,
+) -> egui::Response {
+    let focused = ui.memory(|memory| memory.focused());
+    let commit = ui.input(|input| {
+        input.key_pressed(egui::Key::Enter) && input.modifiers == egui::Modifiers::NONE
+    });
+    let response = ui
+        .add_sized([FIELD_WIDTH, HEIGHT], value)
+        .labelled_by(label);
+    // DragValue's single-line editor surrenders focus on Enter. Keep the
+    // committed field as the Tab origin rather than restarting at root.
+    if commit
+        && focused == Some(response.id)
+        && response.lost_focus()
+        && ui.memory(|memory| memory.focused()).is_none()
+    {
+        response.request_focus();
+    }
+    response
 }
 
 #[cfg(test)]

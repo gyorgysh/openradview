@@ -4,7 +4,7 @@ use super::*;
 use orv_mcp::{broker::RequestBroker, consent::BearerToken, http::ServerStatus};
 use std::io::{Read, Write};
 
-fn request(port: u16, key: &str, method: &str) -> serde_json::Value {
+pub(super) fn request(port: u16, key: &str, method: &str) -> serde_json::Value {
     let mut stream = std::net::TcpStream::connect_timeout(
         &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
         Duration::from_secs(2),
@@ -63,6 +63,7 @@ fn inbound_approval_waits_for_local_dialogs_then_escape_denies_without_a_grant()
             "export" => {
                 use eframe::egui_wgpu::wgpu;
                 let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                    flags: orv_render::instance_flags(),
                     backends: orv_render::configured_backends().expect("Native backend selection"),
                     ..wgpu::InstanceDescriptor::new_without_display_handle()
                 });

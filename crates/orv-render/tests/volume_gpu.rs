@@ -6,10 +6,14 @@ mod clipping;
 mod color;
 #[path = "volume_gpu/limits.rs"]
 mod limits;
+#[path = "volume_gpu/material.rs"]
+mod material;
 #[path = "volume_gpu/padding.rs"]
 mod padding;
 #[path = "volume_gpu/presentation.rs"]
 mod presentation;
+#[path = "volume_gpu/reslice.rs"]
+mod reslice;
 #[path = "volume_gpu/snapshot.rs"]
 mod snapshot;
 use orv_core::{
@@ -30,6 +34,7 @@ fn volume(constant: Option<f32>, monochrome1: bool) -> Arc<Volume> {
             (0..4)
                 .map(|z| {
                     Arc::new(Frame {
+                        memory: None,
                         presentation: None,
                         calibration: None,
                         projection: None,
@@ -73,6 +78,7 @@ fn volume(constant: Option<f32>, monochrome1: bool) -> Arc<Volume> {
 }
 fn device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().expect("Native backend selection"),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
@@ -440,6 +446,7 @@ fn refined_steps_follow_voxel_speed_in_a_strongly_sheared_volume() {
     let frames = (0..4)
         .map(|z| {
             Arc::new(Frame {
+                memory: None,
                 presentation: None,
                 calibration: None,
                 projection: None,

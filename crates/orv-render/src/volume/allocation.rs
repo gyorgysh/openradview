@@ -28,7 +28,10 @@ impl Drop for GpuReservation {
     }
 }
 
-pub(super) fn reserve(
+// Two current outputs plus bounded retired allocations while commands finish.
+pub(crate) const VOLUME_OUTPUT_BYTES: u64 = 3 * 2 * 1024 * 1024 * 4;
+
+pub(crate) fn reserve(
     dimensions: [usize; 3],
     masked: bool,
     device: &wgpu::Device,
@@ -71,7 +74,7 @@ fn allocation_bytes(dimensions: [usize; 3], masked: bool) -> Result<u64, &'stati
             bytes.checked_mul(side as u64)
         })
         .ok_or("Volume allocation size overflow; use 2D/MPR")?;
-    // Include retired outputs, one upload chunk plus its last source plane, and
+    // Include one upload chunk plus its last source plane, and
     // table staging. Driver allocation overhead is outside this admission policy.
     let plane = (dimensions[0] as u64)
         .checked_mul(dimensions[1] as u64)
@@ -80,13 +83,7 @@ fn allocation_bytes(dimensions: [usize; 3], masked: bool) -> Result<u64, &'stati
     source
         .checked_add(plane)
         .and_then(|bytes| {
-            bytes.checked_add(
-                3 * 2 * 1024 * 1024 * 4
-                    + 16 * 1024 * 1024
-                    + 2 * crate::voi::ATLAS_BYTES
-                    + 65536
-                    + 1,
-            )
+            bytes.checked_add(16 * 1024 * 1024 + 2 * crate::voi::ATLAS_BYTES + 65536 + 1)
         })
         .ok_or("Volume allocation size overflow")
 }
@@ -107,6 +104,47 @@ pub(crate) fn texture(
     }
 }
 
+pub(crate) fn buffer(
+    device: &wgpu::Device,
+    descriptor: &wgpu::BufferDescriptor<'_>,
+) -> Result<wgpu::Buffer, &'static str> {
+    let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let buffer = device.create_buffer(descriptor);
+    let invalid = pollster::block_on(validation.pop()).is_some();
+    let exhausted = pollster::block_on(memory.pop()).is_some();
+    if invalid || exhausted {
+        Err("The graphics device cannot allocate this buffer; close another view")
+    } else {
+        Ok(buffer)
+    }
+}
+
+pub(crate) fn initialized_buffer(
+    device: &wgpu::Device,
+    label: &'static str,
+    bytes: &[u8],
+    usage: wgpu::BufferUsages,
+) -> Result<wgpu::Buffer, &'static str> {
+    let buffer = buffer(
+        device,
+        &wgpu::BufferDescriptor {
+            label: Some(label),
+            size: bytes.len() as u64,
+            usage,
+            mapped_at_creation: true,
+        },
+    )?;
+    {
+        let mut mapped = buffer
+            .get_mapped_range_mut(..)
+            .map_err(|_| "Could not map initial GPU buffer contents")?;
+        mapped.copy_from_slice(bytes);
+    }
+    buffer.unmap();
+    Ok(buffer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,6 +152,7 @@ mod tests {
     #[test]
     fn invalid_texture_allocation_returns_an_error_without_poisoning_the_device() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            flags: crate::instance_flags(),
             backends: crate::configured_backends().unwrap(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
@@ -158,8 +197,14 @@ mod tests {
     #[test]
     fn gpu_admission_counts_masks_outputs_and_constrained_devices() {
         assert!(allocation_bytes([usize::MAX, 2, 2], false).is_err());
-        assert!(allocation_bytes([512, 512, 505], false).unwrap() > 512 * 1024 * 1024);
-        assert!(allocation_bytes([512, 512, 410], true).unwrap() > 512 * 1024 * 1024);
+        assert!(
+            allocation_bytes([512, 512, 505], false).unwrap() + VOLUME_OUTPUT_BYTES
+                > 512 * 1024 * 1024
+        );
+        assert!(
+            allocation_bytes([512, 512, 410], true).unwrap() + VOLUME_OUTPUT_BYTES
+                > 512 * 1024 * 1024
+        );
         assert!(allocation_bytes([16; 3], false).unwrap() < 512 * 1024 * 1024);
     }
 }

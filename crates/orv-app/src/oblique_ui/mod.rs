@@ -113,6 +113,9 @@ impl ObliqueSession {
         selected: usize,
     ) {
         let width = ui.available_width();
+        if let Some(render) = frame.wgpu_render_state() {
+            self.worker.offer_gpu(&render.device, &render.queue);
+        }
         self.poll();
         if let Some(error) = &self.error {
             ui.heading("This oblique plane could not be prepared");
@@ -202,12 +205,10 @@ impl ObliqueSession {
             .round()
             .clamp(0., f64::from(count - 1)) as u32;
         self.view.slice = initial;
-        if crate::actions::pressed(ui, crate::actions::Action::Next) {
-            self.view.slice = initial.saturating_add(1).min(count - 1);
-        }
-        if crate::actions::pressed(ui, crate::actions::Action::Previous) {
-            self.view.slice = initial.saturating_sub(1);
-        }
+        self.view.slice = crate::actions::navigate(ui, initial, count - 1);
+        let sampling_status =
+            crate::slab_controls::pending_sampling(snapshot.image.slab, self.slab);
+        crate::slab_controls::status_line(ui, sampling_status.as_deref());
         let (_, response) = ui.allocate_exact_size(
             Vec2::new(width, (ui.available_height() - 62.).max(60.)),
             egui::Sense::click_and_drag(),
@@ -240,7 +241,10 @@ impl ObliqueSession {
             ui,
             frame,
             response.rect,
-            snapshot.image.clone(),
+            snapshot.gpu_image.clone().map_or_else(
+                || viewport::SliceImage::from(snapshot.image.clone()),
+                viewport::SliceImage::from,
+            ),
             &self.view,
             4,
             if snapshot.image.slab.is_some() {
@@ -270,12 +274,12 @@ impl ObliqueSession {
             self.annotations.cancel_interaction(ui.ctx());
         }
         let [l, p, s] = snapshot.plane.center_mm;
-        let status = if snapshot.preview {
-            "Preview · refining"
-        } else if snapshot.generation == self.worker.generation() {
-            "Rendered"
-        } else {
+        let status = if snapshot.generation != self.worker.generation() {
             "Updating · previous plane shown"
+        } else if snapshot.preview {
+            "Preview · refining"
+        } else {
+            "Rendered"
         };
         ui.label(
             RichText::new(format!("{status} · centre L {l:.2}  P {p:.2}  S {s:.2} mm"))

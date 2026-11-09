@@ -38,6 +38,8 @@ pub(super) struct Regions {
     pub picking: bool,
     pub preview: Option<Preview>,
     pub epoch: u64,
+    pub seeded: super::seeded::Seeded,
+    pub seed_picking: Option<orv_core::labels::SeedClass>,
     inputs: Option<(Weak<Labels>, Option<SelectionRequest>)>,
 }
 impl Regions {
@@ -52,6 +54,7 @@ impl Regions {
     pub fn invalidate(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.preview = None;
+        self.seeded.invalidate();
     }
     fn request(&self, label: u8, slice: Option<usize>) -> Option<SelectionRequest> {
         let z = slice?;
@@ -85,7 +88,7 @@ impl Regions {
             operation,
         })
     }
-    pub fn sync(&mut self, map: &Arc<Labels>, label: u8, slice: Option<usize>) {
+    pub fn sync(&mut self, map: &Arc<Labels>, label: u8, slice: Option<usize>) -> bool {
         let key = Arc::downgrade(map);
         let request = self.request(label, slice);
         if self
@@ -96,8 +99,21 @@ impl Regions {
             self.invalidate();
             self.inputs = Some((key, request));
         }
+        let cancelled = self.seeded.sync(map, label, slice);
+        if cancelled {
+            self.picking = false;
+            self.seed_picking = None;
+            self.invalidate();
+        }
+        cancelled
     }
     pub fn pick(&mut self, seed: [usize; 3]) {
+        if let Some(class) = self.seed_picking.take() {
+            self.seeded.add(seed, class);
+            self.picking = false;
+            self.invalidate();
+            return;
+        }
         self.seed = Some(seed);
         self.typed_seed = [seed[0] + 1, seed[1] + 1];
         self.picking = false;
@@ -112,6 +128,14 @@ impl Regions {
                 .is_some_and(|(_, request)| *request == Some(preview.request))
     }
     pub fn displayed<'a>(&'a self, map: &'a Arc<Labels>) -> &'a Arc<Labels> {
+        if let Some(preview) = self
+            .seeded
+            .preview
+            .as_ref()
+            .filter(|p| self.seeded.accept(p, map))
+        {
+            return &preview.labels;
+        }
         self.preview
             .as_ref()
             .filter(|p| self.accept(p, map))
@@ -128,7 +152,7 @@ impl LabelUi {
         let Some(map) = self.current.clone() else {
             return;
         };
-        self.regions.sync(&map, self.label, slice);
+        self.sync_regions(&map, self.label, slice);
         ui.collapsing("Connected regions", |ui| {
             ui.label("Use source values and neighboring cells; this does not recognize shapes, organs or disease. Preview first, then explicitly apply one undoable edit.");
             egui::ComboBox::from_id_salt("region-operation").selected_text(self.regions.choice.name()).show_ui(ui, |ui| {
@@ -157,7 +181,8 @@ impl LabelUi {
                 }
                 if self.regions.choice != Choice::RemoveSmall {
                     if ui.button("Pick seed on source image").clicked() {
-                        self.paint = false; self.stroke.clear();
+                        self.paint = false; self.clear_brush();
+                        self.regions.seed_picking = None;
                         self.regions.invalidate(); self.regions.picking = true; self.open = false;
                     }
                     ui.small("Click once on the source image; this panel reopens. Escape cancels. Or enter a column and row below (1-based).");
@@ -174,7 +199,7 @@ impl LabelUi {
                     else { ui.small("Choose a seed before previewing."); }
                 }
             });
-            self.regions.sync(&map, self.label, slice);
+            self.sync_regions(&map, self.label, slice);
             let request = self.regions.request(self.label, slice);
             let scalar_allowed = self.regions.choice != Choice::Grow || !map.source().is_color();
             if !scalar_allowed { ui.small("Grow from seed requires scalar source images."); }
@@ -196,13 +221,13 @@ impl LabelUi {
                 });
             }
         });
-        self.regions.sync(&map, self.label, slice);
+        self.sync_regions(&map, self.label, slice);
     }
     pub(super) fn apply_region_preview(&mut self, slice: Option<usize>) {
         let Some(map) = self.current.clone() else {
             return;
         };
-        self.regions.sync(&map, self.label, slice);
+        self.sync_regions(&map, self.label, slice);
         if let Some(preview) = self.regions.preview.take()
             && self.regions.accept(&preview, &map)
             && preview.summary.changed_voxels > 0
@@ -212,13 +237,23 @@ impl LabelUi {
     }
     pub fn pointer_hint(&self) -> &'static str {
         if self.regions.picking {
-            "Choose a source seed · click once · Escape to stop"
+            match self.regions.seed_picking {
+                Some(orv_core::labels::SeedClass::Include) => {
+                    "Draw an include hint or click once · Escape to cancel"
+                }
+                Some(orv_core::labels::SeedClass::Exclude) => {
+                    "Draw an exclude hint or click once · Escape to cancel"
+                }
+                None => "Choose a source seed · click once · Escape to stop",
+            }
         } else {
             "Label brush active · Escape to stop"
         }
     }
     pub fn pointer_controls(&self) -> &'static str {
-        if self.regions.picking {
+        if self.regions.picking && self.regions.seed_picking.is_some() {
+            "Hint: draw or click · Wheel / pinch: zoom · Right / Space drag: move · ↑↓: images · Escape: cancel"
+        } else if self.regions.picking {
             "Seed: click once · Wheel / pinch: zoom · Right / Space drag: move · ↑↓: images · Escape: stop"
         } else {
             "Brush: draw labels · Wheel / pinch: zoom · Right / Space drag: move · ↑↓: images · Escape: stop"
@@ -230,6 +265,12 @@ impl LabelUi {
                 .preview
                 .as_ref()
                 .is_some_and(|p| self.regions.accept(p, map))
+                || self
+                    .regions
+                    .seeded
+                    .preview
+                    .as_ref()
+                    .is_some_and(|p| self.regions.seeded.accept(p, map))
         })
     }
 }

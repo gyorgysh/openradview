@@ -12,9 +12,20 @@ pub(crate) fn parameters(
     size: [u32; 2],
     region: [[u32; 2]; 2],
 ) -> Result<[f32; 60], &'static str> {
+    parameters_with_limit(volume, display, state, size, region, 1024)
+}
+
+pub(crate) fn parameters_with_limit(
+    volume: &Volume,
+    display: &ViewState,
+    state: &VolumeView,
+    size: [u32; 2],
+    region: [[u32; 2]; 2],
+    max_side: u32,
+) -> Result<[f32; 60], &'static str> {
     state.validate()?;
     display.validate()?;
-    if size.iter().any(|d| !(1..=1024).contains(d))
+    if size.iter().any(|d| !(1..=max_side).contains(d))
         || region[1].contains(&0)
         || (0..2).any(|i| {
             region[0][i]

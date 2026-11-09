@@ -55,12 +55,27 @@ impl Labels {
         if cancel() {
             return Err(io::ErrorKind::Interrupted.into());
         }
+        let capacity = self.values.len().min(65536);
+        let _scratch = self
+            .values
+            .budget()
+            .reserve(capacity as u64)
+            .ok_or_else(|| io::Error::other("Not enough memory for label export"))?;
+        let mut chunk = Vec::new();
+        chunk
+            .try_reserve_exact(capacity)
+            .map_err(|_| io::Error::other("Not enough memory for label export"))?;
+        chunk.resize(capacity, 0);
         output.write_all(&h)?;
-        for chunk in self.values.chunks(65536) {
+        for start in (0..self.values.len()).step_by(capacity) {
             if cancel() {
                 return Err(io::ErrorKind::Interrupted.into());
             }
-            output.write_all(chunk)?;
+            let count = capacity.min(self.values.len() - start);
+            self.values
+                .copy_into(start, &mut chunk[..count])
+                .map_err(io::Error::other)?;
+            output.write_all(&chunk[..count])?;
         }
         Ok(())
     }

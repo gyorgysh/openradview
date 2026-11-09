@@ -14,6 +14,7 @@ enum Layout {
     #[default]
     Grid,
     Columns,
+    Workbench,
     Axial,
     Coronal,
     Sagittal,
@@ -23,6 +24,7 @@ impl Layout {
         match self {
             Self::Grid => "Adaptive grid",
             Self::Columns => "Three columns",
+            Self::Workbench => "MPR + 3D",
             Self::Axial => "Focus axial",
             Self::Coronal => "Focus coronal",
             Self::Sagittal => "Focus sagittal",
@@ -47,8 +49,33 @@ pub struct MprSession {
     reformat_side: u32,
     last_input: std::time::Instant,
     slab: Option<orv_core::slab::Slab>,
+    workbench: Option<crate::volume_ui::VolumeSession>,
+    prefer_source: bool,
+    #[cfg(feature = "qa")]
+    pub(crate) qa: crate::qa::MprTracking,
 }
 impl MprSession {
+    pub(super) fn set_active(&mut self, active: bool) {
+        self.worker.set_suspended(!active);
+        if !active {
+            #[cfg(feature = "qa")]
+            self.qa.suspend();
+            self.workbench = None;
+            self.snapshot = None;
+            self.picture_sizes = [None; 3];
+        }
+    }
+    pub(super) fn offer_gpu(
+        &self,
+        device: &eframe::egui_wgpu::wgpu::Device,
+        queue: &eframe::egui_wgpu::wgpu::Queue,
+    ) {
+        #[cfg(feature = "qa")]
+        if option_env!("ORV_QA_MPR_CPU") == Some("1") {
+            return;
+        }
+        self.worker.offer_gpu(device, queue);
+    }
     pub(super) fn active_index(&self) -> usize {
         match self.layout {
             Layout::Axial => 0,
@@ -58,9 +85,9 @@ impl MprSession {
         }
     }
     pub(crate) fn picture(&self) -> Option<(crate::export::Pixels, [u32; 2])> {
-        let (_, true) = self.shared_view()? else {
+        if !self.is_settled() {
             return None;
-        };
+        }
         let index = self.active_index();
         Some((
             crate::export::Pixels::Reformat(
@@ -77,6 +104,7 @@ impl MprSession {
     ) -> Self {
         let frames = frames.into();
         let original_window = frames.original_window().unwrap_or(window);
+        let prefer_source = matches!(&frames, crate::frame_source::FrameSource::Indexed(series) if series.modality != "CT");
         Self {
             picture_sizes: [None; 3],
             worker: MprWorker::start(frames, ctx),
@@ -99,6 +127,10 @@ impl MprSession {
             reformat_side: 512,
             last_input: std::time::Instant::now(),
             slab: None,
+            workbench: None,
+            prefer_source,
+            #[cfg(feature = "qa")]
+            qa: Default::default(),
         }
     }
     pub(super) fn request(&mut self, volume: &orv_core::volume::Volume, point: [f64; 3]) {
@@ -115,16 +147,31 @@ impl MprSession {
         self.last_input = std::time::Instant::now();
         self.worker
             .request_slab(point, self.reformat_side, self.slab);
+        #[cfg(feature = "qa")]
+        self.qa.request(self.worker.generation(), self.last_input);
     }
     pub(super) fn is_settled(&self) -> bool {
         self.snapshot
             .as_ref()
             .is_some_and(|s| !s.preview && s.generation == self.worker.generation())
     }
+    #[cfg(feature = "mcp")]
+    pub(super) fn set_canonical(&mut self, canonical: bool) {
+        self.worker.set_canonical(canonical && !self.is_workbench());
+    }
     pub(super) fn poll(&mut self) {
         if let Some(result) = self.worker.take() {
             match result {
                 Ok(snapshot) => {
+                    #[cfg(feature = "qa")]
+                    self.qa.snapshot(
+                        snapshot.generation,
+                        self.worker.generation(),
+                        std::time::Instant::now(),
+                        snapshot.preview,
+                        snapshot.images[0].slab.is_some(),
+                        snapshot.gpu_images.iter().all(Option::is_some),
+                    );
                     if snapshot.volume.is_color() {
                         self.window = snapshot.volume.frames()[0].default_window;
                     }
@@ -154,6 +201,9 @@ impl MprSession {
         selected: usize,
     ) {
         let content_width = ui.available_width();
+        if let Some(render) = frame.wgpu_render_state() {
+            self.offer_gpu(&render.device, &render.queue);
+        }
         self.poll();
         if let Some(error) = &self.error {
             ui.add_space(20.);
@@ -168,6 +218,11 @@ impl MprSession {
             ui.label(RichText::new("Images remain on this device.").color(theme::SILVER));
             return;
         };
+        if self.is_workbench() {
+            labels.sync_physical(&self.physical_context(&snapshot, selected));
+        } else {
+            labels.end_physical_tools();
+        }
         let color = snapshot.volume.is_color();
         if color && self.tool == Tool::Window {
             self.tool = Tool::Pan;
@@ -195,20 +250,51 @@ impl MprSession {
         if self.slab.is_some() && self.tool.measures() {
             self.tool = Tool::Pan;
         }
-        controls::display_panel(ui, "mpr-display-controls", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                let label = ui.label("Active MPR plane");
-                let active = self.active_index();
-                ui.add_enabled_ui(matches!(self.layout, Layout::Grid | Layout::Columns), |ui| {
+        crate::toolbar::row(ui, |ui| {
+            if ui.button("Labels…").clicked() {
+                labels.open = true;
+            }
+            egui::ComboBox::from_id_salt("mpr-layout")
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .width(150.)
+                .selected_text(self.layout.label())
+                .show_ui(ui, |ui| {
+                    for layout in [
+                        Layout::Grid,
+                        Layout::Columns,
+                        Layout::Workbench,
+                        Layout::Axial,
+                        Layout::Coronal,
+                        Layout::Sagittal,
+                    ] {
+                        ui.selectable_value(&mut self.layout, layout, layout.label());
+                    }
+                });
+            let label = ui.label("Active plane");
+            let active = self.active_index();
+            ui.add_enabled_ui(
+                matches!(
+                    self.layout,
+                    Layout::Grid | Layout::Columns | Layout::Workbench
+                ),
+                |ui| {
                     egui::ComboBox::from_id_salt("active-mpr-plane")
+                        .width(85.)
                         .selected_text(["Axial", "Coronal", "Sagittal"][active])
                         .show_ui(ui, |ui| {
-                            for (index, name) in ["Axial", "Coronal", "Sagittal"].into_iter().enumerate() {
-                                if ui.selectable_value(&mut self.active, index, name).clicked() { ui.close(); }
+                            for (index, name) in
+                                ["Axial", "Coronal", "Sagittal"].into_iter().enumerate()
+                            {
+                                if ui.selectable_value(&mut self.active, index, name).clicked() {
+                                    ui.close();
+                                }
                             }
-                        }).response.labelled_by(label.id);
-                });
-                egui::CollapsingHeader::new("Point coordinates").show(ui, |ui| {
+                        })
+                        .response
+                        .labelled_by(label.id);
+                },
+            );
+            egui::CollapsingHeader::new("Point coordinates").show(ui, |ui| {
                     let [min, max] = snapshot.volume.bounds();
                     let mut point = self.target.unwrap_or(snapshot.point);
                     let previous = point;
@@ -219,7 +305,9 @@ impl MprSession {
                     ui.weak("Source LPS coordinates: left, posterior, superior. No body landmark is inferred.");
                     if point != previous { self.request(&snapshot.volume, point); }
                 });
-            });
+        });
+        let workbench = self.is_workbench();
+        let mut display_controls = |ui: &mut egui::Ui| {
             let active = self.active_index();
             if controls::tools_with_measurements(
                 ui,
@@ -236,26 +324,8 @@ impl MprSession {
                     view.pan = [0.; 2];
                 }
             }
-            // Keep the layout selector from enlarging the navigation row.
             crate::toolbar::row(ui, |ui| {
-                if ui.button("Labels…").clicked() {
-                    labels.open = true;
-                }
-                egui::ComboBox::from_id_salt("mpr-layout")
-                    .wrap_mode(egui::TextWrapMode::Truncate)
-                    .width(150.)
-                    .selected_text(self.layout.label())
-                    .show_ui(ui, |ui| {
-                        for layout in [
-                            Layout::Grid,
-                            Layout::Columns,
-                            Layout::Axial,
-                            Layout::Coronal,
-                            Layout::Sagittal,
-                        ] {
-                            ui.selectable_value(&mut self.layout, layout, layout.label());
-                        }
-                    });
+                let active = self.active_index();
                 self.annotations[active].controls(ui);
                 if ui.button("Clear all panes").clicked() {
                     for annotations in &mut self.annotations {
@@ -277,24 +347,54 @@ impl MprSession {
                         .map(|data| &**data.choices()),
                 );
             }
-        });
+        };
+        if workbench {
+            egui::CollapsingHeader::new("MPR display and tools")
+                .id_salt("workbench-mpr-controls")
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt("workbench-mpr-controls-scroll")
+                        .max_height((ui.available_height() * 0.35).clamp(80., 180.))
+                        .show(ui, &mut display_controls);
+                });
+        } else {
+            controls::display_panel(ui, "mpr-display-controls", display_controls);
+        }
         if !color && crate::slab_controls::show(ui, &mut self.slab, &snapshot.volume) {
             let point = self.target.unwrap_or(snapshot.point);
             self.target = None;
             self.request(&snapshot.volume, point);
         }
         let pending = self.worker.generation() != snapshot.generation || snapshot.preview;
+        if self.tool != Tool::Crosshair
+            || (!labels.physical_dialog_open()
+                && ui.input(|input| input.key_pressed(egui::Key::Escape)))
+        {
+            labels.stop_physical_drawing();
+        }
         let elapsed = self.last_input.elapsed();
-        update_status(
+        let sampling_status =
+            crate::slab_controls::pending_sampling(snapshot.images[0].slab, self.slab);
+        let show_pending = pending && elapsed >= std::time::Duration::from_millis(250);
+        crate::slab_controls::status_line(
             ui,
-            pending && elapsed >= std::time::Duration::from_millis(250),
+            sampling_status
+                .as_deref()
+                .or(show_pending.then_some("Updating linked views…")),
         );
-        if pending && elapsed < std::time::Duration::from_millis(250) {
+        if sampling_status.is_none() && pending && elapsed < std::time::Duration::from_millis(250) {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(250) - elapsed);
         }
         let size = Vec2::new(content_width, ui.available_height().max(60.));
         let (area, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        if !self.is_workbench() {
+            self.workbench = None;
+        }
+        #[cfg(feature = "mcp")]
+        if self.is_workbench() {
+            self.set_canonical(false);
+        }
         let gap = 12.0;
         let mut paints = Vec::with_capacity(3);
         let layout = if self.layout == Layout::Grid && area.height() < 360. {
@@ -310,8 +410,23 @@ impl MprSession {
                         area.min + Vec2::new(i as f32 * (width + gap), 0.),
                         Vec2::new(width, area.height()),
                     );
-                    paints.push(self.prepare_plane(ui, i, rect, &snapshot));
+                    paints.push(self.prepare_plane(ui, i, rect, &snapshot, labels, selected));
                 }
+            }
+            Layout::Workbench => {
+                let rects = workbench_rects(area);
+                for (index, rect) in rects[..3].iter().enumerate() {
+                    paints.push(self.prepare_plane(ui, index, *rect, &snapshot, labels, selected));
+                }
+                labels.sync_physical(&self.physical_context(&snapshot, selected));
+                let rect = rects[3];
+                let mut view = ui.new_child(
+                    egui::UiBuilder::new()
+                        .id_salt("mpr-workbench")
+                        .max_rect(rect),
+                );
+                view.set_clip_rect(rect);
+                self.workbench_ui(&mut view, frame, &snapshot, labels, selected);
             }
             Layout::Grid => {
                 let cell = (area.size() - Vec2::splat(gap)) / 2.;
@@ -325,6 +440,8 @@ impl MprSession {
                         i,
                         Rect::from_min_size(area.min + offset, cell),
                         &snapshot,
+                        labels,
+                        selected,
                     ));
                 }
                 let rect = Rect::from_min_size(area.min + cell + Vec2::splat(gap), cell);
@@ -339,7 +456,7 @@ impl MprSession {
                     Layout::Sagittal => 2,
                     _ => 0,
                 };
-                paints.push(self.prepare_plane(ui, index, area, &snapshot));
+                paints.push(self.prepare_plane(ui, index, area, &snapshot, labels, selected));
             }
         }
         // Apply the final shared display state after handling all panes' input.
@@ -347,6 +464,9 @@ impl MprSession {
         for view in &mut self.views {
             view.window = self.window;
             view.invert = self.invert;
+        }
+        if self.is_workbench() {
+            labels.sync_physical(&self.physical_context(&snapshot, selected));
         }
         labels.prepare_planes(
             selected,
@@ -360,6 +480,95 @@ impl MprSession {
         );
         for paint in paints {
             self.finish_plane(paint, frame, &snapshot, labels);
+        }
+        if self.is_workbench() {
+            labels.physical_window(ui.ctx(), &self.physical_context(&snapshot, selected));
+            if labels.take_physical_draw_request() {
+                self.tool = Tool::Crosshair;
+            }
+        }
+    }
+    pub(super) fn physical_context<'a>(
+        &self,
+        snapshot: &'a MprSnapshot,
+        selected: usize,
+    ) -> crate::labels::PhysicalContext<'a> {
+        crate::labels::PhysicalContext {
+            source: &snapshot.volume,
+            selected,
+            point: snapshot.point,
+            plane: self.active_index(),
+            generation: self.worker.generation(),
+            ready: self.worker.generation() == snapshot.generation
+                && !snapshot.preview
+                && self.slab.is_none()
+                && snapshot.images.iter().all(|image| image.slab.is_none()),
+        }
+    }
+    pub(crate) fn controls_open(&self) -> bool {
+        self.workbench
+            .as_ref()
+            .is_some_and(|workbench| workbench.controls_open())
+    }
+    pub(crate) fn is_workbench(&self) -> bool {
+        self.layout == Layout::Workbench
+    }
+    #[cfg(all(test, feature = "mcp"))]
+    pub(crate) fn enable_test_workbench(&mut self) {
+        self.layout = Layout::Workbench;
+    }
+    fn workbench_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        frame: &eframe::Frame,
+        snapshot: &MprSnapshot,
+        labels: &mut crate::labels::LabelUi,
+        selected: usize,
+    ) {
+        if self.workbench.is_none() {
+            let source = snapshot
+                .gpu_images
+                .iter()
+                .flatten()
+                .next()
+                .map(|image| image.source().clone());
+            // An older CPU snapshot can still be visible while the first GPU
+            // offer is uploading. Wait rather than allocate a second source.
+            if source.is_none() && snapshot.generation != self.worker.generation() {
+                ui.label("Waiting for the current MPR source…");
+                return;
+            }
+            let Some(render) = frame.wgpu_render_state() else {
+                ui.label("3D requires the native GPU renderer");
+                return;
+            };
+            self.workbench = Some(crate::volume_ui::VolumeSession::from_mpr(
+                snapshot.volume.clone(),
+                source,
+                self.prefer_source,
+                render,
+                ui.ctx().clone(),
+            ));
+        }
+        let link_epoch = self.worker.generation();
+        let planes_current = self.is_settled();
+        let picked = self.workbench.as_mut().and_then(|workbench| {
+            workbench.embedded_ui(
+                ui,
+                labels,
+                selected,
+                snapshot.point,
+                link_epoch,
+                Some(crate::volume_ui::LinkedPlanes {
+                    images: &snapshot.gpu_images,
+                    window: self.window,
+                    invert: self.invert,
+                    current: planes_current,
+                }),
+            )
+        });
+        if let Some(point) = picked {
+            self.request(&snapshot.volume, point);
         }
     }
     fn guide(&self, ui: &mut egui::Ui, snapshot: &MprSnapshot) {
@@ -385,7 +594,10 @@ impl MprSession {
         );
     }
 
-    pub(super) fn shared_view(&self) -> Option<(crate::rendered::ViewSpec, bool)> {
+    pub(super) fn rendered_view(&self) -> Option<(crate::rendered::ViewSpec, bool)> {
+        if self.is_workbench() {
+            return None;
+        }
         let snapshot = self.snapshot.as_ref()?;
         let index = self.active_index();
         let mut view = self.views[index].clone();
@@ -418,7 +630,7 @@ impl MprSession {
                 reconstruction,
                 preferred_size: None,
             },
-            snapshot.generation == self.worker.generation() && !snapshot.preview,
+            self.is_settled(),
         ))
     }
 
@@ -448,25 +660,761 @@ impl MprSession {
     }
 }
 
-fn update_status(ui: &mut egui::Ui, pending: bool) {
-    // Reserve exactly the same band while pending and settled. Never insert a
-    // label that changes pane height and flips the adaptive layout on/off.
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
-    if pending {
-        ui.painter().text(
-            rect.right_center(),
-            egui::Align2::RIGHT_CENTER,
-            "Updating linked views…",
-            egui::FontId::proportional(11.0),
-            theme::SILVER,
-        );
-    }
+fn workbench_rects(area: Rect) -> [Rect; 4] {
+    let gap = 12.;
+    let columns = area.height() < 360.;
+    let cell = if columns {
+        Vec2::new((area.width() - gap * 3.) / 4., area.height())
+    } else {
+        (area.size() - Vec2::splat(gap)) / 2.
+    };
+    std::array::from_fn(|index| {
+        let [column, row] = if columns {
+            [index, 0]
+        } else {
+            [index % 2, index / 2]
+        };
+        Rect::from_min_size(
+            area.min + Vec2::new(column as f32 * (cell.x + gap), row as f32 * (cell.y + gap)),
+            cell,
+        )
+    })
 }
 
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+
+    #[test]
+    fn wheel_reversal_at_a_plane_boundary_requests_the_adjacent_slice() {
+        use egui::{Event, Modifiers, MouseWheelUnit, Pos2, RawInput, TouchPhase};
+        use std::time::{Duration, Instant};
+
+        for upper in [false, true] {
+            let ctx = egui::Context::default();
+            let mut session = MprSession::start(
+                crate::mpr_worker::tests::frames(),
+                WindowLevel::SOFT_TISSUE,
+                ctx.clone(),
+            );
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !session.is_settled() {
+                session.poll();
+                assert!(Instant::now() < deadline, "initial view did not settle");
+                std::thread::yield_now();
+            }
+            let snapshot = session.snapshot.as_ref().unwrap().clone();
+            let [min, max] = snapshot.volume.bounds();
+            let count =
+                (((max[2] - min[2]) / snapshot.volume.step_mm()).ceil() as u32).clamp(1, 8191) + 1;
+            let step = (max[2] - min[2]) / f64::from(count - 1);
+            let mut edge = snapshot.point;
+            edge[2] = if upper { max[2] } else { min[2] };
+            session.request(&snapshot.volume, edge);
+            let generation = session.worker.generation();
+            let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+            let mut labels = crate::labels::LabelUi::default();
+            let mut time = 0.;
+            let mut frame = |session: &mut MprSession, wheel: Option<f32>| {
+                let mut events = vec![Event::PointerMoved(Pos2::new(200., 200.))];
+                if let Some(wheel) = wheel {
+                    events.push(Event::MouseWheel {
+                        unit: MouseWheelUnit::Point,
+                        delta: egui::vec2(0., wheel),
+                        phase: TouchPhase::Move,
+                        modifiers: Modifiers::NONE,
+                    });
+                }
+                let mut output = ctx.run_ui(
+                    RawInput {
+                        screen_rect: Some(area),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        session.prepare_plane(ui, 0, area, &snapshot, &mut labels, 0);
+                    },
+                );
+                output.textures_delta.clear();
+                time += 1. / 60.;
+            };
+            frame(&mut session, None);
+            let outward = if upper { -5. } else { 5. };
+            for _ in 0..4 {
+                frame(&mut session, Some(outward));
+            }
+            assert_eq!(session.target.unwrap(), edge);
+            assert_eq!(session.worker.generation(), generation);
+            for _ in 0..5 {
+                frame(&mut session, Some(-outward));
+            }
+            let expected = if upper { max[2] - step } else { min[2] + step };
+            assert!((session.target.unwrap()[2] - expected).abs() < 1e-9);
+            assert_eq!(session.worker.generation(), generation + 1);
+        }
+    }
+
+    #[test]
+    fn batched_navigation_keys_advance_each_step() {
+        use egui::{Event, Key, Modifiers, Pos2, RawInput};
+        use std::time::{Duration, Instant};
+
+        let ctx = egui::Context::default();
+        let mut session = MprSession::start(
+            crate::mpr_worker::tests::frames(),
+            WindowLevel::SOFT_TISSUE,
+            ctx.clone(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !session.is_settled() {
+            session.poll();
+            assert!(Instant::now() < deadline, "initial view did not settle");
+            std::thread::yield_now();
+        }
+        let snapshot = session.snapshot.as_ref().unwrap().clone();
+        let [min, max] = snapshot.volume.bounds();
+        let count =
+            (((max[2] - min[2]) / snapshot.volume.step_mm()).ceil() as u32).clamp(1, 8191) + 1;
+        let step = (max[2] - min[2]) / f64::from(count - 1);
+        let initial = ((session.target.unwrap()[2] - min[2]) / step).round() as u32;
+        let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+        let mut labels = crate::labels::LabelUi::default();
+        let generation = session.worker.generation();
+        let events = (0..5)
+            .flat_map(|_| {
+                [true, false].map(|pressed| Event::Key {
+                    key: Key::ArrowDown,
+                    physical_key: None,
+                    pressed,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                })
+            })
+            .collect();
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(area),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                session.prepare_plane(ui, 0, area, &snapshot, &mut labels, 0);
+            },
+        );
+        output.textures_delta.clear();
+        let expected = min[2] + step * f64::from(initial.saturating_add(5).min(count - 1));
+        assert_eq!(session.target.unwrap()[2], expected);
+        assert_eq!(session.worker.generation(), generation + 1);
+    }
+
+    #[test]
+    fn quick_slider_drag_requests_release_position() {
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use std::time::{Duration, Instant};
+
+        let ctx = egui::Context::default();
+        let mut session = MprSession::start(
+            crate::mpr_worker::tests::frames(),
+            WindowLevel::SOFT_TISSUE,
+            ctx.clone(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !session.is_settled() {
+            session.poll();
+            assert!(Instant::now() < deadline, "initial view did not settle");
+            std::thread::yield_now();
+        }
+        let mut labels = crate::labels::LabelUi::default();
+        let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+        let mut frame = |session: &mut MprSession, events: Vec<Event>| {
+            let snapshot = session.snapshot.as_ref().unwrap().clone();
+            let mut slider_rect = Rect::NOTHING;
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(area),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    slider_rect = session
+                        .prepare_plane(ui, 0, area, &snapshot, &mut labels, 0)
+                        .slider_rect;
+                },
+            );
+            output.textures_delta.clear();
+            slider_rect
+        };
+        let slider = frame(&mut session, vec![]);
+        let start = Pos2::new(slider.left() + slider.width() * 0.2, slider.center().y);
+        let end = Pos2::new(slider.left() + slider.width() * 0.8, slider.center().y);
+        let initial = session.target.unwrap()[2];
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerMoved(end),
+                Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        let after_drag = session.target.unwrap()[2];
+        assert!(after_drag > initial, "quick drag was lost");
+        let [min, max] = session.snapshot.as_ref().unwrap().volume.bounds();
+        let fraction = (after_drag - min[2]) / (max[2] - min[2]);
+        assert!(
+            (0.7..0.95).contains(&fraction),
+            "quick drag did not reach its release position: {fraction}"
+        );
+
+        let outside = Pos2::new(area.right() + 20., slider.center().y);
+        for (press, release) in [(outside, start), (end, outside)] {
+            frame(
+                &mut session,
+                vec![
+                    Event::PointerMoved(press),
+                    Event::PointerButton {
+                        pos: press,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                    Event::PointerMoved(release),
+                    Event::PointerButton {
+                        pos: release,
+                        button: PointerButton::Primary,
+                        pressed: false,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            assert_eq!(session.target.unwrap()[2], after_drag);
+        }
+
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(end),
+                Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerMoved(start),
+                Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        assert_eq!(
+            session.target.unwrap()[2],
+            after_drag,
+            "Escape cancels the drag"
+        );
+
+        let release_above = Pos2::new(start.x, slider.top() - 25.);
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(end),
+                Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerMoved(release_above),
+                Event::PointerButton {
+                    pos: release_above,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        let after_release = session.target.unwrap()[2];
+        assert!(
+            after_release < initial,
+            "release above the rail did not update the selected position"
+        );
+
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        let held_release = Pos2::new(end.x, slider.top() - 25.);
+        frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(held_release),
+                Event::PointerButton {
+                    pos: held_release,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        assert!(
+            session.target.unwrap()[2] > initial,
+            "last movement of a held drag was lost on release"
+        );
+    }
+
+    #[test]
+    fn quick_slider_drag_across_panes_only_moves_its_originating_plane() {
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use std::time::{Duration, Instant};
+
+        let ctx = egui::Context::default();
+        let mut session = MprSession::start(
+            crate::mpr_worker::tests::frames(),
+            WindowLevel::SOFT_TISSUE,
+            ctx.clone(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !session.is_settled() {
+            session.poll();
+            assert!(Instant::now() < deadline, "initial view did not settle");
+            std::thread::yield_now();
+        }
+        let mut labels = crate::labels::LabelUi::default();
+        let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(1000., 500.));
+        let panes = [
+            Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.)),
+            Rect::from_min_size(egui::pos2(500., 0.), egui::vec2(500., 500.)),
+        ];
+        let mut frame = |session: &mut MprSession, events: Vec<Event>| {
+            let snapshot = session.snapshot.as_ref().unwrap().clone();
+            let mut sliders = [Rect::NOTHING; 2];
+            let mut other_control_clicked = false;
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(area),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    for (index, pane) in panes.into_iter().enumerate() {
+                        sliders[index] = session
+                            .prepare_plane(ui, index, pane, &snapshot, &mut labels, 0)
+                            .slider_rect;
+                    }
+                    let other = Rect::from_center_size(sliders[1].center(), egui::vec2(40., 20.));
+                    other_control_clicked = ui.put(other, egui::Button::new("Other")).clicked();
+                },
+            );
+            output.textures_delta.clear();
+            (sliders, other_control_clicked)
+        };
+        let (sliders, _) = frame(&mut session, vec![]);
+        let start = sliders[0].center();
+        let end = sliders[1].center();
+        let initial = session.target.unwrap();
+        let [_, max] = session.snapshot.as_ref().unwrap().volume.bounds();
+        let (_, other_control_clicked) = frame(
+            &mut session,
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+                Event::PointerMoved(end),
+                Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        let after = session.target.unwrap();
+        assert!(!other_control_clicked, "release activated another control");
+        assert_eq!(after[2], max[2]);
+        assert_eq!(after[1], initial[1]);
+        assert_eq!(after[0], initial[0]);
+    }
+
+    #[test]
+    fn quick_slider_drag_does_not_cross_a_foreground_popup() {
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use std::time::{Duration, Instant};
+
+        let ctx = egui::Context::default();
+        let mut session = MprSession::start(
+            crate::mpr_worker::tests::frames(),
+            WindowLevel::SOFT_TISSUE,
+            ctx.clone(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !session.is_settled() {
+            session.poll();
+            assert!(Instant::now() < deadline, "initial view did not settle");
+            std::thread::yield_now();
+        }
+        let mut labels = crate::labels::LabelUi::default();
+        let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+        let mut popup = None;
+        let mut frame = |session: &mut MprSession, events: Vec<Event>, show_popup: bool| {
+            let snapshot = session.snapshot.as_ref().unwrap().clone();
+            let mut slider = Rect::NOTHING;
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(area),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    slider = session
+                        .prepare_plane(ui, 0, area, &snapshot, &mut labels, 0)
+                        .slider_rect;
+                    if show_popup {
+                        let popup_rect = popup.unwrap_or_else(|| {
+                            Rect::from_center_size(slider.center(), egui::vec2(60., 60.))
+                        });
+                        popup = Some(popup_rect);
+                        egui::Area::new(egui::Id::new("test_popup"))
+                            .order(egui::Order::Foreground)
+                            .fixed_pos(popup_rect.min)
+                            .show(&ctx, |ui| {
+                                ui.allocate_exact_size(popup_rect.size(), egui::Sense::click());
+                            });
+                    }
+                },
+            );
+            output.textures_delta.clear();
+            slider
+        };
+        let slider = frame(&mut session, vec![], true);
+        frame(&mut session, vec![], true);
+        let on_popup = slider.center();
+        let on_slider = Pos2::new(slider.left() + slider.width() * 0.15, slider.center().y);
+        assert_eq!(
+            ctx.layer_id_at(on_popup).unwrap().order,
+            egui::Order::Foreground
+        );
+        assert_ne!(ctx.layer_id_at(on_popup), ctx.layer_id_at(on_slider));
+        let initial = session.target.unwrap();
+        for (press, release) in [(on_slider, on_popup), (on_popup, on_slider)] {
+            frame(
+                &mut session,
+                vec![
+                    Event::PointerMoved(press),
+                    Event::PointerButton {
+                        pos: press,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                    Event::PointerMoved(release),
+                    Event::PointerButton {
+                        pos: release,
+                        button: PointerButton::Primary,
+                        pressed: false,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+                true,
+            );
+            assert_eq!(session.target.unwrap(), initial);
+        }
+    }
+
+    #[test]
+    fn held_slider_moves_request_intermediate_full_detail_views() {
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use orv_core::slab::{Slab, SlabProjection};
+        use std::time::{Duration, Instant};
+
+        for slab in [
+            None,
+            Some(Slab {
+                projection: SlabProjection::Maximum,
+                thickness_mm: 4.,
+                intervals: 32,
+            }),
+        ] {
+            let ctx = egui::Context::default();
+            let mut session = MprSession::start(
+                crate::mpr_worker::tests::frames(),
+                WindowLevel::SOFT_TISSUE,
+                ctx.clone(),
+            );
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !session.is_settled() {
+                session.poll();
+                assert!(Instant::now() < deadline, "initial view did not settle");
+                std::thread::yield_now();
+            }
+            let volume = session.snapshot.as_ref().unwrap().volume.clone();
+            if slab.is_some() {
+                session.slab = slab;
+                let point = session.target.take().unwrap();
+                session.request(&volume, point);
+                while !session.is_settled() {
+                    session.poll();
+                    assert!(Instant::now() < deadline, "slab view did not settle");
+                    std::thread::yield_now();
+                }
+            }
+            let mut labels = crate::labels::LabelUi::default();
+            let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+            let mut frame = |session: &mut MprSession, events: Vec<Event>| {
+                session.poll();
+                let snapshot = session.snapshot.as_ref().unwrap().clone();
+                let mut slider_rect = Rect::NOTHING;
+                let mut output = ctx.run_ui(
+                    RawInput {
+                        screen_rect: Some(area),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        slider_rect = session
+                            .prepare_plane(ui, 0, area, &snapshot, &mut labels, 0)
+                            .slider_rect;
+                    },
+                );
+                output.textures_delta.clear();
+                slider_rect
+            };
+            let slider = frame(&mut session, vec![]);
+            let pos = |fraction: f32| {
+                Pos2::new(slider.left() + slider.width() * fraction, slider.center().y)
+            };
+            let start = pos(0.2);
+            frame(
+                &mut session,
+                vec![
+                    Event::PointerMoved(start),
+                    Event::PointerButton {
+                        pos: start,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            let mut requested = Vec::new();
+            for fraction in [0.35, 0.5, 0.65, 0.8] {
+                frame(&mut session, vec![Event::PointerMoved(pos(fraction))]);
+                requested.push(session.target.unwrap()[2]);
+            }
+            assert!(
+                requested.windows(2).all(|points| points[0] < points[1]),
+                "held input must request each intermediate position: {requested:?}"
+            );
+            let end = pos(0.8);
+            frame(
+                &mut session,
+                vec![Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+            let final_point = session.target.unwrap();
+            while !session.is_settled() {
+                session.poll();
+                assert!(Instant::now() < deadline, "final view did not settle");
+                std::thread::yield_now();
+            }
+            let result = session.snapshot.as_ref().unwrap();
+            assert_eq!(result.point, final_point);
+            assert_eq!(result.reformat_side, 512);
+            for (index, plane) in PLANES.into_iter().enumerate() {
+                let expected = if let Some(slab) = slab {
+                    volume
+                        .reformat_slab(
+                            &orv_core::oblique::ObliquePlane::anatomical(plane, final_point)
+                                .unwrap(),
+                            slab,
+                            512,
+                            || false,
+                        )
+                        .unwrap()
+                } else {
+                    volume.reformat(plane, final_point, 512, || false).unwrap()
+                };
+                assert_eq!(result.images[index].slab, slab);
+                assert_eq!(result.images[index].geometry, expected.geometry);
+                assert_eq!(result.images[index].pixels, expected.pixels);
+            }
+        }
+    }
+
+    #[cfg(feature = "gpu-tests")]
+    #[test]
+    fn held_slider_produces_intermediate_gpu_planes_at_requested_detail() {
+        use crate::mpr_worker::gpu_tests;
+        use egui::{Event, Modifiers, PointerButton, Pos2, RawInput};
+        use orv_core::slab::{Slab, SlabProjection};
+        use std::{
+            sync::Arc,
+            time::{Duration, Instant},
+        };
+
+        let (device, queue) = gpu_tests::device();
+        for slab in [
+            None,
+            Some(Slab {
+                projection: SlabProjection::Maximum,
+                thickness_mm: 4.,
+                intervals: 32,
+            }),
+        ] {
+            let ctx = egui::Context::default();
+            let mut session = MprSession::start(
+                gpu_tests::source(false),
+                WindowLevel::SOFT_TISSUE,
+                ctx.clone(),
+            );
+            session.offer_gpu(&device, &queue);
+            let wait = |session: &mut MprSession, preview: bool| {
+                let deadline = Instant::now() + Duration::from_secs(20);
+                loop {
+                    session.poll();
+                    assert!(session.error.is_none(), "{:?}", session.error);
+                    if let Some(snapshot) = &session.snapshot
+                        && snapshot.preview == preview
+                        && snapshot.generation == session.worker.generation()
+                        && snapshot.gpu_images.iter().all(Option::is_some)
+                    {
+                        return snapshot.clone();
+                    }
+                    assert!(Instant::now() < deadline, "GPU view did not complete");
+                    std::thread::yield_now();
+                }
+            };
+            let first = wait(&mut session, false);
+            if let Some(slab) = slab {
+                session.slab = Some(slab);
+                let point = session.target.take().unwrap();
+                session.request(&first.volume, point);
+                wait(&mut session, false);
+            }
+            let first = session.snapshot.as_ref().unwrap().clone();
+            let mut labels = crate::labels::LabelUi::default();
+            let area = Rect::from_min_size(Pos2::ZERO, egui::vec2(500., 500.));
+            let mut frame = |session: &mut MprSession, events: Vec<Event>| {
+                session.poll();
+                let snapshot = session.snapshot.as_ref().unwrap().clone();
+                let mut slider_rect = Rect::NOTHING;
+                let mut output = ctx.run_ui(
+                    RawInput {
+                        screen_rect: Some(area),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        slider_rect = session
+                            .prepare_plane(ui, 0, area, &snapshot, &mut labels, 0)
+                            .slider_rect;
+                    },
+                );
+                output.textures_delta.clear();
+                slider_rect
+            };
+            let slider = frame(&mut session, vec![]);
+            let pos = |fraction: f32| {
+                Pos2::new(slider.left() + slider.width() * fraction, slider.center().y)
+            };
+            let start = pos(0.2);
+            frame(
+                &mut session,
+                vec![
+                    Event::PointerMoved(start),
+                    Event::PointerButton {
+                        pos: start,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            for fraction in [0.35, 0.5, 0.65, 0.8] {
+                frame(&mut session, vec![Event::PointerMoved(pos(fraction))]);
+                let requested = session.target.unwrap();
+                let moving = wait(&mut session, true);
+                assert_eq!(moving.point, requested);
+                assert_eq!(moving.reformat_side, 512);
+                assert!(moving.images[0].width > 128);
+                assert!(moving.images.iter().all(|image| image.slab == slab));
+                for index in [1, 2] {
+                    assert!(Arc::ptr_eq(&first.images[index], &moving.images[index]));
+                    assert!(Arc::ptr_eq(
+                        first.gpu_images[index].as_ref().unwrap(),
+                        moving.gpu_images[index].as_ref().unwrap(),
+                    ));
+                }
+                gpu_tests::verify(&moving);
+            }
+            let end = pos(0.8);
+            frame(
+                &mut session,
+                vec![Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+            let final_view = wait(&mut session, false);
+            assert_eq!(final_view.point, session.target.unwrap());
+            gpu_tests::verify(&final_view);
+        }
+    }
+    #[test]
+    fn short_workbench_uses_the_full_height_and_all_cells_remain_disjoint() {
+        for size in [egui::vec2(608., 180.), egui::vec2(1000., 430.)] {
+            let area = Rect::from_min_size(egui::pos2(236., 320.), size);
+            let cells = workbench_rects(area);
+            for (index, cell) in cells.iter().enumerate() {
+                assert!(area.contains_rect(*cell));
+                assert!(
+                    cell.width() >= 140. && cell.height() >= 180.,
+                    "Insufficient image space: {cell:?}"
+                );
+                assert!(cells[..index].iter().all(|other| !cell.intersects(*other)));
+            }
+            if size.y < 360. {
+                assert!(cells.iter().all(|cell| cell.height() == size.y));
+            }
+        }
+    }
     #[test]
     fn pending_linked_views_do_not_shift_the_panes_or_adaptive_layout() {
         for size in [egui::vec2(860., 640.), egui::vec2(1280., 840.)] {
@@ -479,7 +1427,10 @@ mod layout_tests {
                         ..Default::default()
                     },
                     |ui| {
-                        update_status(ui, pending);
+                        crate::slab_controls::status_line(
+                            ui,
+                            pending.then_some("Showing MIP (80 mm, 251 samples); updating…"),
+                        );
                         let (rect, _) =
                             ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
                         panes.push(rect);
@@ -515,14 +1466,14 @@ mod preview_sharing_tests {
             assert!(std::time::Instant::now() < deadline);
             std::thread::yield_now();
         }
-        let (_, ready) = session.shared_view().unwrap();
+        let (_, ready) = session.rendered_view().unwrap();
         assert!(!ready);
         while !session.is_settled() {
             session.poll();
             assert!(std::time::Instant::now() < deadline);
             std::thread::yield_now();
         }
-        let (spec, ready) = session.shared_view().unwrap();
+        let (spec, ready) = session.rendered_view().unwrap();
         assert!(ready);
         assert_eq!(spec.reformat_side, 512);
         assert_eq!(spec.point, Some([1., 2., 9.]));

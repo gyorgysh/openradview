@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub fn setup() -> Result<egui_wgpu::WgpuSetupCreateNew, &'static str> {
     let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
     setup.instance_descriptor.backends = orv_render::configured_backends()?;
+    setup.instance_descriptor.flags = orv_render::instance_flags();
     setup.device_descriptor = Arc::new(orv_render::device_descriptor);
     Ok(setup)
 }

@@ -11,15 +11,47 @@ use orv_core::{
 use std::sync::Arc;
 
 impl Workspace {
+    fn local_scene_view(&self) -> bool {
+        (self.mode == ViewMode::Mpr && self.mpr.as_ref().is_some_and(|mpr| mpr.is_workbench()))
+            || (self.mode == ViewMode::Volume
+                && self
+                    .volume
+                    .as_ref()
+                    .is_some_and(|volume| volume.local_scene()))
+    }
     pub(crate) fn sharing_before_ui(&mut self, ctx: &egui::Context, external_dialog_open: bool) {
+        if self.local_scene_view() {
+            self.sharing.revoke();
+            self.sharing.panel_open = false;
+        }
         self.sharing.poll(ctx);
+        let canonical = !self.local_scene_view()
+            && (self.sharing.panel_open
+                || self.sharing.modal_open()
+                || self.sharing.is_active()
+                || self
+                    .sharing
+                    .broker
+                    .as_ref()
+                    .is_some_and(|b| b.has_unseen_request()));
+        if let Some(mpr) = &mut self.mpr {
+            mpr.set_canonical(canonical);
+            mpr.poll();
+        }
+        let mpr_pending = self.mode == ViewMode::Mpr
+            && !self.local_scene_view()
+            && !self
+                .canonical_rendered_view()
+                .is_some_and(|(_, ready)| ready);
         // Leave unseen requests in the bounded broker while the user reviews a
         // local dialog. Closing it triggers another frame; no polling is added.
         if !external_dialog_open
             && !self.local_dialog_open()
+            && !mpr_pending
             && let Some(request) = self.sharing.broker.as_ref().and_then(|b| b.take_request())
         {
             if self.mode == ViewMode::Compare
+                || self.local_scene_view()
                 || self.sharing.comparison.is_active()
                 || self.sharing.modal_open()
                 || self.loading.is_some()
@@ -27,7 +59,7 @@ impl Workspace {
                 if let Some(broker) = &self.sharing.broker {
                     broker.deny(request.id);
                 }
-            } else if let Some((spec, true)) = self.rendered_view()
+            } else if let Some((spec, true)) = self.canonical_rendered_view()
                 && let Some(series) = self
                     .study
                     .as_ref()
@@ -52,7 +84,11 @@ impl Workspace {
         }
     }
     pub(crate) fn sharing_after_ui(&mut self, ctx: &egui::Context) {
-        if let Some((spec, ready)) = self.rendered_view() {
+        if self.local_scene_view() {
+            self.sharing.revoke();
+            self.sharing.panel_open = false;
+        }
+        if let Some((spec, ready)) = self.canonical_rendered_view() {
             self.sharing.publish(spec, ready);
         }
         if !self.sharing.modal_open() {
@@ -63,7 +99,7 @@ impl Workspace {
     pub(crate) fn agent_toolbar(&mut self, ui: &mut egui::Ui) {
         if ui
             .add_enabled(
-                self.mode != ViewMode::Compare,
+                self.mode != ViewMode::Compare && !self.local_scene_view(),
                 egui::Button::new(if self.sharing.is_active() {
                     "Agents · connected"
                 } else {
@@ -74,6 +110,9 @@ impl Workspace {
             .clicked()
         {
             self.sharing.panel_open = true;
+            if let Some(mpr) = &mut self.mpr {
+                mpr.set_canonical(true);
+            }
         }
     }
     fn agent_panel(&mut self, ctx: &egui::Context) {
@@ -82,7 +121,7 @@ impl Workspace {
             && !self.sharing.is_active()
             && self.sharing.draft.is_none()
             && self.loading.is_none()
-            && let Some((spec, true)) = self.rendered_view()
+            && let Some((spec, true)) = self.canonical_rendered_view()
             && let Some(series) = self
                 .study
                 .as_ref()
@@ -105,7 +144,7 @@ impl Workspace {
         }
     }
     pub(super) fn apply_shared_scene(&mut self, scene: &SceneState, ctx: &egui::Context) {
-        if self.mode == ViewMode::Compare {
+        if self.mode == ViewMode::Compare || self.local_scene_view() {
             self.sharing.revoke();
             return;
         }

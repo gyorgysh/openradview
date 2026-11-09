@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! A single worker coalesces requests and publishes one consistent three-plane snapshot.
-use eframe::egui;
+use eframe::{egui, egui_wgpu::wgpu};
 use orv_core::{Plane, spatial::GeometryError, study::Frame, volume::Volume};
+use orv_render::reslice::GpuReformatImage;
+mod planes;
+use planes::{Gpu, PlaneCache, render};
 use std::sync::{
     Arc, Condvar, Mutex, MutexGuard,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 pub const PLANES: [Plane; 3] = [Plane::Axial, Plane::Coronal, Plane::Sagittal];
+#[cfg(all(test, feature = "gpu-tests"))]
+pub(crate) mod gpu_tests;
 #[cfg(test)]
 #[path = "mpr_worker_tests.rs"]
 pub(crate) mod tests;
@@ -16,21 +21,30 @@ pub struct MprSnapshot {
     pub volume: Arc<Volume>,
     pub point: [f64; 3],
     pub images: [Arc<Frame>; 3],
+    pub gpu_images: [Option<Arc<GpuReformatImage>>; 3],
     pub generation: u64,
     pub preview: bool,
     pub reformat_side: u32,
+    canonical_requested: bool,
 }
+#[derive(Clone)]
 struct Request {
     point: [f64; 3],
     generation: u64,
+    sampling_generation: u64,
     reformat_side: u32,
     interactive: bool,
     slab: Option<orv_core::slab::Slab>,
+    canonical: bool,
 }
 #[derive(Default)]
 struct Work {
     request: Option<Request>,
+    latest: Option<Request>,
+    gpu_context: Option<(wgpu::Device, wgpu::Queue)>,
+    gpu_offered: bool,
     result: Option<Result<MprSnapshot, String>>,
+    terminal_error: Option<String>,
 }
 #[derive(Default)]
 struct Shared {
@@ -38,6 +52,17 @@ struct Shared {
     changed: Condvar,
     cancelled: AtomicBool,
     generation: AtomicU64,
+    sampling_generation: AtomicU64,
+    canonical: AtomicBool,
+    suspended: AtomicBool,
+}
+impl Shared {
+    fn preview_cancelled(&self, request: &Request) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+            || self.suspended.load(Ordering::Relaxed)
+            || self.canonical.load(Ordering::Relaxed) != request.canonical
+            || self.sampling_generation.load(Ordering::Relaxed) != request.sampling_generation
+    }
 }
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
@@ -45,6 +70,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 pub struct MprWorker {
     shared: Arc<Shared>,
+    #[cfg(test)]
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 impl MprWorker {
     pub fn start(frames: impl Into<crate::frame_source::FrameSource>, ctx: egui::Context) -> Self {
@@ -58,35 +85,61 @@ impl MprWorker {
                 let volume = match frames.volume(|| worker.cancelled.load(Ordering::Relaxed)) {
                     Ok(volume) => volume,
                     Err(error) => {
-                        lock(&worker.work).result = Some(Err(error.to_string()));
-                        ctx.request_repaint();
+                        unavailable(&worker, error, &ctx);
                         return;
                     }
                 };
-                let mut request = Request {
-                    point: volume.center(),
-                    generation: 0,
-                    reformat_side: 512,
-                    interactive: false,
-                    slab: None,
+                let mut request = {
+                    let mut work = lock(&worker.work);
+                    let request = work.request.take().unwrap_or_else(|| Request {
+                        point: volume.center(),
+                        generation: worker.generation.load(Ordering::Relaxed),
+                        sampling_generation: worker.sampling_generation.load(Ordering::Relaxed),
+                        reformat_side: 512,
+                        interactive: false,
+                        slab: None,
+                        canonical: worker.canonical.load(Ordering::Relaxed),
+                    });
+                    work.latest = Some(request.clone());
+                    request
                 };
+                let mut cache = PlaneCache::default();
+                let mut gpu = Gpu::default();
                 'requests: loop {
                     if worker.cancelled.load(Ordering::Relaxed) {
                         return;
                     }
+                    if worker.suspended.load(Ordering::Relaxed) {
+                        gpu.release();
+                        cache = PlaneCache::default();
+                        let mut work = lock(&worker.work);
+                        while worker.suspended.load(Ordering::Relaxed)
+                            && !worker.cancelled.load(Ordering::Relaxed)
+                        {
+                            work = worker.changed.wait(work).unwrap_or_else(|p| p.into_inner());
+                        }
+                        if worker.cancelled.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        if let Some(next) = work.request.take() {
+                            request = next;
+                        }
+                        continue;
+                    }
+                    if let Some(context) = lock(&worker.work).gpu_context.take() {
+                        gpu.offer(context);
+                    }
                     if request.interactive && request.reformat_side > 128 {
-                        // Finish a small coherent set even if a newer pointer request arrives.
+                        // Finish a coherent set even if a newer pointer request arrives.
                         // Cancelling every input generation can starve the display during a drag.
-                        let result = render(&volume, &request, 128, true, || {
-                            worker.cancelled.load(Ordering::Relaxed)
+                        // Provisional refers to input settling, not reduced sampling.
+                        let result = render(&volume, &request, true, &mut cache, &mut gpu, || {
+                            worker.preview_cancelled(&request)
                         });
                         if worker.cancelled.load(Ordering::Relaxed) {
                             return;
                         }
-                        if !matches!(result, Err(GeometryError::Cancelled)) {
-                            lock(&worker.work).result = Some(result.map_err(|e| e.to_string()));
-                            ctx.request_repaint();
-                        }
+                        publish(&worker, &request, true, result, &ctx);
                         let mut work = lock(&worker.work);
                         loop {
                             if worker.cancelled.load(Ordering::Relaxed) {
@@ -108,13 +161,11 @@ impl MprWorker {
                     }
                     let cancel = || {
                         worker.cancelled.load(Ordering::Relaxed)
+                            || worker.suspended.load(Ordering::Relaxed)
                             || worker.generation.load(Ordering::Relaxed) != request.generation
                     };
-                    let result = render(&volume, &request, request.reformat_side, false, cancel);
-                    if !cancel() && !matches!(result, Err(GeometryError::Cancelled)) {
-                        lock(&worker.work).result = Some(result.map_err(|e| e.to_string()));
-                        ctx.request_repaint();
-                    }
+                    let result = render(&volume, &request, false, &mut cache, &mut gpu, cancel);
+                    publish(&worker, &request, false, result, &ctx);
                     let mut work = lock(&worker.work);
                     while work.request.is_none() && !worker.cancelled.load(Ordering::Relaxed) {
                         work = worker.changed.wait(work).unwrap_or_else(|p| p.into_inner());
@@ -128,12 +179,59 @@ impl MprWorker {
                 }
             });
         if spawn.is_err() {
-            lock(&shared.work).result = Some(Err(
+            unavailable(
+                &shared,
                 "Could not start the view worker. Close a study and try again.".into(),
-            ));
-            repaint.request_repaint();
+                &repaint,
+            );
         }
-        Self { shared }
+        Self {
+            shared,
+            #[cfg(test)]
+            worker: spawn.ok(),
+        }
+    }
+    /// Offer only handles on the UI thread; preparation and upload stay on the worker.
+    pub fn offer_gpu(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let mut work = lock(&self.shared.work);
+        if work.gpu_offered {
+            return;
+        }
+        work.gpu_offered = true;
+        work.gpu_context = Some((device.clone(), queue.clone()));
+        self.reschedule(&mut work);
+        drop(work);
+        self.shared.changed.notify_one();
+    }
+    pub fn set_suspended(&self, suspended: bool) {
+        let mut work = lock(&self.shared.work);
+        if self.shared.suspended.swap(suspended, Ordering::Relaxed) == suspended {
+            return;
+        }
+        self.reschedule(&mut work);
+        drop(work);
+        self.shared.changed.notify_one();
+    }
+    #[cfg(any(test, feature = "mcp"))]
+    pub fn set_canonical(&self, canonical: bool) {
+        let mut work = lock(&self.shared.work);
+        if self.shared.canonical.swap(canonical, Ordering::Relaxed) == canonical {
+            return;
+        }
+        self.reschedule(&mut work);
+        drop(work);
+        self.shared.changed.notify_one();
+    }
+    fn reschedule(&self, work: &mut Work) {
+        let generation = self.shared.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        work.result = work.terminal_error.as_ref().map(|error| Err(error.clone()));
+        if let Some(mut latest) = work.latest.clone() {
+            latest.generation = generation;
+            latest.canonical = self.shared.canonical.load(Ordering::Relaxed);
+            latest.interactive = false;
+            work.latest = Some(latest.clone());
+            work.request = Some(latest);
+        }
     }
     #[cfg(any(test, feature = "mcp"))]
     pub fn request(&self, point: [f64; 3], reformat_side: u32) {
@@ -160,22 +258,51 @@ impl MprWorker {
     ) {
         let mut work = lock(&self.shared.work);
         let generation = self.shared.generation.fetch_add(1, Ordering::Relaxed) + 1;
-        work.request = Some(Request {
+        if work
+            .latest
+            .as_ref()
+            .is_some_and(|latest| latest.reformat_side != reformat_side || latest.slab != slab)
+        {
+            self.shared
+                .sampling_generation
+                .fetch_add(1, Ordering::Relaxed);
+            if work.result.as_ref().is_some_and(Result::is_ok) {
+                work.result = None;
+            }
+        }
+        if let Some(error) = &work.terminal_error {
+            work.result = Some(Err(error.clone()));
+        } else if work.result.as_ref().is_some_and(Result::is_err) {
+            work.result = None;
+        }
+        let request = Request {
             point,
             generation,
+            sampling_generation: self.shared.sampling_generation.load(Ordering::Relaxed),
             reformat_side,
             interactive,
             slab,
-        });
+            canonical: self.shared.canonical.load(Ordering::Relaxed),
+        };
+        work.latest = Some(request.clone());
+        work.request = Some(request);
         drop(work);
         self.shared.changed.notify_one();
     }
     pub fn take(&self) -> Option<Result<MprSnapshot, String>> {
-        let result = lock(&self.shared.work).result.take()?;
-        if result
-            .as_ref()
-            .is_ok_and(|s| !s.preview && s.generation != self.generation())
-        {
+        let mut work = lock(&self.shared.work);
+        let result = work.result.take()?;
+        if self.shared.suspended.load(Ordering::Relaxed) {
+            return None;
+        }
+        if result.as_ref().is_ok_and(|s| {
+            s.canonical_requested != self.shared.canonical.load(Ordering::Relaxed)
+                || (!s.preview && s.generation != self.generation())
+                || work.latest.as_ref().is_some_and(|latest| {
+                    s.reformat_side != latest.reformat_side
+                        || s.images.iter().any(|image| image.slab != latest.slab)
+                })
+        }) {
             return None;
         }
         Some(result)
@@ -194,35 +321,36 @@ impl Drop for MprWorker {
     }
 }
 
-fn render(
-    volume: &Arc<Volume>,
+fn unavailable(worker: &Shared, error: String, ctx: &egui::Context) {
+    let mut work = lock(&worker.work);
+    if worker.cancelled.load(Ordering::Relaxed) {
+        return;
+    }
+    work.terminal_error = Some(error.clone());
+    work.result = Some(Err(error));
+    drop(work);
+    ctx.request_repaint();
+}
+fn publish(
+    worker: &Shared,
     request: &Request,
-    side: u32,
     preview: bool,
-    cancel: impl Fn() -> bool,
-) -> Result<MprSnapshot, GeometryError> {
-    let images = PLANES
-        .into_iter()
-        .map(|plane| {
-            if let Some(slab) = request.slab {
-                let plane = orv_core::oblique::ObliquePlane::anatomical(plane, request.point)?;
-                volume.reformat_slab(
-                    &plane,
-                    if preview { slab.preview() } else { slab },
-                    side,
-                    &cancel,
-                )
-            } else {
-                volume.reformat(plane, request.point, side, &cancel)
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(MprSnapshot {
-        volume: volume.clone(),
-        point: request.point,
-        images: images.try_into().map_err(|_| GeometryError::Dimensions)?,
-        generation: request.generation,
-        preview,
-        reformat_side: side,
-    })
+    result: Result<MprSnapshot, GeometryError>,
+    ctx: &egui::Context,
+) {
+    let mut work = lock(&worker.work);
+    if worker.cancelled.load(Ordering::Relaxed)
+        || worker.suspended.load(Ordering::Relaxed)
+        || worker.canonical.load(Ordering::Relaxed) != request.canonical
+        || (preview
+            && worker.sampling_generation.load(Ordering::Relaxed) != request.sampling_generation)
+        || (!preview && worker.generation.load(Ordering::Relaxed) != request.generation)
+        || (result.is_err() && worker.generation.load(Ordering::Relaxed) != request.generation)
+        || matches!(result, Err(GeometryError::Cancelled))
+    {
+        return;
+    }
+    work.result = Some(result.map_err(|e| e.to_string()));
+    drop(work);
+    ctx.request_repaint();
 }

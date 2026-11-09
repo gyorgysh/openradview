@@ -122,6 +122,12 @@ fn run(setup: egui_wgpu::WgpuSetupCreateNew) -> eframe::Result {
         .with_inner_size([1280.0, 840.0])
         .with_min_inner_size([860.0, 640.0])
         .with_icon(icon);
+    #[cfg(feature = "qa")]
+    let viewport = if option_env!("ORV_QA_COMPACT") == Some("1") {
+        viewport.with_inner_size([860.0, 640.0])
+    } else {
+        viewport
+    };
     #[cfg(target_os = "macos")]
     let viewport = viewport
         .with_title_shown(false)

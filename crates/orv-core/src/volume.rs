@@ -8,13 +8,40 @@ use crate::{
 };
 use std::sync::Arc;
 mod color;
+mod reformat;
+pub use reformat::ScalarReformatBuffer;
 
 #[cfg(test)]
 #[path = "volume_tests.rs"]
 mod tests;
 
+/// A bounded physical sampling grid prepared without allocating image pixels.
+/// Both CPU and GPU reslicing use these exact dimensions and metadata.
+#[derive(Clone, Debug)]
+pub struct ReformatGrid {
+    source: Arc<()>,
+    geometry: Geometry,
+    dimensions: [u32; 2],
+    slab: Option<crate::slab::Slab>,
+}
+impl ReformatGrid {
+    pub fn belongs_to(&self, volume: &Volume) -> bool {
+        Arc::ptr_eq(&self.source, &volume.identity)
+    }
+    pub fn geometry(&self) -> &Geometry {
+        &self.geometry
+    }
+    pub fn dimensions(&self) -> [u32; 2] {
+        self.dimensions
+    }
+    pub fn slab(&self) -> Option<crate::slab::Slab> {
+        self.slab
+    }
+}
+
 #[derive(Debug)]
 pub struct Volume {
+    identity: Arc<()>,
     frames: Vec<Arc<Frame>>,
     source_frames: Vec<Arc<Frame>>,
     dimensions: [usize; 3],
@@ -175,6 +202,7 @@ impl Volume {
         } = geometry;
         let has_missing_scalar = frames.iter().any(|f| f.validity.is_some());
         let mut volume = Self {
+            identity: Arc::new(()),
             frames,
             source_frames,
             dimensions,
@@ -221,6 +249,13 @@ impl Volume {
     }
     pub fn world_vector_to_voxel(&self, vector: V3) -> V3 {
         self.inverse.map(|row| dot(row, vector))
+    }
+    /// Transform a displacement without adding/subtracting the world origin.
+    pub fn voxel_vector_to_world(&self, vector: V3) -> V3 {
+        add(
+            mul(self.basis[0], vector[0]),
+            add(mul(self.basis[1], vector[1]), mul(self.basis[2], vector[2])),
+        )
     }
     pub fn corners(&self) -> [V3; 8] {
         std::array::from_fn(|i| {
@@ -311,7 +346,13 @@ impl Volume {
                         continue;
                     }
                     let index = y * self.dimensions[0] + x;
-                    if self.has_missing_scalar && !self.frames[z].has_sample(index) {
+                    // Volume construction validates scalar finiteness and every
+                    // mask's length and binary values before sampling starts.
+                    if self.frames[z]
+                        .validity
+                        .as_ref()
+                        .is_some_and(|mask| mask[index] == 0)
+                    {
                         return None;
                     }
                     value += self.frames[z].pixels[index] as f64 * weight;
@@ -327,6 +368,24 @@ impl Volume {
         max_side: u32,
         cancel: impl Fn() -> bool,
     ) -> Result<Arc<Frame>, GeometryError> {
+        let grid = self.reformat_grid(plane, point, max_side)?;
+        self.resample_grid(&grid, cancel)
+    }
+    pub fn reformat_grid(
+        &self,
+        plane: Plane,
+        point: V3,
+        max_side: u32,
+    ) -> Result<ReformatGrid, GeometryError> {
+        self.anatomical_grid(plane, point, max_side, None)
+    }
+    pub(crate) fn anatomical_grid(
+        &self,
+        plane: Plane,
+        point: V3,
+        max_side: u32,
+        slab: Option<crate::slab::Slab>,
+    ) -> Result<ReformatGrid, GeometryError> {
         if !(2..=2048).contains(&max_side) || !finite(point) {
             return Err(GeometryError::Limit);
         }
@@ -352,17 +411,16 @@ impl Volume {
             ),
             Plane::Acquired => return Err(GeometryError::Orientation),
         };
-        self.resample(position, u, v, extent, (max_side, None), cancel)
+        self.sampling_grid(position, u, v, extent, (max_side, slab))
     }
-    pub(crate) fn resample(
+    pub(crate) fn sampling_grid(
         &self,
         position: V3,
         u: V3,
         v: V3,
         extent: [f64; 2],
         request: (u32, Option<crate::slab::Slab>),
-        cancel: impl Fn() -> bool,
-    ) -> Result<Arc<Frame>, GeometryError> {
+    ) -> Result<ReformatGrid, GeometryError> {
         let (max_side, slab) = request;
         if slab.is_some_and(|s| s.validate().is_err())
             || !(2..=2048).contains(&max_side)
@@ -392,17 +450,72 @@ impl Volume {
             spacing: [spacing[1], spacing[0]],
         };
         geometry.validate()?;
+        if self.is_color() && slab.is_some() {
+            return Err(GeometryError::Dimensions);
+        }
+        Ok(ReformatGrid {
+            source: self.identity.clone(),
+            geometry,
+            dimensions,
+            slab,
+        })
+    }
+    /// Sample a prepared grid on a worker. Grids belong to one exact volume;
+    /// matching geometry alone does not authorize sampling another source.
+    pub fn resample_grid(
+        &self,
+        grid: &ReformatGrid,
+        cancel: impl Fn() -> bool,
+    ) -> Result<Arc<Frame>, GeometryError> {
+        if !grid.belongs_to(self) {
+            return Err(GeometryError::Reference);
+        }
+        let ReformatGrid {
+            geometry,
+            dimensions,
+            slab,
+            ..
+        } = grid;
+        let geometry = geometry.clone();
+        let dimensions = *dimensions;
+        let slab = *slab;
+        let position = geometry.position;
+        let u = [
+            geometry.orientation[0],
+            geometry.orientation[1],
+            geometry.orientation[2],
+        ];
+        let v = [
+            geometry.orientation[3],
+            geometry.orientation[4],
+            geometry.orientation[5],
+        ];
+        let spacing = [geometry.spacing[1], geometry.spacing[0]];
         if self.is_color() {
             if slab.is_some() {
                 return Err(GeometryError::Dimensions);
             }
             return self.resample_color(geometry, dimensions, cancel);
         }
-        let mut pixels = Vec::with_capacity(dimensions[0] as usize * dimensions[1] as usize);
+        let mut output = self.scalar_reformat_buffer(grid)?;
+        let pixels = output.pixels_mut();
         let origin = self.world_to_voxel(position);
         let du = self.world_vector_to_voxel(mul(u, spacing[0]));
         let dv = self.world_vector_to_voxel(mul(v, spacing[1]));
         let normal = self.world_vector_to_voxel(cross(u, v));
+        // Grid validation caps slabs at 256 intervals. The displacement is
+        // identical for every pixel and keeps the reference arithmetic order.
+        let mut offsets = [[0.; 3]; 257];
+        if let Some(slab) = slab {
+            for (i, offset) in offsets
+                .iter_mut()
+                .take(usize::from(slab.intervals) + 1)
+                .enumerate()
+            {
+                let distance = slab.thickness_mm * (i as f64 / f64::from(slab.intervals) - 0.5);
+                *offset = mul(normal, distance);
+            }
+        }
         for y in 0..dimensions[1] {
             if cancel() {
                 return Err(GeometryError::Cancelled);
@@ -415,20 +528,27 @@ impl Volume {
                     // At most 257 finite f32 samples: an f64 sum cannot overflow
                     // and stays well inside f32 output precision.
                     let (mut sum, mut count) = (0f64, 0u32);
-                    for i in 0..=slab.intervals {
+                    for (i, offset) in offsets
+                        .iter()
+                        .take(usize::from(slab.intervals) + 1)
+                        .enumerate()
+                    {
                         if i % 16 == 0 && cancel() {
                             return Err(GeometryError::Cancelled);
                         }
-                        let distance =
-                            slab.thickness_mm * (f64::from(i) / f64::from(slab.intervals) - 0.5);
-                        if let Some(value) = self.sample_voxel(add(center, mul(normal, distance))) {
-                            sum += f64::from(value);
-                            count += 1;
-                            extreme = Some(extreme.map_or(value, |old| match slab.projection {
-                                crate::slab::SlabProjection::Maximum => old.max(value),
-                                crate::slab::SlabProjection::Minimum => old.min(value),
-                                crate::slab::SlabProjection::Mean => old,
-                            }));
+                        if let Some(value) = self.sample_voxel(add(center, *offset)) {
+                            match slab.projection {
+                                crate::slab::SlabProjection::Maximum => {
+                                    extreme = Some(extreme.map_or(value, |old| old.max(value)));
+                                }
+                                crate::slab::SlabProjection::Minimum => {
+                                    extreme = Some(extreme.map_or(value, |old| old.min(value)));
+                                }
+                                crate::slab::SlabProjection::Mean => {
+                                    sum += f64::from(value);
+                                    count += 1;
+                                }
+                            }
                         }
                     }
                     // An all-missing ray stays missing for every projection.
@@ -441,28 +561,10 @@ impl Volume {
                 } else {
                     self.sample_voxel(center)
                 };
-                pixels.push(value.unwrap_or(f32::NAN));
+                pixels[y as usize * dimensions[0] as usize + x as usize] =
+                    value.unwrap_or(f32::NAN);
             }
         }
-        Ok(Arc::new(Frame {
-            presentation: None,
-            calibration: None,
-            projection: None,
-            sop: None,
-            slab,
-            scalar: self.frames[0].scalar.as_ref().map(|data| data.resampled()),
-            validity: None,
-            color: None,
-            nifti: self.frames.first().and_then(|frame| frame.nifti.clone()),
-            rgba: None,
-            width: dimensions[0],
-            height: dimensions[1],
-            pixels: pixels.into(),
-            geometry: Some(geometry),
-            instance: 0,
-            frame_index: 0,
-            monochrome1: self.frames[0].monochrome1,
-            default_window: self.frames[0].default_window,
-        }))
+        Ok(output.finish())
     }
 }

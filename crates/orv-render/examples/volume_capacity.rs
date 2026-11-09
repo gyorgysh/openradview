@@ -66,6 +66,7 @@ fn run(
         values.try_reserve_exact(width * height)?;
         values.extend((0..width * height).map(|index| z as f32 + (index % width) as f32 * 0.001));
         frames.push(Arc::new(Frame {
+            memory: None,
             presentation: None,
             calibration: None,
             projection: None,
@@ -118,6 +119,7 @@ fn run(
     let mut gpu = serde_json::Value::Null;
     if !cpu_only {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            flags: orv_render::instance_flags(),
             backends: orv_render::configured_backends()?,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! One coalescing worker retains only the latest target and completed plane.
-use eframe::egui;
+use eframe::{egui, wgpu};
 use orv_core::{oblique::ObliquePlane, spatial::GeometryError, study::Frame, volume::Volume};
+use orv_render::{
+    reslice::{GpuReformatImage, GpuReslicer},
+    volume_source::GpuVolumeSource,
+};
 use std::sync::{
     Arc, Condvar, Mutex, MutexGuard,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -15,6 +19,7 @@ pub(super) struct Snapshot {
     pub volume: Arc<Volume>,
     pub plane: ObliquePlane,
     pub image: Arc<Frame>,
+    pub gpu_image: Option<Arc<GpuReformatImage>>,
     pub generation: u64,
     pub reformat_side: u32,
     pub preview: bool,
@@ -22,6 +27,7 @@ pub(super) struct Snapshot {
 struct Request {
     plane: ObliquePlane,
     generation: u64,
+    sampling_generation: u64,
     side: u32,
     slab: Option<orv_core::slab::Slab>,
     interactive: bool,
@@ -29,7 +35,11 @@ struct Request {
 #[derive(Default)]
 struct Work {
     request: Option<Request>,
+    latest_sampling: Option<(u32, Option<orv_core::slab::Slab>)>,
     result: Option<Result<Snapshot, String>>,
+    terminal_error: Option<String>,
+    gpu_context: Option<(wgpu::Device, wgpu::Queue)>,
+    gpu_offered: bool,
 }
 #[derive(Default)]
 struct Shared {
@@ -37,12 +47,21 @@ struct Shared {
     changed: Condvar,
     cancelled: AtomicBool,
     generation: AtomicU64,
+    sampling_generation: AtomicU64,
+}
+impl Shared {
+    fn preview_cancelled(&self, request: &Request) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+            || self.sampling_generation.load(Ordering::Acquire) != request.sampling_generation
+    }
 }
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 pub(super) struct Worker {
     shared: Arc<Shared>,
+    #[cfg(test)]
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Worker {
     pub fn start(frames: impl Into<crate::frame_source::FrameSource>, ctx: egui::Context) -> Self {
@@ -62,33 +81,64 @@ impl Worker {
                 let (volume, plane) = match initial {
                     Ok(initial) => initial,
                     Err(error) => {
-                        lock(&worker.work).result = Some(Err(error.to_string()));
-                        ctx.request_repaint();
+                        unavailable(&worker, error, &ctx);
                         return;
                     }
                 };
                 let mut request = Request {
                     plane,
                     generation: 0,
+                    sampling_generation: 0,
                     side: 512,
                     slab: None,
                     interactive: false,
                 };
+                let mut gpu_context = None;
+                let mut gpu = None;
+                let mut gpu_refused = false;
                 'requests: loop {
                     if worker.cancelled.load(Ordering::Acquire) {
                         return;
                     }
+                    if let Some(context) = lock(&worker.work).gpu_context.take() {
+                        gpu_context = Some(context);
+                    }
                     if request.interactive && request.side > 128 {
-                        let result = render(&volume, &request, 128, true, || {
-                            worker.cancelled.load(Ordering::Acquire)
-                        });
+                        let cancel_preparation = || worker.cancelled.load(Ordering::Acquire);
+                        if gpu.is_none()
+                            && !gpu_refused
+                            && !volume.is_color()
+                            && let Some((device, queue)) = &gpu_context
+                        {
+                            match orv_render::volume::check_limits(&device.limits())
+                                .and_then(|()| {
+                                    GpuVolumeSource::new(
+                                        device,
+                                        queue,
+                                        volume.clone(),
+                                        cancel_preparation,
+                                    )
+                                })
+                                .and_then(GpuReslicer::new)
+                            {
+                                Ok(renderer) => gpu = Some(renderer),
+                                Err("Cancelled") => return,
+                                Err(_) => gpu_refused = true,
+                            }
+                        }
+                        let cancel = || worker.preview_cancelled(&request);
+                        let result =
+                            render(&volume, &request, true, &mut gpu, &mut gpu_refused, cancel);
                         if worker.cancelled.load(Ordering::Acquire) {
                             return;
                         }
-                        if !matches!(result, Err(GeometryError::Cancelled)) {
-                            lock(&worker.work).result = Some(result.map_err(|e| e.to_string()));
-                            ctx.request_repaint();
-                        }
+                        publish_preview(
+                            &worker,
+                            request.generation,
+                            request.sampling_generation,
+                            result,
+                            &ctx,
+                        );
                         let mut work = lock(&worker.work);
                         loop {
                             if worker.cancelled.load(Ordering::Acquire) {
@@ -112,7 +162,8 @@ impl Worker {
                         worker.cancelled.load(Ordering::Acquire)
                             || worker.generation.load(Ordering::Acquire) != request.generation
                     };
-                    let image = render(&volume, &request, request.side, false, cancel);
+                    let image =
+                        render(&volume, &request, false, &mut gpu, &mut gpu_refused, cancel);
                     let mut work = lock(&worker.work);
                     if !cancel() {
                         work.result = match image {
@@ -134,10 +185,17 @@ impl Worker {
                 }
             });
         if spawn.is_err() {
-            lock(&shared.work).result = Some(Err("Could not start the oblique worker".into()));
-            repaint.request_repaint();
+            unavailable(
+                &shared,
+                "Could not start the oblique worker".into(),
+                &repaint,
+            );
         }
-        Self { shared }
+        Self {
+            shared,
+            #[cfg(test)]
+            worker: spawn.ok(),
+        }
     }
     #[cfg(test)]
     pub fn request(&self, plane: ObliquePlane, side: u32) {
@@ -152,10 +210,27 @@ impl Worker {
     ) {
         let mut work = lock(&self.shared.work);
         let generation = self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        work.result = None;
+        if work
+            .latest_sampling
+            .is_some_and(|previous| previous != (side, slab))
+        {
+            self.shared
+                .sampling_generation
+                .fetch_add(1, Ordering::AcqRel);
+            if work.result.as_ref().is_some_and(Result::is_ok) {
+                work.result = None;
+            }
+        }
+        if let Some(error) = &work.terminal_error {
+            work.result = Some(Err(error.clone()));
+        } else if work.result.as_ref().is_some_and(Result::is_err) {
+            work.result = None;
+        }
+        work.latest_sampling = Some((side, slab));
         work.request = Some(Request {
             plane,
             generation,
+            sampling_generation: self.shared.sampling_generation.load(Ordering::Acquire),
             side,
             slab,
             interactive,
@@ -166,16 +241,55 @@ impl Worker {
     pub fn generation(&self) -> u64 {
         self.shared.generation.load(Ordering::Acquire)
     }
+    pub fn offer_gpu(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let mut work = lock(&self.shared.work);
+        if !work.gpu_offered {
+            work.gpu_offered = true;
+            work.gpu_context = Some((device.clone(), queue.clone()));
+        }
+    }
     pub fn take(&self) -> Option<Result<Snapshot, String>> {
-        let result = lock(&self.shared.work).result.take()?;
-        if result
-            .as_ref()
-            .is_ok_and(|s| !s.preview && s.generation != self.generation())
-        {
+        let mut work = lock(&self.shared.work);
+        let result = work.result.take()?;
+        if result.as_ref().is_ok_and(|s| {
+            (!s.preview && s.generation != self.generation())
+                || work
+                    .latest_sampling
+                    .is_some_and(|(side, slab)| s.reformat_side != side || s.image.slab != slab)
+        }) {
             return None;
         }
         Some(result)
     }
+}
+fn unavailable(worker: &Shared, error: String, ctx: &egui::Context) {
+    let mut work = lock(&worker.work);
+    if worker.cancelled.load(Ordering::Acquire) {
+        return;
+    }
+    work.terminal_error = Some(error.clone());
+    work.result = Some(Err(error));
+    drop(work);
+    ctx.request_repaint();
+}
+fn publish_preview(
+    worker: &Shared,
+    generation: u64,
+    sampling_generation: u64,
+    result: Result<Snapshot, GeometryError>,
+    ctx: &egui::Context,
+) {
+    let mut work = lock(&worker.work);
+    if worker.cancelled.load(Ordering::Acquire)
+        || worker.sampling_generation.load(Ordering::Acquire) != sampling_generation
+        || matches!(result, Err(GeometryError::Cancelled))
+        || (result.is_err() && worker.generation.load(Ordering::Acquire) != generation)
+    {
+        return;
+    }
+    work.result = Some(result.map_err(|error| error.to_string()));
+    drop(work);
+    ctx.request_repaint();
 }
 impl Drop for Worker {
     fn drop(&mut self) {
@@ -189,26 +303,37 @@ impl Drop for Worker {
 fn render(
     volume: &Arc<Volume>,
     request: &Request,
-    side: u32,
     preview: bool,
+    gpu: &mut Option<GpuReslicer>,
+    gpu_refused: &mut bool,
     cancel: impl Fn() -> bool,
 ) -> Result<Snapshot, GeometryError> {
-    let image = if let Some(slab) = request.slab {
-        volume.reformat_slab(
-            &request.plane,
-            if preview { slab.preview() } else { slab },
-            side,
-            cancel,
-        )?
+    let grid = volume.oblique_grid(&request.plane, request.side, request.slab)?;
+    let gpu_image = if preview && let Some(renderer) = gpu.as_mut() {
+        match renderer.render_frames([Some(&grid), None, None], &cancel) {
+            Ok([image, _, _]) => image,
+            Err("Cancelled") => return Err(GeometryError::Cancelled),
+            Err(_) => {
+                *gpu_refused = true;
+                *gpu = None;
+                None
+            }
+        }
     } else {
-        volume.reformat_oblique(&request.plane, side, cancel)?
+        None
+    };
+    let image = if let Some(image) = &gpu_image {
+        image.frame().clone()
+    } else {
+        volume.resample_grid(&grid, &cancel)?
     };
     Ok(Snapshot {
         volume: volume.clone(),
         plane: request.plane.clone(),
         image,
+        gpu_image,
         generation: request.generation,
-        reformat_side: side,
+        reformat_side: request.side,
         preview,
     })
 }

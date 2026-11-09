@@ -3,9 +3,15 @@
 mod callback;
 mod controls;
 mod input;
+mod material;
+mod regions;
+mod sections;
 mod sharing;
+mod source_planes;
+pub(crate) use source_planes::LinkedPlanes;
 #[cfg(all(test, feature = "gpu-tests"))]
 mod tests;
+mod workbench;
 mod worker;
 use callback::{Callback, Gpu};
 use eframe::egui::{self, RichText, Vec2};
@@ -21,10 +27,17 @@ type DisplayRange = (
     orv_core::volume_view::TransferFunction,
 );
 
+#[derive(Default)]
+struct ViewportPaint {
+    shown: Option<(ViewState, VolumeView, [u32; 2])>,
+    region: Option<crate::labels::RegionSelection>,
+}
+
 pub struct VolumeSession {
     upload: Option<Upload>,
     pending_frames: Option<crate::frame_source::FrameSource>,
     volume: Option<Arc<Volume>>,
+    workbench_source: Option<Arc<Volume>>,
     gpu: Option<Arc<Mutex<Gpu>>>,
     state: Option<VolumeView>,
     display: ViewState,
@@ -34,8 +47,30 @@ pub struct VolumeSession {
     prefer_source: bool,
     source_range: Option<DisplayRange>,
     initial_display: DisplayRange,
+    pub(super) material_enabled: bool,
+    material_editor: Option<material::MaterialEditor>,
+    material_error: Option<&'static str>,
+    regions: regions::Regions,
+    physical_region_pending: bool,
+    settings_open: bool,
+    cursor_visible: bool,
+    cuts: sections::Cuts,
+    plane_settings: source_planes::Settings,
+    plane_view: Option<source_planes::View>,
+    input: input::Input,
 }
 impl VolumeSession {
+    pub(crate) fn controls_open(&self) -> bool {
+        self.settings_open
+            || self.plane_settings.erase
+            || self
+                .material_editor
+                .as_ref()
+                .is_some_and(|editor| editor.open)
+    }
+    pub(crate) fn local_scene(&self) -> bool {
+        self.material_enabled || self.regions.enabled()
+    }
     pub(crate) fn picture(&self) -> Option<(crate::export::Pixels, [u32; 2])> {
         let (spec, true) = self.shared_view()? else {
             return None;
@@ -48,15 +83,32 @@ impl VolumeSession {
     pub fn start(frames: impl Into<crate::frame_source::FrameSource>) -> Self {
         let frames = frames.into();
         let prefer_source = matches!(&frames,crate::frame_source::FrameSource::Indexed(series) if series.modality!="CT");
+        let mut session = Self::new(prefer_source);
+        session.pending_frames = Some(frames);
+        session
+    }
+    fn new(prefer_source: bool) -> Self {
         let initial_display = TransferPreset::Bone.values();
         let window = initial_display.0;
         Self {
             upload: None,
-            pending_frames: Some(frames),
+            pending_frames: None,
             prefer_source,
             source_range: None,
             initial_display,
+            material_enabled: false,
+            material_editor: None,
+            material_error: None,
+            regions: Default::default(),
+            physical_region_pending: false,
+            settings_open: false,
+            cursor_visible: true,
+            cuts: Default::default(),
+            plane_settings: Default::default(),
+            plane_view: None,
+            input: Default::default(),
             volume: None,
+            workbench_source: None,
             gpu: None,
             state: None,
             display: ViewState {
@@ -83,6 +135,7 @@ impl VolumeSession {
         let result = self.upload.as_ref().map(|u| u.receiver.try_recv());
         match result {
             Some(Ok(Ok(ready))) => {
+                self.regions.bind(ready.source, ready.format);
                 self.prefer_source |= ready.volume.is_color();
                 if self.prefer_source
                     && let Some(range) = &ready.source_range
@@ -108,7 +161,20 @@ impl VolumeSession {
                 }
                 self.source_range = ready.source_range;
                 self.volume = Some(ready.volume);
-                self.gpu = Some(Arc::new(Mutex::new(Gpu::new(ready.renderer))));
+                let mut gpu = Gpu::new(ready.renderer);
+                if let Some(renderer) = ready.material_renderer {
+                    match renderer.and_then(|renderer| {
+                        material::MaterialEditor::new(&self.initial_display)
+                            .map(|editor| (renderer, editor))
+                    }) {
+                        Ok((renderer, editor)) => {
+                            gpu.material_renderer = Some(renderer);
+                            self.material_editor = Some(editor);
+                        }
+                        Err(error) => self.material_error = Some(error),
+                    }
+                }
+                self.gpu = Some(Arc::new(Mutex::new(gpu)));
                 self.upload = None;
             }
             Some(Ok(Err(error))) => {
@@ -123,7 +189,13 @@ impl VolumeSession {
             _ => (),
         }
     }
-    pub fn ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        frame: &eframe::Frame,
+        labels: &mut crate::labels::LabelUi,
+        selected: usize,
+    ) {
         if self.pending_frames.is_some() {
             if let Some(render) = frame.wgpu_render_state() {
                 self.start_upload(
@@ -145,45 +217,57 @@ impl VolumeSession {
             ui.label("The source images remain available in 2D/MPR.");
             return;
         }
-        let (Some(volume), Some(state), Some(gpu)) = (&self.volume, &mut self.state, &self.gpu)
-        else {
+        let Some(volume) = &self.volume else {
             ui.add_space(30.);
             ui.label("Checking geometry and uploading image data on a background worker…");
             ui.label("Images stay on this device. Choose 2D/MPR to cancel.");
             return;
         };
         crate::view_context::show(ui, &volume.frames()[0]);
-        if controls::show(
-            ui,
-            state,
-            &mut self.display,
-            &mut self.preset,
-            controls::Context {
-                source_range: self.source_range.as_ref(),
-                initial: &self.initial_display,
-                color: volume.is_color(),
-                choices: volume.frames()[0]
-                    .scalar
-                    .as_ref()
-                    .map(|data| &**data.choices()),
-                bounds: volume.bounds(),
-            },
-        ) {
-            self.needs_fit = true;
+        self.show_controls(ui, labels, selected, true);
+        if let Some(editor) = &mut self.material_editor {
+            editor.window(ui.ctx());
         }
+        let Some(volume) = self.volume.as_ref() else {
+            return;
+        };
+        let region_selection = self.regions.selection(labels, selected, volume);
         if crate::actions::pressed(ui, crate::actions::Action::Fit) {
             self.display.zoom = 1.;
             self.display.pan = [0.; 2];
             self.needs_fit = true;
         }
-        if crate::actions::pressed(ui, crate::actions::Action::Invert) {
+        if !self.material_enabled && crate::actions::pressed(ui, crate::actions::Action::Invert) {
             self.display.invert = !self.display.invert;
         }
+        let compact = ui.ctx().content_rect().height() < 700.;
+        let bottom_space = if compact { 32. } else { 72. };
         let (rect, response) = ui.allocate_exact_size(
-            Vec2::new(content_width, (ui.available_height() - 72.).max(60.)),
+            Vec2::new(
+                content_width,
+                (ui.available_height() - bottom_space).max(60.),
+            ),
             egui::Sense::click_and_drag(),
         );
-        let (interacting, fit) = input::interact(ui, &response, state, &mut self.display);
+        self.paint_viewport(ui, rect, &response, region_selection, None, None);
+        if !compact {
+            ui.label(RichText::new("Drag: orbit · Space / right / middle drag: move · Scroll/pinch: zoom · LPS coordinates · Experimental research projection").small().color(crate::theme::SILVER));
+        }
+    }
+    fn paint_viewport(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        response: &egui::Response,
+        region_selection: Option<crate::labels::RegionSelection>,
+        linked_point: Option<[f64; 3]>,
+        linked_planes: Option<LinkedPlanes<'_>>,
+    ) -> ViewportPaint {
+        let (Some(volume), Some(state), Some(gpu)) = (&self.volume, &mut self.state, &self.gpu)
+        else {
+            return ViewportPaint::default();
+        };
+        let (interacting, fit) = self.input.interact(ui, response, state, &mut self.display);
         self.needs_fit |= fit;
         if self.needs_fit {
             if let Err(error) = state
@@ -191,29 +275,172 @@ impl VolumeSession {
                 .fit_to_volume(volume, f64::from(rect.width() / rect.height()))
             {
                 self.error = Some(error.into());
-                return;
+                return ViewportPaint::default();
             }
             self.needs_fit = false;
         }
+        let mut rendered_state = state.clone();
+        if let Some(point) = linked_point {
+            match self.cuts.clip(volume, point, state.clip.as_ref()) {
+                Ok(clip) => rendered_state.clip = clip,
+                Err(error) => {
+                    self.regions.suspend();
+                    if let Some(view) = &mut self.plane_view {
+                        view.suspend();
+                    }
+                    let painter = ui.painter_at(rect);
+                    painter.rect_filled(rect, 0., egui::Color32::BLACK);
+                    let text = painter.layout(
+                        error.message().into(),
+                        egui::FontId::proportional(12.),
+                        crate::theme::PAPER,
+                        (rect.width() - 16.).max(20.),
+                    );
+                    painter.galley(rect.center() - text.size() * 0.5, text, crate::theme::PAPER);
+                    ui.small(match error {
+                        sections::CutError::Empty => "Linked cut · empty",
+                        sections::CutError::Unsupported(_) => "Linked cut unavailable",
+                    });
+                    return ViewportPaint::default();
+                }
+            }
+        }
+        let embedded = linked_point.is_some();
+        let state = &rendered_state;
         let pixels = rect.size() * ui.ctx().pixels_per_point();
-        ui.painter_at(rect)
-            .add(eframe::egui_wgpu::Callback::new_paint_callback(
+        let material = self
+            .material_enabled
+            .then(|| self.material_editor.as_ref().map(|editor| editor.style()))
+            .flatten();
+        if self.plane_settings.active() {
+            let planes = match self.plane_settings.planes(linked_planes) {
+                Ok(planes) => planes,
+                Err(error) => {
+                    if let Some(view) = &mut self.plane_view {
+                        view.suspend();
+                    }
+                    source_planes::message(ui, rect, error);
+                    ui.small("Planes · unavailable");
+                    return ViewportPaint::default();
+                }
+            };
+            if self.regions.enabled() && region_selection.is_none() {
+                if let Some(view) = &mut self.plane_view {
+                    view.suspend();
+                }
+                source_planes::message(
+                    ui,
+                    rect,
+                    "Choose an available region or turn off Region in 3D",
+                );
+                ui.small("Planes · waiting for region");
+                return ViewportPaint::default();
+            }
+            let Some(style) = material else {
+                if let Some(view) = &mut self.plane_view {
+                    view.suspend();
+                }
+                source_planes::message(ui, rect, "Source planes require Material appearance");
+                ui.small("Planes · unavailable");
+                return ViewportPaint::default();
+            };
+            if self.plane_view.is_none()
+                && let Some((source, format)) = self.regions.gpu_context()
+            {
+                match source_planes::View::new(source, format, ui.ctx().clone()) {
+                    Ok(view) => self.plane_view = Some(view),
+                    Err(error) => {
+                        source_planes::message(ui, rect, &error);
+                        ui.small("Planes · unavailable");
+                        return ViewportPaint::default();
+                    }
+                }
+            }
+            let mut display = self.display.clone();
+            display.invert = false;
+            let (luminance, surface_lighting) = self.regions.section_style();
+            let scene = source_planes::Scene {
+                pick: self.regions.section_pick(),
+                erase: self.plane_settings.erase,
+                planes,
+                selection: region_selection,
+                display,
+                state: state.clone(),
+                style,
+                luminance,
+                surface_lighting,
+                size: callback::resolution(pixels, 2048.),
+            };
+            return self
+                .plane_view
+                .as_mut()
+                .map_or_else(ViewportPaint::default, |view| {
+                    let shown = view.show(
+                        ui,
+                        response,
+                        scene,
+                        interacting,
+                        linked_planes.is_some_and(|p| p.current),
+                    );
+                    ViewportPaint {
+                        shown,
+                        region: view.painted_selection(),
+                    }
+                });
+        }
+        let region_mode = self.regions.enabled();
+        let painted = if let (Some(selection), Some(style)) = (region_selection, material.as_ref())
+        {
+            self.regions.show(
+                ui,
                 rect,
-                Callback {
-                    gpu: gpu.clone(),
+                regions::Scene {
+                    selection,
                     display: self.display.clone(),
                     state: state.clone(),
-                    pixels,
-                    interacting,
-                    ctx: ui.ctx().clone(),
+                    style: style.clone(),
                 },
-            ));
-        if let Ok(gpu) = gpu.try_lock() {
+                interacting,
+                response,
+            )
+        } else {
+            false
+        };
+        if !painted {
+            ui.painter_at(rect)
+                .add(eframe::egui_wgpu::Callback::new_paint_callback(
+                    rect,
+                    Callback {
+                        gpu: gpu.clone(),
+                        display: self.display.clone(),
+                        state: state.clone(),
+                        pixels,
+                        interacting,
+                        material: material.clone(),
+                        ctx: ui.ctx().clone(),
+                    },
+                ));
+        }
+        // One guard keeps the displayed state and status line consistent.
+        let guard = gpu.try_lock().ok();
+        let mut shown = if painted {
+            self.regions.displayed()
+        } else {
+            None
+        };
+        if !painted && let Some(gpu) = &guard {
+            shown = gpu.displayed().filter(|(display, camera, size)| {
+                *display == self.display
+                    && *camera == *state
+                    && *size == callback::target_size(pixels, material.is_some(), gpu.refined)
+            });
+        }
+        if !region_mode && let Some(gpu) = &guard {
             if let Some(error) = gpu.error {
                 ui.label(error);
             } else {
                 let status = if state.quality == orv_core::volume_view::Quality::Interactive
-                    && gpu.completed(&self.display, state)
+                    && gpu.completed_style(&self.display, state, material.as_ref())
                 {
                     "Preview quality".into()
                 } else if gpu.refined {
@@ -222,17 +449,93 @@ impl VolumeSession {
                     format!("Interactive preview · refining {:.0}%", gpu.progress * 100.)
                 };
                 let [x, y, z] = volume.dimensions();
+                let style = if self.material_enabled {
+                    "Material · local · "
+                } else {
+                    ""
+                };
                 ui.label(
-                    RichText::new(format!(
-                        "{status} · {x} × {y} × {z} source samples · {}%",
-                        (self.display.zoom * 100.).round()
-                    ))
+                    RichText::new(if embedded {
+                        format!("{style}{status}")
+                    } else {
+                        format!(
+                            "{style}{status} · {x} × {y} × {z} source samples · {}%",
+                            (self.display.zoom * 100.).round()
+                        )
+                    })
                     .small()
                     .color(crate::theme::SILVER),
                 );
             }
         }
-        ui.label(RichText::new("Drag: orbit · Space / right / middle drag: move · Scroll/pinch: zoom · LPS coordinates · Experimental research projection").small().color(crate::theme::SILVER));
+        ViewportPaint {
+            shown,
+            region: painted
+                .then(|| self.regions.displayed_selection())
+                .flatten(),
+        }
+    }
+    fn show_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        labels: &mut crate::labels::LabelUi,
+        selected: usize,
+        shortcuts: bool,
+    ) {
+        let (Some(volume), Some(state)) = (&self.volume, &mut self.state) else {
+            return;
+        };
+        let was_material = self.material_enabled;
+        if self.material_enabled {
+            state.projection = Projection::Composite;
+            if let Some(editor) = &mut self.material_editor {
+                self.needs_fit |= editor.controls(
+                    ui,
+                    state,
+                    &mut self.display,
+                    volume.bounds(),
+                    &mut self.material_enabled,
+                    shortcuts,
+                );
+            }
+        } else if controls::show(
+            ui,
+            state,
+            &mut self.display,
+            &mut self.preset,
+            controls::Context {
+                shortcuts,
+                source_range: self.source_range.as_ref(),
+                initial: &self.initial_display,
+                color: volume.is_color(),
+                choices: volume.frames()[0]
+                    .scalar
+                    .as_ref()
+                    .map(|data| &**data.choices()),
+                bounds: volume.bounds(),
+                material_selection: self
+                    .material_editor
+                    .as_ref()
+                    .map(|_| &mut self.material_enabled),
+            },
+        ) {
+            self.needs_fit = true;
+        }
+        if was_material && !self.material_enabled {
+            self.regions.disable();
+        }
+        if self.material_editor.is_some() {
+            self.regions
+                .controls(ui, labels, selected, volume, &mut self.material_enabled);
+        } else {
+            self.regions.disable();
+        }
+        if self.material_enabled {
+            state.projection = Projection::Composite;
+        }
+        if let Some(error) = self.material_error {
+            ui.label(format!("Material view unavailable: {error}"));
+        }
     }
 }
 fn preset_name(preset: TransferPreset) -> &'static str {

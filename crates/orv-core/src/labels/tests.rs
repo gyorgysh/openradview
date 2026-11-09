@@ -7,6 +7,7 @@ pub(super) fn source() -> Arc<Volume> {
             (0..3)
                 .map(|z| {
                     Arc::new(Frame {
+                        memory: None,
                         presentation: None,
                         calibration: None,
                         projection: None,
@@ -51,15 +52,15 @@ fn threshold_brush_erase_preserve_other_labels_and_cancel() {
     labels
         .paint(0, &[[2., 2.], [6., 2.]], 1, 7, || false)
         .unwrap();
-    assert_eq!(labels.values[2 * 8 + 4], 7);
-    assert_eq!(labels.values[3 * 8 + 4], 7);
-    assert_eq!(labels.values[4 * 8 + 4], 0);
+    assert_eq!(labels.values.get(2 * 8 + 4).copied().unwrap(), 7);
+    assert_eq!(labels.values.get(3 * 8 + 4).copied().unwrap(), 7);
+    assert_eq!(labels.values.get(4 * 8 + 4).copied().unwrap(), 0);
     labels.threshold(Some(0), [0., 47.], 3, || false).unwrap();
-    assert_eq!(labels.values[2 * 8 + 4], 7);
-    assert_eq!(labels.values[0], 3);
-    assert_eq!(labels.values[48], 0);
+    assert_eq!(labels.values.get(2 * 8 + 4).copied().unwrap(), 7);
+    assert_eq!(labels.values.get(0).copied().unwrap(), 3);
+    assert_eq!(labels.values.get(48).copied().unwrap(), 0);
     labels.paint(0, &[[4., 2.]], 1, 0, || false).unwrap();
-    assert_eq!(labels.values[2 * 8 + 4], 0);
+    assert_eq!(labels.values.get(2 * 8 + 4).copied().unwrap(), 0);
     assert_eq!(
         labels.threshold(None, [100., 120.], 2, || true),
         Err("Cancelled")
@@ -74,6 +75,26 @@ fn threshold_brush_erase_preserve_other_labels_and_cancel() {
     let rgba = labels.plane_rgba(0).unwrap();
     assert_eq!(rgba.len(), 8 * 6 * 4);
     assert_eq!(rgba[(2 * 8 + 4) * 4 + 3], 0);
+}
+
+#[test]
+fn disconnected_brush_paths_are_one_edit_without_a_bridge() {
+    let mut labels = Labels::empty(source()).unwrap();
+    let points = [[1., 2.], [6., 2.]];
+    for breaks in [&[0][..], &[2][..], &[1, 1][..]] {
+        assert!(
+            labels
+                .paint_disconnected(0, &points, breaks, 1, 7, || false)
+                .is_err()
+        );
+        assert!(labels.values().iter().all(|value| *value == 0));
+    }
+    labels
+        .paint_disconnected(0, &points, &[1], 1, 7, || false)
+        .unwrap();
+    assert_eq!(*labels.values().get(2 * 8 + 1).unwrap(), 7);
+    assert_eq!(*labels.values().get(2 * 8 + 6).unwrap(), 7);
+    assert_eq!(*labels.values().get(2 * 8 + 3).unwrap(), 0);
 }
 #[test]
 fn exact_nifti_label_export_roundtrip_and_invalid_import_refusal() {
@@ -108,7 +129,23 @@ fn exact_nifti_label_export_roundtrip_and_invalid_import_refusal() {
     let study = crate::index::index_paths(std::slice::from_ref(&path), || false, |_| {}).unwrap();
     let volume = Volume::new(study.series[0].volume_frames(|| false).unwrap()).unwrap();
     let imported = Labels::import(original.clone(), &volume, || false).unwrap();
-    assert_eq!(imported.values, labels.values);
+    assert!(imported.values.iter().eq(labels.values.iter()));
+
+    // Keep the categorical data and dimensions identical while moving the sform.
+    let translation = f64::from_le_bytes(bytes[424..432].try_into().unwrap());
+    bytes[424..432].copy_from_slice(&(translation + 10.).to_le_bytes());
+    std::fs::write(&path, &bytes).unwrap();
+    let shifted = crate::index::index_paths(std::slice::from_ref(&path), || false, |_| {}).unwrap();
+    let shifted = Volume::new(shifted.series[0].volume_frames(|| false).unwrap()).unwrap();
+    assert_eq!(shifted.dimensions(), volume.dimensions());
+    for (a, b) in shifted.frames().iter().zip(volume.frames()) {
+        assert_eq!(a.pixels, b.pixels);
+    }
+    assert_eq!(
+        Labels::import(original.clone(), &shifted, || false).err(),
+        Some("Label dimensions, reference and affine must match; registration is not performed")
+    );
+    assert!(imported.values.iter().eq(labels.values.iter()));
     std::fs::remove_file(&path).unwrap();
     let mut frames = volume.frames().to_vec();
     let mut bad = (*frames[0]).clone();
@@ -128,4 +165,30 @@ fn exact_nifti_label_export_roundtrip_and_invalid_import_refusal() {
         .collect();
     assert!(Labels::import(original, &Volume::new(moved).unwrap(), || false).is_err());
     assert!(labels.write_nifti(Vec::new(), || true).is_err());
+}
+
+#[test]
+fn acquired_planes_match_exact_source_geometry_despite_regular_affine_residuals() {
+    let source = source();
+    let mut frames = source.frames().to_vec();
+    let mut middle = (*frames[1]).clone();
+    middle.geometry.as_mut().unwrap().position[2] += 0.00003;
+    frames[1] = Arc::new(middle);
+    let source = Arc::new(Volume::new(frames).unwrap());
+    let labels = Labels::empty(source.clone()).unwrap();
+    let position = source.frames()[1].geometry.as_ref().unwrap().position;
+    assert!((source.world_to_voxel(position)[2] - 1.).abs() > 1e-5);
+    for (index, frame) in source.frames().iter().enumerate() {
+        assert_eq!(labels.slice_index(frame), Some(index));
+    }
+    let mut changed = (*source.frames()[1]).clone();
+    changed.geometry.as_mut().unwrap().position[2] += 0.000001;
+    assert_eq!(
+        labels.slice_index(&changed),
+        None,
+        "Nearby geometry is not the exact acquired plane"
+    );
+    changed = (*source.frames()[1]).clone();
+    changed.geometry.as_mut().unwrap().frame_of_reference = Some("other generated source".into());
+    assert_eq!(labels.slice_index(&changed), None);
 }

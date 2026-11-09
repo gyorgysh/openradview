@@ -3,6 +3,56 @@
 All notable changes to OpenRadView are listed here, newest first.
 Versions follow [Semantic Versioning](https://semver.org).
 
+## 1.4.0 - 2026-11-09
+
+### Added
+
+- **MPR + 3D.** View linked axial, coronal and sagittal slices beside a 3D view.
+  Show the slice planes in 3D or cut the view at the linked point.
+- **Regions in 3D.** Show one manual label or supplied segment at a time. Select
+  a visible surface to move the linked slices. Adjust 3D brightness, opacity
+  and lighting without changing the source images.
+- **Label editing.** Preview and apply a sphere, disk or drawn path in MPR + 3D,
+  or remove one visible surface layer. Supplied masks remain read-only. Edits
+  can reach outside the displayed cut.
+- **Include and exclude hints.** Mark an include and an exclude point or
+  stroke inside a rectangle to propose a region, then review it before applying.
+  The tool uses image values without an AI model. It can cross weak boundaries
+  and does not recognize anatomy.
+
+MPR + 3D and material views stay on your computer and are not available for
+picture export or agent sharing. See the [viewing and label guide](docs/usage.md)
+for controls and limits.
+
+### Changed
+
+- Linked MPR and oblique views keep the selected detail and slab sampling while
+  you navigate. Overlays remain visible on unchanged linked planes.
+- Label editing supports redo and up to 16 undo steps, increased from two.
+  Returning to the last exported state clears the unsaved indicator.
+- Imported fractional masks retain their original values and whether they
+  describe probability or occupancy. Display and counts still use half the
+  stated maximum as the threshold.
+
+### Fixed
+
+- Constant scalar fields keep even lighting in 3D on native graphics backends.
+- Windows development builds can compile the shaders used by linked MPR and 3D.
+- Corrected OpenGL resource limits and floating-point format detection for 3D
+  region views.
+- Quitting with unsaved labels now shows a confirmation even if the viewer is
+  hidden.
+- Rapid arrow-key presses no longer skip slice steps, and quick brush strokes
+  keep their endpoints. Zoom gestures stay in the pane where they started.
+- Update checks and downloads can use GitHub's public asset API when its web
+  download route returns a server error. Signature and archive checks still apply.
+- Fixed an update check that could start after automatic checks were switched off.
+  If the first preference cannot be saved, the viewer shows that checks are off
+  for the current run and offers a retry.
+- A label export could be reported as cancelled after the file was saved. Label
+  exports now require the `.nii` extension, matching the uncompressed format.
+- A rendering error could remain over an image after rendering recovered.
+
 ## 1.3.0 - 2026-11-03
 
 Labels and supplied masks on every plane, more DICOM image types including

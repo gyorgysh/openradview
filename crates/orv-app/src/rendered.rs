@@ -13,11 +13,25 @@ pub(crate) struct ViewSpec {
 }
 
 impl Workspace {
+    #[cfg(feature = "mcp")]
+    pub(crate) fn canonical_rendered_view(&self) -> Option<(ViewSpec, bool)> {
+        let (spec, ready) = self.rendered_view()?;
+        let canonical = self.mode != ViewMode::Mpr
+            || self
+                .mpr
+                .as_ref()?
+                .snapshot
+                .as_ref()?
+                .gpu_images
+                .iter()
+                .all(Option::is_none);
+        Some((spec, ready && canonical))
+    }
     pub(crate) fn rendered_view(&self) -> Option<(ViewSpec, bool)> {
         self.study.as_ref()?.series.get(self.selected)?;
         match self.mode {
             ViewMode::Compare => None,
-            ViewMode::Mpr => self.mpr.as_ref()?.shared_view(),
+            ViewMode::Mpr => self.mpr.as_ref()?.rendered_view(),
             ViewMode::Volume => self.volume.as_ref()?.shared_view(),
             ViewMode::Oblique => self.oblique.as_ref()?.shared_view(),
             ViewMode::Acquired => {

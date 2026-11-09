@@ -278,6 +278,7 @@ pub(crate) fn decode_with_metadata(
                 })
         };
         frames.push(Arc::new(Frame {
+            memory: None,
             presentation: layers.clone(),
             calibration: calibration.clone(),
             projection: projection.clone(),

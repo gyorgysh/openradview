@@ -2,6 +2,17 @@
 //! Native backend selection shared by the window and offscreen renderer.
 use wgpu::{Backend, Backends, DownlevelFlags, Limits};
 
+/// Preserve native validation while allowing FXC to lower bounded dynamic loops.
+pub fn instance_flags() -> wgpu::InstanceFlags {
+    let mut flags = wgpu::InstanceFlags::default();
+    // wgpu's DEBUG flag also selects D3DCOMPILE_SKIP_OPTIMIZATION. FXC cannot
+    // compile some bounded, dynamically indexed WGSL loops in that mode.
+    if cfg!(target_os = "windows") {
+        flags.remove(wgpu::InstanceFlags::DEBUG);
+    }
+    flags
+}
+
 pub fn configured_backends() -> Result<Backends, &'static str> {
     let requested = std::env::var("WGPU_BACKEND");
     match requested {
@@ -62,14 +73,24 @@ fn limits(backend: Backend, available: &Limits, flags: DownlevelFlags) -> Limits
         && crate::volume::check_limits(available).is_ok()
     {
         // Keep slice display available on GL 3.x, while requesting only the
-        // compute resources used by ray marching on capable GL/ES drivers.
+        // compute resources used by native volume/mask views on capable GL/ES drivers.
         required.max_compute_workgroup_size_x = 8;
         required.max_compute_workgroup_size_y = 8;
         required.max_compute_workgroup_size_z = 1;
         required.max_compute_invocations_per_workgroup = 64;
         required.max_compute_workgroups_per_dimension =
             available.max_compute_workgroups_per_dimension.min(65535);
-        required.max_storage_textures_per_shader_stage = 1;
+        required.max_storage_textures_per_shader_stage =
+            available.max_storage_textures_per_shader_stage.min(2);
+        required.max_storage_buffers_per_shader_stage =
+            available.max_storage_buffers_per_shader_stage.min(3);
+        if required.max_storage_buffers_per_shader_stage > 0 {
+            // WebGL defaults have a zero-byte binding limit. Compute views bind
+            // failure status and source-page tables, still under shared admission.
+            required.max_storage_buffer_binding_size = available
+                .max_storage_buffer_binding_size
+                .min(Limits::default().max_storage_buffer_binding_size);
+        }
         required.max_texture_dimension_3d = available.max_texture_dimension_3d.min(2048);
     }
     required
@@ -108,6 +129,19 @@ mod tests {
         let compute = limits(Backend::Gl, &available, DownlevelFlags::COMPUTE_SHADERS);
         assert!(crate::volume::check_limits(&compute).is_ok());
         assert!(compute.check_limits(&available));
+        assert_eq!(compute.max_storage_textures_per_shader_stage, 2);
+        assert_eq!(compute.max_storage_buffers_per_shader_stage, 3);
+        assert!(compute.max_storage_buffer_binding_size >= 4);
+        let one_output = Limits {
+            max_storage_textures_per_shader_stage: 1,
+            max_storage_buffers_per_shader_stage: 0,
+            ..available.clone()
+        };
+        let legacy = limits(Backend::Gl, &one_output, DownlevelFlags::COMPUTE_SHADERS);
+        assert_eq!(legacy.max_storage_textures_per_shader_stage, 1);
+        assert_eq!(legacy.max_storage_buffers_per_shader_stage, 0);
+        assert_eq!(legacy.max_storage_buffer_binding_size, 0);
+        assert!(crate::volume::check_limits(&legacy).is_ok());
         let small = Limits {
             max_texture_dimension_2d: 4096,
             ..available

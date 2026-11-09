@@ -6,11 +6,13 @@ use orv_core::{
 };
 
 pub(super) struct Context<'a> {
+    pub shortcuts: bool,
     pub source_range: Option<&'a super::DisplayRange>,
     pub initial: &'a super::DisplayRange,
     pub color: bool,
     pub choices: Option<&'a orv_core::scalar::VoiChoices>,
     pub bounds: [[f64; 3]; 2],
+    pub material_selection: Option<&'a mut bool>,
 }
 
 pub(super) fn show(
@@ -21,11 +23,13 @@ pub(super) fn show(
     context: Context<'_>,
 ) -> bool {
     let Context {
+        shortcuts,
         source_range,
         initial,
         color,
         choices,
         bounds,
+        material_selection,
     } = context;
     let mut fit = false;
     let narrow = ui.available_width() < 760.;
@@ -36,6 +40,12 @@ pub(super) fn show(
             Projection::Maximum,
             if color { "RGB maxima" } else { "MIP" },
         );
+        if let Some(enabled) = material_selection
+            && ui.button("Material").on_hover_text("Edit local optical appearance with lighting. Agent sharing and picture export use Volume or MIP.").clicked()
+        {
+            *enabled = true;
+            state.projection = Projection::Composite;
+        }
         if color {
             crate::toolbar::label(ui, "sRGB color");
         } else {
@@ -90,7 +100,11 @@ pub(super) fn show(
             }
         }
         if ui
-            .button(crate::actions::label(ui.ctx(), crate::actions::Action::Fit))
+            .button(if shortcuts {
+                crate::actions::label(ui.ctx(), crate::actions::Action::Fit)
+            } else {
+                "Fit".into()
+            })
             .clicked()
         {
             display.zoom = 1.;
@@ -99,7 +113,11 @@ pub(super) fn show(
         }
         ui.checkbox(
             &mut display.invert,
-            crate::actions::label(ui.ctx(), crate::actions::Action::Invert),
+            if shortcuts {
+                crate::actions::label(ui.ctx(), crate::actions::Action::Invert)
+            } else {
+                "Invert".into()
+            },
         );
         if ui.button("Reset display").on_hover_text("Restore this volume’s initial display and turn inversion off. Fit resets the camera separately.").clicked() {
             *preset = TransferPreset::Bone;
@@ -259,7 +277,7 @@ pub(super) fn show(
     fit
 }
 
-fn clipping(ui: &mut egui::Ui, state: &mut VolumeView, bounds: [[f64; 3]; 2]) {
+pub(super) fn clipping(ui: &mut egui::Ui, state: &mut VolumeView, bounds: [[f64; 3]; 2]) {
     egui::containers::menu::MenuButton::new(if state.clip.is_some() {
         "Clipping · on"
     } else {
@@ -317,7 +335,7 @@ fn clipping(ui: &mut egui::Ui, state: &mut VolumeView, bounds: [[f64; 3]; 2]) {
     });
 }
 
-fn quality(ui: &mut egui::Ui, state: &mut VolumeView) {
+pub(super) fn quality(ui: &mut egui::Ui, state: &mut VolumeView) {
     use orv_core::volume_view::Quality;
     egui::ComboBox::from_id_salt("volume-detail")
         .wrap_mode(egui::TextWrapMode::Extend)
@@ -432,11 +450,13 @@ mod tests {
                         &mut display,
                         &mut TransferPreset::Bone,
                         Context {
+                            shortcuts: true,
                             source_range: None,
                             initial: &initial,
                             color: false,
                             choices: None,
                             bounds: volume.bounds(),
+                            material_selection: None,
                         },
                     );
                 },
@@ -501,11 +521,13 @@ mod tests {
                     &mut display,
                     &mut preset,
                     Context {
+                        shortcuts: true,
                         source_range: None,
                         initial: &TransferPreset::Bone.values(),
                         color: false,
                         choices: None,
                         bounds: volume.bounds(),
+                        material_selection: None,
                     }
                 ));
                 // The same shared window controls also receive source/MPR requests.

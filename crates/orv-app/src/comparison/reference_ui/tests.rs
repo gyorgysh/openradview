@@ -2,6 +2,7 @@
 use super::*;
 fn frame(position: [f64; 3], orientation: [f64; 6], size: [u32; 2]) -> Arc<Frame> {
     Arc::new(Frame {
+        memory: None,
         presentation: None,
         calibration: None,
         projection: None,

@@ -206,15 +206,16 @@ pub(crate) fn label(ctx: &egui::Context, action: Action) -> String {
 pub(crate) fn view_input_enabled(ctx: &egui::Context, enabled: bool) {
     ctx.data_mut(|data| data.insert_temp(id().with("view-input"), enabled));
 }
-pub(crate) fn pressed(ui: &egui::Ui, action: Action) -> bool {
-    if !ui
-        .ctx()
+fn input_enabled(ui: &egui::Ui, action: Action) -> bool {
+    ui.ctx()
         .data(|data| data.get_temp::<bool>(id().with("view-input")))
         .unwrap_or(true)
-        || !ui.is_enabled()
-        || action != Action::OpenFiles && ui.ctx().egui_wants_keyboard_input()
-        || egui::Popup::is_any_open(ui.ctx())
-    {
+        && ui.is_enabled()
+        && (action == Action::OpenFiles || !ui.ctx().egui_wants_keyboard_input())
+        && !egui::Popup::is_any_open(ui.ctx())
+}
+pub(crate) fn pressed(ui: &egui::Ui, action: Action) -> bool {
+    if !input_enabled(ui, action) {
         return false;
     }
     let Some(key) = bindings(ui.ctx()).key(action) else {
@@ -237,6 +238,39 @@ pub(crate) fn pressed(ui: &egui::Ui, action: Action) -> bool {
         });
         found
     })
+}
+pub(crate) fn navigate(ui: &egui::Ui, initial: u32, max: u32) -> u32 {
+    if !input_enabled(ui, Action::Next) {
+        return initial;
+    }
+    let bindings = bindings(ui.ctx());
+    let (Some(next), Some(previous)) = (bindings.key(Action::Next), bindings.key(Action::Previous))
+    else {
+        return initial;
+    };
+    let mut slice = initial;
+    ui.input_mut(|input| {
+        input.events.retain(|event| {
+            if let egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+                ..
+            } = event
+            {
+                if *key == next {
+                    slice = slice.saturating_add(1).min(max);
+                    return false;
+                }
+                if *key == previous {
+                    slice = slice.saturating_sub(1);
+                    return false;
+                }
+            }
+            true
+        });
+    });
+    slice
 }
 pub(crate) fn tool_input(
     ui: &egui::Ui,

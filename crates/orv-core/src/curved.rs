@@ -211,6 +211,7 @@ pub fn reformat(
     Ok(CurvedImage {
         curve: curve.clone(),
         frame: Arc::new(Frame {
+            memory: None,
             presentation: None,
             calibration: None,
             projection: None,

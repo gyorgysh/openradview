@@ -36,6 +36,8 @@ default. Clear the checkbox on first entry or turn them off later under **Privac
 are available there too. Enabled background checks run about once a day; a manual
 check contacts GitHub when requested. Download, installation and restart are
 separate user actions, not automatic consequences of a check.
+Turning automatic checks off prevents new automatic checks; a check already
+starting or in progress may finish.
 
 Debian package installations from 1.1.0 disable automatic checks and in-app
 replacement. Version 1.0.0 may still check automatically if enabled, but cannot

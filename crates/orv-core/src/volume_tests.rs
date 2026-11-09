@@ -12,6 +12,7 @@ fn stack() -> Vec<Arc<Frame>> {
                 .flat_map(|y| (0..4).map(move |x| (x + 10 * y + 100 * z) as f32))
                 .collect::<Vec<_>>();
             Arc::new(Frame {
+                memory: None,
                 presentation: None,
                 calibration: None,
                 projection: None,
@@ -51,6 +52,39 @@ fn change(frames: &mut [Arc<Frame>], index: usize, f: impl FnOnce(&mut Frame)) {
 }
 fn close(a: f64, b: f64) {
     assert!((a - b).abs() < 1e-6, "{a} != {b}");
+}
+
+#[test]
+fn displacement_transform_preserves_small_vectors_at_large_origins() {
+    let mut frames = stack();
+    for (z, frame) in frames.iter_mut().enumerate() {
+        let mut f = (**frame).clone();
+        let g = f.geometry.as_mut().unwrap();
+        g.position = [
+            1000000. + z as f64 * 0.75,
+            -1000000. + z as f64 * 3.,
+            1000000.,
+        ];
+        g.orientation = [-1., 0., 0., 0., 0., 1.];
+        *frame = Arc::new(f);
+    }
+    let volume = Volume::new(frames).unwrap();
+    for vector in [
+        [1., 0., 0.],
+        [0., 1., 0.],
+        [0., 0., 1.],
+        [1e-15, -2e-15, 3e-15],
+    ] {
+        let physical = volume.voxel_vector_to_world(vector);
+        let returned = volume.world_vector_to_voxel(physical);
+        for a in 0..3 {
+            assert!((vector[a] - returned[a]).abs() < 1e-16);
+        }
+        assert!(physical.iter().any(|v| *v != 0.));
+    }
+    assert_eq!(volume.voxel_vector_to_world([1., 0., 0.]), [-0.5, 0., 0.]);
+    assert_eq!(volume.voxel_vector_to_world([0., 1., 0.]), [0., 0., 2.]);
+    assert_eq!(volume.voxel_vector_to_world([0., 0., 1.]), [0.75, 3., 0.]);
 }
 
 #[test]
@@ -108,6 +142,82 @@ fn anatomical_reformats_are_world_aligned_with_correct_superior_direction() {
             .unwrap_err(),
         GeometryError::Cancelled
     );
+}
+
+#[test]
+fn slab_grid_matches_individual_samples_with_shear_and_missing_data() {
+    use crate::{
+        oblique::ObliquePlane,
+        slab::{Slab, SlabProjection},
+    };
+    let mut frames = stack();
+    for z in 0..frames.len() {
+        change(&mut frames, z, |frame| {
+            frame.geometry.as_mut().unwrap().position[1] += z as f64 * 0.2;
+            let mut validity = vec![1; frame.pixels.len()];
+            validity[z] = 0;
+            frame.validity = Some(validity.into());
+        });
+    }
+    let volume = Volume::new(frames).unwrap();
+    let mut seen = [0usize; 2];
+    for angles in [[0.; 3], [17., -23., 11.]] {
+        let plane = ObliquePlane::from_angles(volume.center(), angles).unwrap();
+        for projection in [
+            SlabProjection::Maximum,
+            SlabProjection::Minimum,
+            SlabProjection::Mean,
+        ] {
+            for intervals in [2, 32, 256] {
+                let slab = Slab {
+                    projection,
+                    thickness_mm: 4.7,
+                    intervals,
+                };
+                let grid = volume.oblique_grid(&plane, 32, Some(slab)).unwrap();
+                let image = volume.resample_grid(&grid, || false).unwrap();
+                for y in 0..image.height {
+                    for x in 0..image.width {
+                        let actual = image.pixels[(y * image.width + x) as usize];
+                        let expected = volume.reformat_sample(&grid, [x, y], || false).unwrap();
+                        match expected {
+                            Some(value) => {
+                                seen[0] += 1;
+                                assert_eq!(actual.to_bits(), value.to_bits());
+                            }
+                            None => {
+                                seen[1] += 1;
+                                assert!(actual.is_nan());
+                            }
+                        }
+                    }
+                }
+                assert_eq!(
+                    volume.resample_grid(&grid, || true).unwrap_err(),
+                    GeometryError::Cancelled
+                );
+            }
+        }
+    }
+    assert!(seen.iter().all(|count| *count > 0));
+    let plane = ObliquePlane::from_angles(volume.center(), [17., -23., 11.]).unwrap();
+    let slab = Slab {
+        projection: SlabProjection::Mean,
+        thickness_mm: 4.7,
+        intervals: 256,
+    };
+    let grid = volume.oblique_grid(&plane, 32, Some(slab)).unwrap();
+    let calls = std::cell::Cell::new(0);
+    assert_eq!(
+        volume
+            .resample_grid(&grid, || {
+                calls.set(calls.get() + 1);
+                calls.get() == 5
+            })
+            .unwrap_err(),
+        GeometryError::Cancelled
+    );
+    assert_eq!(calls.get(), 5);
 }
 
 #[test]
@@ -240,4 +350,46 @@ fn source_validity_survives_hashes_mpr_oblique_and_threshold_without_copying_pix
     let overlay = labels.plane_rgba(0).unwrap();
     assert_eq!(overlay[3], 0, "padding must not be threshold-labelled");
     assert!(overlay[7] > 0);
+}
+
+#[test]
+fn complete_and_partial_source_planes_keep_missing_stencils_and_sampling_values() {
+    let mut frames = stack();
+    change(&mut frames, 0, |frame| {
+        frame.validity = Some(vec![1; frame.pixels.len()].into());
+    });
+    change(&mut frames, 1, |frame| {
+        let mut mask = vec![1; frame.pixels.len()];
+        mask[5] = 0;
+        frame.validity = Some(mask.into());
+    });
+    // Plane order must follow the validated geometry, not the input order.
+    frames.reverse();
+    let volume = Volume::new(frames.clone()).unwrap();
+    for x in [0., 0.5, 1., 1.5, 2., 3.] {
+        for y in [0., 0.5, 1., 1.5, 2., 4.] {
+            for z in [0., 0.5, 1., 1.5, 2.] {
+                let actual = volume.sample_voxel([x, y, z]);
+                if x > 0. && x < 2. && y > 0. && y < 2. && z > 0. && z < 2. {
+                    assert!(actual.is_none(), "[{x}, {y}, {z}]");
+                } else {
+                    let expected = x + 10. * y + 100. * z;
+                    assert!((f64::from(actual.unwrap()) - expected).abs() < 1e-4);
+                }
+            }
+        }
+    }
+    for invalid in 0..3 {
+        let mut bad = frames.clone();
+        change(&mut bad, 0, |frame| match invalid {
+            0 => frame.validity = Some(vec![1; frame.pixels.len() - 1].into()),
+            1 => frame.validity = Some(vec![2; frame.pixels.len()].into()),
+            _ => {
+                let mut pixels = frame.pixels.to_vec();
+                pixels[0] = f32::NAN;
+                frame.pixels = pixels.into();
+            }
+        });
+        assert!(Volume::new(bad).is_err());
+    }
 }

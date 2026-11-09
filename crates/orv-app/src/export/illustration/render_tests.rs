@@ -42,6 +42,7 @@ fn composition_admission_covers_buffers_textures_and_upload_staging_before_gpu_g
 #[cfg(feature = "gpu-tests")]
 pub(in crate::export::illustration) fn device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        flags: orv_render::instance_flags(),
         backends: orv_render::configured_backends().unwrap(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });

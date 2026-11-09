@@ -53,17 +53,35 @@ original color presentation instead of scalar window/level.
 
 **2D image** shows one source image. **Linked MPR** shows axial, coronal and
 sagittal planes through one linked point; choose Crosshair to move that point.
+Thin planes keep their requested sampling during navigation, and planes whose
+position did not change reuse their images.
 **Oblique** adds explicit plane rotation and normal offset. **3D / MIP** projects
 the loaded volume; drag to orbit, and use the named transfer presets/controls.
+In Linked MPR, choose **MPR + 3D** from the layout menu to place the linked
+planes beside a 3D view of the same volume.
 MPR and projections require consistent geometry and a volume within the budget.
 Their interpolated values can differ from source pixels. In compact windows,
 2D, MPR, oblique and 3D/MIP place their display rows under **Display and tools**,
 a scrollable panel that leaves room for the images. Tab and Shift+Tab reach every
 control and scroll it into view; Escape closes informational dialogs.
+
+In **3D / MIP**, **Material** offers an editable scalar-to-brightness and opacity
+mapping, with optional **Lighting** for depth cues. The selected **Material…** button lets
+you add, remove and edit up to 64 points. Values must stay in increasing order;
+an invalid edit leaves the last valid material visible. **Reset material** restores
+the initial mapping. These controls change appearance, not source values or masks.
+The last complete interaction image stays visible while a refined image is built.
+Material view ends any active sharing approval and has no picture export or agent
+sharing. Choose **Volume** or **MIP** for the original display controls and those
+features; sharing still requires a fresh Allow review.
+
 For scalar MPR/oblique views, choose **Slab MIP**, **Slab MinIP** or **Slab mean** and a
 physical thickness. These show the discrete maximum, minimum or mean of valid
-samples along the plane normal,
-with the sample count shown. A smaller preview refines after interaction stops.
+samples along the plane normal, with the sample count shown. Navigation retains
+the requested plane detail and slab sampling.
+When you change slab settings, the last completed image remains visible while
+the new one is calculated. A status line identifies the displayed sampling
+until it matches the selected settings.
 At most 257 samples span a slab, so features between samples can be missed.
 Slabs disable physical measurements; choose **Thin plane** to measure again. **Clipping…** in 3D/MIP
 limits the projection to explicit LPS minimum/maximum coordinates in millimeters.
@@ -114,13 +132,49 @@ closes. They are never saved automatically. Sidebar previews are generated for
 visible series in memory.
 
 **Labels…** paints a local source-grid label map. It is not organ recognition or
-an AI model. Export a map explicitly if you want to keep it; changes remain in
-memory until then. Unsaved work is protected when replacing or closing it.
+an AI model. Export a map explicitly as an uncompressed `.nii` file if you want
+to keep it; changes remain in memory until then. Unsaved work is protected when
+replacing or closing it.
 The same map appears on matching thin MPR and oblique planes. Open **Labels…**
 there to choose fill, outline or hatching and hide individual numeric IDs.
 Counts use original source voxels and declared cell volume, with valid and missing
 samples kept separate; zoom and display resolution do not change them. Painting
-and threshold edits stay on source images. Slab projections and 3D omit labels.
+and threshold edits stay on source images. Slab projections omit labels.
+The brush skips pointer positions outside the displayed image; returning to it
+starts a separate segment in the same undoable edit.
+
+For a supported scalar volume, enable **Region in 3D** in the 3D controls and
+choose a manual label or supplied segment. The material view shows one opaque ID
+at a time. Fractional segments use half their declared maximum. Open **Mask
+cells…**, choose **Cell faces**, then enable **Pick surface** to inspect a
+visible face. When source planes are shown, the menu is already called **Cell
+faces…**. In **MPR + 3D**, a successful pick moves the linked point to the
+source-cell centre. A visible source plane or foreground material can obscure a
+region or block a pick. Missing or unknown boundaries stay open, and clipping
+does not add a cap.
+
+In **MPR + 3D**, **Cut at linked MPR planes** keeps a chosen side of the linked
+point in 3D. These cuts combine with any separate clipping bounds; neither changes
+the source images, label map or physical editing extent. **Reset linked cuts**
+clears the linked cuts without resetting the separate clipping bounds.
+
+Choose **Physical edit…** to preview a sphere or disk at the linked point, or
+draw a path on one thin plane. Create blank manual labels first if needed; supplied
+masks stay read-only. Close the preview window to inspect the proposal, then
+reopen it to apply or discard. The preview can reach hidden cells and is not
+limited by 3D clipping. Counts and export continue to use the applied map.
+The 3D view says **PREVIEW NOT IN 3D** when it is showing a different region or
+only the source while the region loads. With a linked cut it says **PREVIEW
+HIDDEN · CUT**. Enable **Region in 3D**, select **Manual** and wait for it to
+finish to inspect the proposal there.
+
+**Surface stamp…** is a separate erase tool for an applied manual label. Finish
+drawing, apply or discard any physical preview, and close Physical edit first. Select
+**Choose a face**, then click a face in the completed 3D view. Inspect the
+resulting preview, then apply or cancel. It removes one visible cell layer within
+the chosen radius; covered or ambiguous faces cannot anchor a stamp. Neither tool
+saves the label map automatically. In a compact window, both editing tools are
+inside the 3D settings.
 
 In **Labels… → Connected regions**, choose **Grow from seed**, an inclusive
 scalar interval and either the current source image (four neighbors) or the whole
@@ -138,6 +192,25 @@ count; equal-size components remain. Diagonal contacts do not connect. Missing
 samples and other IDs are barriers; cleanup preserves labels stored on missing
 samples. These tools use values and connectivity, with no AI model or anatomical
 recognition. Applying is one undoable edit; export explicitly to keep it.
+
+In **Labels… → Include / exclude seeds**, choose a rectangle on the current
+scalar source image. Add at least one include and one exclude hint by entering
+1-based coordinates or choosing **Draw include hint** or **Draw exclude hint**
+and clicking or dragging on the image. Squares mark include points and crosses
+mark exclude points. The list shows the first six hints; **Remove last hint**
+removes a whole stroke or one typed point, and **Clear seeds** removes all hints.
+Hints are limited to 8,192 distinct class/position pairs. Drawing a hint on
+another image replaces the earlier set. All seeds must be inside
+the rectangle and on valid samples that are not occupied by other label IDs.
+
+**Preview seeded region** uses scalar values and four-neighbor propagation. Inspect
+the overlay, then choose **Apply seeded region** or **Discard seeded preview**.
+The rectangle is limited to 1,048,576 cells and work is bounded; if the calculation
+does not converge, reduce the rectangle or adjust the hints and try again. Other
+IDs and missing samples are barriers. Exclude results can remove cells from the
+selected label inside the rectangle. This tool has no anatomical recognition or
+trained model and can cross weak image boundaries. Counts and exports use the
+applied map; Apply creates one undoable edit.
 
 **Study → Export picture…** saves an image-only PNG and reproducible view settings
 in a new local folder. It omits UI annotations and label maps. Check for text

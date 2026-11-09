@@ -7,7 +7,9 @@ use crate::{
     import_report::SkipReason,
     load::LoadError,
     resources::MemoryBudget,
-    segments::{MAX_FRAMES, MAX_INPUT_BYTES, MAX_SEGMENTS, Segments},
+    segments::{
+        FractionalEncoding, FractionalKind, MAX_FRAMES, MAX_INPUT_BYTES, MAX_SEGMENTS, Segments,
+    },
     study::{Geometry, Series},
 };
 use dicom_core::Tag;
@@ -24,9 +26,9 @@ const LABELMAP_CLASS: &str = "1.2.840.10008.5.1.4.1.1.66.7";
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Binary,
-    /// Positive at or above half the declared maximum fractional value.
+    /// Original values and meaning; categorical display uses half the maximum.
     Fractional {
-        maximum: u8,
+        encoding: FractionalEncoding,
     },
     /// One segment number per pixel, zero background, 8 or 16 bits.
     Labels {
@@ -462,13 +464,14 @@ fn read_body<R: Read>(
                 .ok()
                 .filter(|m| *m > 0)
                 .ok_or(SegmentationError::Metadata)?;
-            if !matches!(
-                text(root, Tag(0x62, 0x10))?.as_str(),
-                "PROBABILITY" | "OCCUPANCY"
-            ) {
-                return Err(SegmentationError::Metadata);
+            let kind = match text(root, Tag(0x62, 0x10))?.as_str() {
+                "PROBABILITY" => FractionalKind::Probability,
+                "OCCUPANCY" => FractionalKind::Occupancy,
+                _ => return Err(SegmentationError::Metadata),
+            };
+            Kind::Fractional {
+                encoding: FractionalEncoding { maximum, kind },
             }
-            Kind::Fractional { maximum }
         }
         (LABELMAP_CLASS, "LABELMAP") => Kind::Labels {
             bytes: match one_u32(root, Tag(0x28, 0x100))? {
@@ -528,7 +531,13 @@ fn read_body<R: Read>(
         numbers.push(number);
     }
     let layout = crate::inspection::series_info(series, cancel)?.geometry?;
-    Segments::check_layout(layout.dimensions, numbers.len()).map_err(SegmentationError::Mask)?;
+    match kind {
+        Kind::Fractional { .. } => {
+            Segments::check_fractional_layout(layout.dimensions, numbers.len(), frames)
+        }
+        _ => Segments::check_layout(layout.dimensions, numbers.len()),
+    }
+    .map_err(SegmentationError::Mask)?;
     let pixels = (size[0] as usize)
         .checked_mul(size[1] as usize)
         .and_then(|n| n.checked_mul(frames))
@@ -657,26 +666,15 @@ fn read_body<R: Read>(
         Kind::Binary => {
             Segments::from_binary(volume, &numbers, &associated, &payload, overlap, cancel)
         }
-        Kind::Fractional { maximum } => {
-            let _bits = MemoryBudget::volumes()
-                .reserve(pixels.div_ceil(8) as u64)
-                .ok_or(SegmentationError::Limit)?;
-            let mut bits = Vec::new();
-            bits.try_reserve_exact(pixels.div_ceil(8).next_multiple_of(2))
-                .map_err(|_| SegmentationError::Limit)?;
-            bits.resize(pixels.div_ceil(8).next_multiple_of(2), 0u8);
-            for (index, value) in payload[..pixels].iter().enumerate() {
-                if *value > maximum {
-                    return Err(SegmentationError::Mask(
-                        "Fractional mask values exceed the declared maximum",
-                    ));
-                }
-                if u16::from(*value) * 2 >= u16::from(maximum) && *value > 0 {
-                    bits[index / 8] |= 1 << (index % 8);
-                }
-            }
-            Segments::from_binary(volume, &numbers, &associated, &bits, overlap, cancel)
-        }
+        Kind::Fractional { encoding } => Segments::from_fractional(
+            volume,
+            &numbers,
+            &associated,
+            &payload,
+            encoding,
+            overlap,
+            cancel,
+        ),
         Kind::Labels { bytes } => {
             let _values = MemoryBudget::volumes()
                 .reserve(pixels as u64 * 2)

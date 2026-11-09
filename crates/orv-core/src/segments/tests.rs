@@ -16,6 +16,7 @@ pub(super) fn source(width: u32, height: u32) -> Arc<Volume> {
                         valid[1] = 0;
                     }
                     Arc::new(Frame {
+                        memory: None,
                         presentation: None,
                         calibration: None,
                         projection: None,

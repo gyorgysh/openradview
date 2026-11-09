@@ -15,7 +15,7 @@ that an image, orientation, reconstruction or measurement is correct for care.
 | NIfTI-1/2 | Single-file `.nii`/`.nii.gz` and paired `.hdr`/`.img` (either member may be gzipped), little/big endian; uint8/int8, uint16/int16, uint32/int32, uint64/int64, float32/float64, complex64/complex128. Time, vector/tensor and higher axes become separately labelled scalar subseries; complex views are magnitude, phase in radians, real and imaginary. | Up to 4,096 subseries and one million displayed frames per import. No RGB/RGBA, binary, float128/complex256 or Analyze. Components are viewed individually, without vector/tensor reorientation, tractography or temporal analysis. Values become f32 and may lose integer/f64 precision. Enabled nonfinite scaling or voxel values are refused. Header descriptions/extensions are ignored. |
 | Local sources | Files, folders, ZIP and ZIP64 with stored/deflated members; supported NIfTI including gzip and same-directory pairs can be inside ZIP | No extraction, uploads or pixel disk cache. ZIP/gzip integrity and expanded length are checked on a cancellable background worker. Selected files must remain available. |
 | DICOMDIR | Select a local `DICOMDIR` alone, or a ZIP containing one file-set index. Explicit-VR little-endian Basic Directory; direct IMAGE references under PATIENT/STUDY/SERIES records. Defined/undefined sequence and item lengths, file-relative record offsets, extensionless files and unique case-insensitive names are supported. | Read-only subset: no indirect/MRDR references or directory writing. Non-image records are counted as unsupported. Cycles, orphan active records, contradictory hierarchy, duplicate files/instances, unsafe paths, links/reparse points and ambiguous names are refused. At most 16 MiB, 50,000 records and 16 hierarchy levels. |
-| Supplied DICOM masks | Explicit local selection through Labels… → Supplied masks. Read-only BINARY, FRACTIONAL and LABELMAP SEG, native implicit/explicit little endian: one-bit MONOCHROME2 binary, 8-bit MONOCHROME2 fractional (positive at or above half the declared maximum fractional value), 8/16-bit MONOCHROME2 or PALETTE label maps (zero background, every other value a declared segment number). Matching loaded DICOM source grid and explicit source references. Overlap and sparse coverage are preserved on source/thin MPR/oblique views. | Up to 64 numeric segment IDs, 4,096 source/mask frames, 32 million source voxels and four million pixels per source/output plane; 128 MiB packed masks and 128 MiB pixel payload, subject to shared memory admission. No resampling, editing, supplied-mask export, slabs, 3D or ordinary agent snapshots. |
+| Supplied DICOM masks | Explicit local selection through Labels… → Supplied masks. Read-only BINARY, FRACTIONAL and LABELMAP SEG, native implicit/explicit little endian: one-bit MONOCHROME2 binary, 8-bit MONOCHROME2 fractional, 8/16-bit MONOCHROME2 or PALETTE label maps (zero background, every other value a declared segment number). Fractional samples retain their original values, maximum and probability/occupancy meaning in RAM; counts and overlays use values at or above half the maximum. Matching loaded DICOM source grid and explicit source references. Overlap and sparse coverage are preserved on source/thin MPR/oblique views. Scalar 3D can show one opaque selected ID over Material. | Up to 64 numeric segment IDs, 4,096 source/mask frames, 32 million source voxels and four million pixels per source/output plane; 128 MiB retained samples (packed binary or supplied fractional bytes) and 128 MiB pixel payload, plus coverage/metadata, subject to shared memory admission. No resampling, editing, supplied-mask export, slabs or ordinary agent snapshots. The local 3D region view has no picture export or agent sharing. |
 
 A media index selects only its referenced images. Each accepted image's own SOP
 class/instance, transfer syntax, study and series must match its record. Missing
@@ -254,9 +254,9 @@ image or closing the study discards pending results.
 
 The desktop can create a uint8 label volume for one selected regular source series.
 Paint/erase on its acquired 2D grid, fill a scalar range on one/all slices, change
-visibility/opacity and undo the last two edits. Labels have no anatomical names or
-inferred meaning. Thresholds follow the selected scalar representation; no color
-threshold, automatic organ segmentation or model inference is provided.
+visibility/opacity and undo or redo up to 16 edits while the map stays open.
+Labels have no anatomical names or inferred meaning. Thresholds follow the
+selected scalar representation; no color threshold, automatic organ segmentation or model inference is provided.
 
 Load a scalar NIfTI label volume with integer values0–255 (zero background), exact
 dimensions/affine and the same NIfTI spatial-reference code. DICOM sources accept
@@ -272,13 +272,27 @@ files are never overwritten. Maps remain in memory until export; closing, study
 replacement and quitting protect unsaved work. Only one source series has a label
 map at a time; changing series retains it until explicitly removed. The limits
 are32Mi voxels and4Mi pixels/slice, alongside the adaptive shared source-volume allowance.
-Workers clone a private edit, publish only successful results and retain two
-checkpoints; cancellation leaves the displayed map unchanged. Labels appear on
-source 2D and matching thin MPR/oblique planes, with per-ID visibility and
+Workers prepare a private edit and publish only successful results; cancellation
+leaves the displayed map unchanged. Checkpoints share unchanged tiles under the
+same memory allowance. A new change clears redo; a stroke that changes no cells
+preserves history. Returning to the last exported revision clears the unsaved
+indicator. Labels appear on source 2D and matching thin MPR/oblique planes, with per-ID visibility and
 fill/outline/hatching. Nearest-voxel display never interpolates IDs; half ties
 choose the larger index, with source cells covering [-0.5, dimension-0.5).
 Stored IDs on missing samples are preserved but not displayed. Output validity
-also masks the overlay. Slabs and 3D omit labels. Current map, source, completed
+also masks the overlay. Slabs omit labels. In scalar 3D, **Region in 3D** selects
+one opaque manual or supplied ID over Material; **Labels…** opens the existing
+editor without leaving 3D. Fractional masks use half their declared maximum.
+Region brightness and selection are independent of the 2D overlay's visibility
+and opacity. Source material in front attenuates the region; source behind it is
+occluded. Preparation runs in the background, retains complete frames while a
+changed view is prepared, and labels the source-only fallback until ready.
+Cell-face picking inspects a visible source-cell face; in MPR + 3D it can move
+the linked point. The workbench can also preview and apply a one-layer surface
+erase stamp to a manual label. This subset has no transparent/multiple-ID scene,
+surface smoothing, freehand 3D surface painting, picture export or agent sharing.
+Return to **Volume** or **MIP** for the existing source-only exports. Current
+map, source, completed
 plane generation/preview and display settings must match before compositing;
 unmatched old layers are hidden while the worker prepares replacements.
 Overlay buffers are limited to four Mi-pixels and the device texture-side limit;
@@ -302,12 +316,13 @@ inference, registration or model is provided.
 Selection and its proposed map are prepared privately on workers. Preview is
 bound to exact map/source identity, source seed, interval, scope, label and edit
 kind. A changed input or view mode invalidates it. Apply swaps one immutable
-checkpoint into the current map with the existing two-step undo/unsaved guard.
+checkpoint into the current map with the same undo/redo history and unsaved-work
+guard.
 Cancel/admission failure cannot partly change the current map. Source counts and
 exports continue using applied labels. The preview does not enter agent snapshots.
 Grid limits are checked from metadata before dense preparation; every retained
-map/checkpoint is charged to the CPU volume pool. Traversal admits up to one byte
-of mask and four bytes of queue per cell in scope before allocation. The queue is
+directory and uniquely allocated tile is charged to the CPU volume pool.
+Traversal admits up to one byte of mask and four bytes of queue per cell in scope before allocation. The queue is
 released after computation; the mask is private until a proposed map is prepared.
 
 ## Local inspection

@@ -171,6 +171,15 @@ impl RequestBroker {
             .map(|d| d.status.clone())
             .unwrap_or(ServerStatus::Failed("Agent requests unavailable"))
     }
+    /// Inspect only the bounded approval queue without consuming its request.
+    /// The broker has no study access while the viewer prepares a review image.
+    pub fn has_unseen_request(&self) -> bool {
+        self.shared.data.lock().ok().is_some_and(|data| {
+            data.pending
+                .as_ref()
+                .is_some_and(|p| !p.seen && !p.expired() && matches!(p.outcome, Outcome::Pending))
+        })
+    }
     pub fn take_request(&self) -> Option<PendingRequest> {
         let mut data = self.shared.data.lock().ok()?;
         let pending = data.pending.as_mut()?;
@@ -396,7 +405,24 @@ mod tests {
         });
         drop(data);
         assert!(!broker.is_pending(19));
+        assert!(!broker.has_unseen_request());
         assert!(broker.take_request().is_none());
+        broker
+            .shared
+            .data
+            .lock()
+            .unwrap()
+            .pending
+            .as_mut()
+            .unwrap()
+            .created = Instant::now();
+        assert!(broker.has_unseen_request());
+        assert!(
+            broker.has_unseen_request(),
+            "Inspection must leave the request queued"
+        );
+        assert_eq!(broker.take_request().unwrap().id, 19);
+        assert!(!broker.has_unseen_request());
         broker.deny(19);
         assert!(matches!(
             broker
