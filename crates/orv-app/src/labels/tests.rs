@@ -188,6 +188,74 @@ fn fast_brush_drag_keeps_the_path_when_all_events_arrive_together() {
 }
 
 #[test]
+fn brush_release_keeps_a_short_final_segment() {
+    for batched in [false, true] {
+        let ctx = egui::Context::default();
+        let current = labels();
+        let image = current.source().frames()[1].clone();
+        let mut state = LabelUi {
+            current: Some(current.clone()),
+            paint: true,
+            radius: 1,
+            ..Default::default()
+        };
+        let view = ViewState::default();
+        let draw = |state: &mut LabelUi, events| {
+            let mut rect = egui::Rect::NOTHING;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(500., 500.),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let (_, response) = ui
+                        .allocate_exact_size(egui::vec2(400., 400.), egui::Sense::click_and_drag());
+                    rect = response.rect;
+                    state.canvas(ui, &response, &image, &view, 0);
+                },
+            );
+            output.textures_delta.clear();
+            rect
+        };
+        let rect = draw(&mut state, vec![]);
+        let start = crate::annotations::screen_at(rect, &image, &view, [3., 3.]).unwrap();
+        let end = crate::annotations::screen_at(rect, &image, &view, [3.3, 3.3]).unwrap();
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        draw(&mut state, vec![egui::Event::PointerMoved(start)]);
+        if batched {
+            draw(&mut state, vec![button(start, true), button(end, false)]);
+        } else {
+            draw(&mut state, vec![button(start, true)]);
+            draw(&mut state, vec![button(end, false)]);
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while state.busy() {
+            state.poll();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "brush worker did not finish"
+            );
+            std::thread::yield_now();
+        }
+        let result = state.current.as_ref().unwrap();
+        // (4,4) is inside the release disk, but outside the press disk.
+        assert_eq!(result.value([4, 4, 1]), Some(1));
+        assert_eq!(result.value([5, 5, 1]), Some(0));
+        assert_eq!(state.undo.len(), 1);
+        assert!(current.values().iter().all(|value| *value == 0));
+    }
+}
+
+#[test]
 fn held_brush_keeps_release_position_and_ignores_foreign_presses() {
     let ctx = egui::Context::default();
     let current = labels();

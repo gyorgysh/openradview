@@ -349,7 +349,9 @@ impl LabelUi {
                     .flatten();
                 if let Some(point) = point
                     && self.stroke.last().is_none_or(|old| {
-                        self.stroke_outside || (old[0] - point[0]).hypot(old[1] - point[1]) >= 0.5
+                        self.stroke_outside
+                            || (release && *old != point)
+                            || (old[0] - point[0]).hypot(old[1] - point[1]) >= 0.5
                     })
                 {
                     if self.stroke.len() == 8192 {
