@@ -1,0 +1,14 @@
+--- a/src/gles/adapter.rs
++++ b/src/gles/adapter.rs
+@@ -665,7 +665,10 @@
+             super::PrivateCapabilities::GET_BUFFER_SUB_DATA,
+             cfg!(any(webgl, Emscripten)) || full_ver.is_some(),
+         );
+-        let color_buffer_float = extensions.contains("GL_EXT_color_buffer_float")
++        // Desktop GL 3.3 requires floating-point color attachments in core.
++        // GLES/WebGL still need the extension; core GL may omit its old name.
++        let color_buffer_float = full_ver.is_some()
++            || extensions.contains("GL_EXT_color_buffer_float")
+             || extensions.contains("GL_ARB_color_buffer_float")
+             || extensions.contains("EXT_color_buffer_float");
+         let color_buffer_half_float = extensions.contains("GL_EXT_color_buffer_half_float")

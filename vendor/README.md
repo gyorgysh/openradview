@@ -1,7 +1,7 @@
 # Reviewed third-party source
 
 These Cargo path patches preserve the selected Rust wrapper APIs while updating
-native decoders and the complete-local-file decoding policy. See
+native decoders, windowing and graphics capability detection. See
 [architecture](../docs/architecture.md) and
 [validation](../docs/validation.md).
 
@@ -26,3 +26,8 @@ license declarations/notices are retained. They are not relicensed by the app's
 GPL header policy. Source formatting is preserved; Rust workspace formatting and
 linting apply to the application's own crates. Modified native code remains under
 its original compatible source license.
+
+The wgpu-hal 30.0.1 patch recognizes floating-point framebuffer formats required
+by desktop OpenGL 3.3 core even when a promoted extension name is absent. GLES
+and WebGL retain their extension checks. The original MIT/Apache-2.0 source and
+licenses, exact crate checksum, upstream revision and patch inventory are retained.

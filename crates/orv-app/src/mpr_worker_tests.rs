@@ -40,7 +40,10 @@ pub(crate) fn frames() -> Vec<Arc<Frame>> {
         .collect()
 }
 pub(super) fn wait(worker: &MprWorker) -> Result<MprSnapshot, String> {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    wait_for(worker, Duration::from_secs(5))
+}
+pub(super) fn wait_for(worker: &MprWorker, timeout: Duration) -> Result<MprSnapshot, String> {
+    let deadline = Instant::now() + timeout;
     loop {
         if let Some(result) = worker.take() {
             return result;

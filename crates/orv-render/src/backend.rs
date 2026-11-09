@@ -83,7 +83,7 @@ fn limits(backend: Backend, available: &Limits, flags: DownlevelFlags) -> Limits
         required.max_storage_textures_per_shader_stage =
             available.max_storage_textures_per_shader_stage.min(2);
         required.max_storage_buffers_per_shader_stage =
-            available.max_storage_buffers_per_shader_stage.min(1);
+            available.max_storage_buffers_per_shader_stage.min(3);
         if required.max_storage_buffers_per_shader_stage > 0 {
             // WebGL defaults have a zero-byte binding limit. Compute views bind
             // failure status and source-page tables, still under shared admission.
@@ -130,7 +130,7 @@ mod tests {
         assert!(crate::volume::check_limits(&compute).is_ok());
         assert!(compute.check_limits(&available));
         assert_eq!(compute.max_storage_textures_per_shader_stage, 2);
-        assert_eq!(compute.max_storage_buffers_per_shader_stage, 1);
+        assert_eq!(compute.max_storage_buffers_per_shader_stage, 3);
         assert!(compute.max_storage_buffer_binding_size >= 4);
         let one_output = Limits {
             max_storage_textures_per_shader_stage: 1,
