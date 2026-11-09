@@ -7,12 +7,35 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import update_protocol
 
 TARGETS = ('x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu')
+TRANSIENT_ERRORS = {
+    'Error: "GitHub could not provide the update. Try again later."',
+    'Error: "Cannot reach GitHub for updates."',
+    'Error: "Cannot download the update from GitHub."',
+}
+
+
+def verify_live(command, environment):
+    for attempt in range(3):
+        result = subprocess.run(command, cwd=ROOT, env=environment, text=True,
+                                capture_output=True, timeout=1200)
+        if result.stdout:
+            print(result.stdout, end='')
+        if result.stderr:
+            print(result.stderr, end='', file=sys.stderr)
+        if result.returncode == 0:
+            return
+        if attempt == 2 or not TRANSIENT_ERRORS.intersection((result.stderr or '').splitlines()):
+            raise subprocess.CalledProcessError(result.returncode, command,
+                                                output=result.stdout, stderr=result.stderr)
+        print('Transient GitHub transport failure; retrying the live check.', file=sys.stderr)
+        time.sleep(5 * (attempt + 1))
 
 
 def main():
@@ -36,10 +59,14 @@ def main():
         environment = os.environ.copy()
         environment.pop('GH_TOKEN', None)
         environment.pop('GITHUB_TOKEN', None)
-        subprocess.run(['cargo', 'run', '--locked', '--offline', '--target', args.target,
-                        '-p', 'orv-updates', '--features', 'release-validation',
-                        '--example', 'verify_release_update', '--', *paths, '--live'],
+        command = ['cargo', 'run', '--locked', '--offline', '--target', args.target,
+                   '-p', 'orv-updates', '--features', 'release-validation',
+                   '--example', 'verify_release_update', '--']
+        # Local integrity/swap failures fail once. Only the separate, unauthenticated
+        # live transport probe can retry; it still verifies the signed archive.
+        subprocess.run([*command, *paths],
                        cwd=ROOT, env=environment, check=True, timeout=1200)
+        verify_live([*command, '--live-only', paths[1], paths[3]], environment)
 
 
 if __name__ == '__main__':

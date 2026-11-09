@@ -81,10 +81,6 @@ jobs:
           xvfb-run -a env WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 cargo nextest run --locked --target ${{ matrix.target }} -p orv-render --features gpu-tests --lib --test gpu_golden --test volume_gpu --no-fail-fast -E 'binary(gpu_golden) or test(snapshot::slab_gpu_snapshot) or test(limits::a_display_only_device) or test(homogeneous_optical_slab_matches_beer_lambert) or test(zero_flag_classifications_keep_the_original_two_group_gpu_fallback) or test(paged_zero_classification_keeps_every_dense_pixel) or test(accelerated_complete_2048_image)'
           cargo build --locked --target ${{ matrix.target }} -p orv-app --features qa
           xvfb-run -a env WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 ORV_QA_NATIVE_SMOKE=1 python scripts/ci/native_gl.py target/${{ matrix.target }}/debug/openradview
-      - name: Published native updater roundtrip and live feed
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python scripts/ci/published_updates.py --target ${{ matrix.target }}
       - name: Portable packaging helpers
         run: python -m unittest discover -s scripts/portable -p 'test_*.py'
       - name: Native optimized application archive
@@ -101,6 +97,10 @@ jobs:
       - name: Native installation, version probes and removal
         id: installer_tests
         run: python scripts/portable/smoke_installers.py --target ${{ matrix.target }}
+      - name: Published native updater roundtrip and live feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci/published_updates.py --target ${{ matrix.target }}
       - name: Record actual native acceptance scope
         env:
           ORV_NATIVE_OUTCOMES: '{"format_clippy":"${{ steps.format_clippy.outcome }}","default_tests":"${{ steps.default_tests.outcome }}","full_tests":"${{ steps.full_tests.outcome }}","installer_tests":"${{ steps.installer_tests.outcome }}"}'
