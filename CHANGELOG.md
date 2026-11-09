@@ -3,7 +3,7 @@
 All notable changes to OpenRadView are listed here, newest first.
 Versions follow [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 1.4.0 - 2026-11-09
 
 ### Added
 
@@ -17,7 +17,7 @@ Versions follow [Semantic Versioning](https://semver.org).
   can reach outside the displayed cut.
 - **Include and exclude hints.** Mark an include and an exclude point or
   stroke inside a rectangle to propose a region, then review it before applying.
-  The tool uses image values without an AI model; it can cross weak boundaries
+  The tool uses image values without an AI model. It can cross weak boundaries
   and does not recognize anatomy.
 
 MPR + 3D and material views stay on your computer and are not available for
