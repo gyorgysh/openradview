@@ -111,6 +111,8 @@ jobs:
         run: cargo nextest run --locked --workspace --all-features ${{ matrix.cargo_args }} --profile native-full
       - name: Reject failed, retried, skipped or missing native coverage
         run: python scripts/ci/native_report.py --target ${{ matrix.target }} --tests-only
+      - name: GPU range cancellation stress
+        run: cargo nextest run --locked --workspace --all-features ${{ matrix.cargo_args }} --stress-count 20 -E 'test(classification_refuses_foreign_owners_knots_and_cancelled_or_unadmitted_preparation)'
       - name: Linux GPU worker shutdown stress
         if: runner.os == 'Linux'
         run: |
@@ -178,7 +180,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Preserve native packages
-        if: ${{ !cancelled() && runner.os != 'macOS' }}
+        if: ${{ !cancelled() && runner.os != 'macOS' && steps.installer_tests.outcome == 'success' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: native-${{ matrix.target }}-${{ github.sha }}

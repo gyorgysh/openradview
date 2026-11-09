@@ -312,12 +312,8 @@ fn classification_refuses_foreign_owners_knots_and_cancelled_or_unadmitted_prepa
     let gpu = MemoryBudget::gpu();
     fence(&d);
     let base = (ram.used(), gpu.used());
-    let count_calls = Cell::new(0);
-    let flags = GpuPagedMaterialRanges::new(source.clone(), ranges.clone(), m.clone(), || {
-        count_calls.set(count_calls.get() + 1);
-        false
-    })
-    .unwrap();
+    let flags =
+        GpuPagedMaterialRanges::new(source.clone(), ranges.clone(), m.clone(), || false).unwrap();
     drop(flags);
     fence(&d);
     assert_eq!((ram.used(), gpu.used()), base);
@@ -326,8 +322,6 @@ fn classification_refuses_foreign_owners_knots_and_cancelled_or_unadmitted_prepa
         1,
         source.layout().len() + 1,
         source.layout().len() + 1 + ranges.counts()[1] * ranges.counts()[2],
-        count_calls.get() - 2,
-        count_calls.get() - 1,
     ] {
         let calls = Cell::new(0);
         let result = GpuPagedMaterialRanges::new(source.clone(), ranges.clone(), m.clone(), || {
@@ -336,6 +330,30 @@ fn classification_refuses_foreign_owners_knots_and_cancelled_or_unadmitted_prepa
             n >= cutoff
         });
         assert!(matches!(result, Err("Cancelled")), "cutoff{cutoff}");
+        fence(&d);
+        assert_eq!((ram.used(), gpu.used()), base);
+    }
+    // Upload waits can poll cancellation a variable number of times. The CPU
+    // staging admission is released after the fence, so that drop identifies
+    // the final ownership/page checks independently of GPU completion timing.
+    for cutoff in 0..=source.layout().len() + 1 {
+        let peak = Cell::new(ram.used());
+        let calls = Cell::new(0);
+        let result = GpuPagedMaterialRanges::new(source.clone(), ranges.clone(), m.clone(), || {
+            let used = ram.used();
+            if used >= peak.get() {
+                peak.set(used);
+                return false;
+            }
+            let n = calls.get();
+            calls.set(n + 1);
+            n >= cutoff
+        });
+        assert!(calls.get() > cutoff, "unreached post-upload cutoff{cutoff}");
+        assert!(
+            matches!(result, Err("Cancelled")),
+            "post-upload cutoff{cutoff}"
+        );
         fence(&d);
         assert_eq!((ram.used(), gpu.used()), base);
     }
